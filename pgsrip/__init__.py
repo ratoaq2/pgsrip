@@ -7,7 +7,7 @@ from .sup import Sup
 from .mkv import Mkv
 
 __title__ = 'pgsrip'
-__version__ = '0.1.0-dev'
+__version__ = '0.1'
 __short_version__ = '.'.join(__version__.split('.')[:2])
 __author__ = 'Rato AQ2'
 __license__ = 'MIT'
