@@ -78,15 +78,16 @@ Rip from a folder path::
 
     $ pgsrip -l en -l pt-BR ~/medias/
     11 PGS subtitles collected from 9 files / 2 files filtered out
-    Ripping subtitles  [####################################]  100%
-    268 subtitles saved / 155 subtitles unchanged
+    Ripping subtitles  [####################################]  100%  ~/medias/mymedia.mkv [4:en]
+    11 PGS subtitles ripped from 9 files
 
 
 Using docker::
 
     $ docker run -it --rm -v /medias:/medias -u $(id -u username):$(id -g username) pgsrip -l en -l de -l pt-BR -l pt /medias
     11 PGS subtitles collected from 9 files / 2 files filtered out
-    Ripping subtitles  [####################################]  100%
+    Ripping subtitles  [####################################]  100%  /medias/mymedia.mkv [4:en]
+    11 PGS subtitles ripped from 9 files
 
 
 API
