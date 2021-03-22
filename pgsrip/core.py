@@ -32,7 +32,7 @@ def scan_path(path: str, collected: List[Media], filtered_out: List[str], discar
                 try:
                     ext = os.path.splitext(path.lower())[1]
                     media = MEDIAS[ext](path)
-                    if media.matches(options.languages):
+                    if media.matches(options):
                         collected.append(media)
                     else:
                         filtered_out.append(path)
@@ -58,8 +58,7 @@ def rip(media: Media, options: Options):
 def rip_pgs(pgs: Pgs, options: Options):
     # noinspection PyBroadException
     try:
-        if not options.overwrite and pgs.srt_path.exists():
-            logger.debug(f'Skipping {pgs} since {pgs.srt_path} already exists')
+        if not pgs.matches(options):
             return False
 
         rules = options.config.select_rules(tags=options.tags, languages={pgs.language})

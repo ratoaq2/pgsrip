@@ -4,6 +4,7 @@ import logging
 import os
 from abc import ABC, abstractmethod
 from copy import copy
+from datetime import datetime, timedelta
 from typing import Set, Iterable, List, Optional, Tuple, Callable
 
 from babelfish import Language
@@ -33,6 +34,10 @@ class MediaPath:
                f'{f"-{self.number}" if self.number else ""}' \
                f'{f".{str(self.language)}" if self.language else ""}' \
                f'{f".{self.extension}" if self.extension else ""}'
+
+    @property
+    def m_age(self):
+        return datetime.utcnow() - datetime.utcfromtimestamp(os.path.getmtime(str(self)))
 
     def get_data(self):
         with open(str(self), 'rb') as f:
@@ -123,6 +128,19 @@ class Pgs:
             self._items = self.decode(data, self.media_path.language)
         return self._items
 
+    def matches(self, options: Options):
+        if not self.srt_path.exists():
+            return True
+
+        if not options.overwrite:
+            logger.debug(f'Skipping {self} since {self.srt_path} already exists')
+            return False
+        if options.srt_age and self.srt_path.m_age < options.srt_age:
+            logger.debug(f'Skipping since {self.srt_path} is too new')
+            return False
+
+        return True
+
     @classmethod
     def decode(cls, data: bytes, language: Language):
         segments = PgsReader.read_segments(data)
@@ -163,8 +181,20 @@ class Media(ABC):
     def __str__(self):
         return str(self.media_path)
 
-    def matches(self, languages: Set[Language]):
-        return not languages or self.languages.intersection(languages)
+    @property
+    def age(self):
+        if self.media_path.exists():
+            return self.media_path.m_age
+
+        return timedelta()
+
+    def matches(self, options: Options):
+        if options.age and self.age > options.age:
+            return False
+
+        if options.languages and not self.languages.intersection(options.languages):
+            return False
+        return True
 
     @abstractmethod
     def get_pgs_medias(self, options: Options) -> Iterable[Pgs]:

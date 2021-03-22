@@ -88,5 +88,7 @@ class Mkv(Media):
                 logger.debug(f'Skipping unknown language track {t.id} in {self}')
                 continue
 
-            yield MkvPgs(self.media_path, t.id, language, selected_languages.get(language, 0))
-            selected_languages[language] = selected_languages.get(language, 0) + 1
+            pgs = MkvPgs(self.media_path, t.id, language, selected_languages.get(language, 0))
+            if pgs.matches(options):
+                yield pgs
+                selected_languages[language] = selected_languages.get(language, 0) + 1

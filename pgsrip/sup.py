@@ -15,4 +15,6 @@ class Sup(Media):
         super().__init__(media_path, languages={media_path.language})
 
     def get_pgs_medias(self, options: Options) -> Iterable[Pgs]:
-        yield Pgs(self.media_path, data_reader=self.media_path.get_data)
+        pgs = Pgs(self.media_path, data_reader=self.media_path.get_data)
+        if pgs.matches(options):
+            yield pgs

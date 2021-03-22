@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from typing import List, Tuple, Callable
+
 import numpy as np
 from pysrt import SubRipFile, SubRipItem
 import pytesseract as tess
@@ -129,12 +130,13 @@ class PgsToSrtRipper:
 
         if self.omp_thread_limit:
             os.environ['OMP_THREAD_LIMIT'] = str(self.omp_thread_limit)
+        # cv2.imwrite(f'{subs.path}-{len(items)}-{confidence}.png', full_image.data)
         data = TsvData(tess.image_to_data(full_image.data, **config))
 
         remaining = []
         for item in items:
             text = self.accept(data, item, confidence)
-            if not text:
+            if text is None:
                 remaining.append(item)
                 continue
 
