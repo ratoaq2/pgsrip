@@ -189,9 +189,11 @@ class PgsToSrtRipper:
             if current_size < 20:
                 max_width = min(sum([item.width + self.gap[1] for item in items]), self.max_tess_width)
                 confidence = 0
+                self.process(subs, items, post_process, confidence, max_width)
+                break
             elif current_size > previous_size * 0.8:
                 max_width = min(sum([item.width + self.gap[1] for item in items]), self.max_tess_width) // 2
-                confidence -= 5
+                confidence = max(0, confidence - 5)
             previous_size = current_size
 
         subs.clean_indexes()

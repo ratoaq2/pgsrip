@@ -59,7 +59,7 @@ class MediaPath:
 
 class PgsSubtitleItem:
 
-    def __init__(self, index: int, language: Language,
+    def __init__(self, index: int, media_path: MediaPath,
                  pds: PaletteDefinitionSegment, ods: ObjectDefinitionSegment, wds: WindowDefinitionSegment):
         self.index = index
         self.start = SubRipTime.from_ordinal(ods.presentation_timestamp)
@@ -67,7 +67,7 @@ class PgsSubtitleItem:
         self.pds = pds
         self.ods = ods
         self.wds = wds
-        self.language = language
+        self.media_path = media_path
         self.image = PgsImage(ods.img_data, pds.palettes)
         self.text: Optional[str] = None
         self.place: Optional[Tuple[int, int, int, int]] = None
@@ -76,7 +76,11 @@ class PgsSubtitleItem:
         return f'<{self.__class__.__name__} [{self}]>'
 
     def __str__(self):
-        return f'{self.start} --> {self.end}: {self.language} [{self.shape}]'
+        return f'{self.media_path} [{self.start} --> {self.end or ""}]'
+
+    @property
+    def language(self):
+        return self.media_path.language
 
     @property
     def height(self):
@@ -99,6 +103,15 @@ class PgsSubtitleItem:
         x_offset = self.wds.x_offset
 
         return y_offset, x_offset, y_offset + height, x_offset + width
+
+    def validate(self):
+        corruption = self.ods.check_corruption()
+        if corruption:
+            logger.warning(f'Corrupted {self!r}: {corruption}')
+        if not self.end:
+            logger.warning(f'Corrupted {self!r}: No end timestamp')
+        elif self.end <= self.start:
+            logger.warning(f'Corrupted {self!r}: End is before the start')
 
     def intersect(self, item: PgsSubtitleItem):
         shape = self.shape
@@ -125,7 +138,7 @@ class Pgs:
     def items(self):
         if self._items is None:
             data = self.data_reader()
-            self._items = self.decode(data, self.media_path.language)
+            self._items = self.decode(data, self.media_path)
         return self._items
 
     def matches(self, options: Options):
@@ -142,7 +155,7 @@ class Pgs:
         return True
 
     @classmethod
-    def decode(cls, data: bytes, language: Language):
+    def decode(cls, data: bytes, media_path: MediaPath):
         segments = PgsReader.read_segments(data)
         display_sets = PgsReader.create_display_sets(segments)
         index = 0
@@ -153,9 +166,13 @@ class Pgs:
                 continue
 
             for (pds, ods, wds) in zip(display_set.pds, display_set.ods, display_set.wds):
-                item = PgsSubtitleItem(index, language, pds, ods, wds)
+                item = PgsSubtitleItem(index, media_path, pds, ods, wds)
                 items.append(item)
                 index += 1
+
+        for item in items:
+            item.validate()
+
         return items
 
     def deallocate(self):

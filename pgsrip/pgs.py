@@ -164,21 +164,6 @@ class BaseSegment:
 
 
 class PresentationCompositionSegment(BaseSegment):
-    class CompositionObject:
-
-        def __init__(self, bytes_):
-            self.bytes = bytes_
-            self.object_id = int(bytes_[0:2].hex(), base=16)
-            self.window_id = bytes_[2]
-            self.cropped = bool(bytes_[3])
-            self.x_offset = int(bytes_[4:6].hex(), base=16)
-            self.y_offset = int(bytes_[6:8].hex(), base=16)
-            if self.cropped:
-                self.crop_x_offset = int(bytes_[8:10].hex(), base=16)
-                self.crop_y_offset = int(bytes_[10:12].hex(), base=16)
-                self.crop_width = int(bytes_[12:14].hex(), base=16)
-                self.crop_height = int(bytes_[14:16].hex(), base=16)
-
     STATE = {
         int('0x00', base=16): 'Normal',
         int('0x40', base=16): 'Acquisition Point',
@@ -195,29 +180,6 @@ class PresentationCompositionSegment(BaseSegment):
         self.palette_update = bool(self.data[8])
         self.palette_id = self.data[9]
         self._num_comps = self.data[10]
-
-    @property
-    def composition_number(self):
-        return self._num
-
-    @property
-    def composition_state(self):
-        return self._state
-
-    @property
-    def composition_objects(self):
-        bytes_ = self.data[11:]
-        comps = []
-        while bytes_:
-            length = 8 * (1 + bool(bytes_[3]))
-            comps.append(self.CompositionObject(bytes_[:length]))
-            bytes_ = bytes_[length:]
-
-        if len(comps) != self._num_comps:
-            print('Warning: Number of composition objects asserted '
-                  'does not match the amount found.')
-
-        return comps
 
 
 class WindowDefinitionSegment(BaseSegment):
@@ -262,9 +224,10 @@ class ObjectDefinitionSegment(BaseSegment):
         self.width = int(self.data[7:9].hex(), base=16)
         self.height = int(self.data[9:11].hex(), base=16)
         self.img_data = self.data[11:]
+
+    def check_corruption(self):
         if len(self.img_data) != self.data_len - 4:
-            logger.warning(f'Invalid Image data [{self.id}]. '
-                           f'Expected {self.data_len - 4}, but got {len(self.img_data)}')
+            return f'Found {len(self.img_data)} bytes for image, but {self.data_len - 4} were expected'
 
 
 class EndSegment(BaseSegment):
@@ -287,16 +250,9 @@ class DisplaySet:
 
     def __init__(self, segments):
         self.segments = segments
-        self.segment_types = [s.type for s in segments]
-        self.has_image = 'ODS' in self.segment_types
-
-
-def segment_by_type_getter(segment_type):
-    def f(self):
-        return [s for s in self.segments if s.type == segment_type]
-
-    return f
-
-
-for t in BaseSegment.SEGMENT.values():
-    setattr(DisplaySet, t.lower(), property(segment_by_type_getter(t)))
+        self.pds = [s for s in self.segments if s.type == 'PDS']
+        self.ods = [s for s in self.segments if s.type == 'ODS']
+        self.pcs = [s for s in self.segments if s.type == 'PCS']
+        self.wds = [s for s in self.segments if s.type == 'WDS']
+        self.end = [s for s in self.segments if s.type == 'END']
+        self.has_image = bool(self.ods)
