@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import logging
 import os
 from typing import List, Tuple, Callable
 
@@ -11,6 +12,9 @@ import pytesseract as tess
 from .options import Options
 from .media import PgsSubtitleItem, Pgs
 from .tsv import TsvData
+
+
+logger = logging.getLogger(__name__)
 
 
 class ImageArea:
@@ -189,7 +193,9 @@ class PgsToSrtRipper:
             if current_size < 20:
                 max_width = min(sum([item.width + self.gap[1] for item in items]), self.max_tess_width)
                 confidence = 0
-                self.process(subs, items, post_process, confidence, max_width)
+                remaining_items = self.process(subs, items, post_process, confidence, max_width)
+                if remaining_items:
+                    logger.warning(f'Subtitles were not ripped: {remaining_items!r}')
                 break
             elif current_size > previous_size * 0.8:
                 max_width = min(sum([item.width + self.gap[1] for item in items]), self.max_tess_width) // 2
