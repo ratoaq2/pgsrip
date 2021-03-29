@@ -167,6 +167,8 @@ class Pgs:
 
             for (pds, ods, wds) in zip(display_set.pds, display_set.ods, display_set.wds):
                 item = PgsSubtitleItem(index, media_path, pds, ods, wds)
+                if items and items[-1].end is None and items[-1].start + 5000 >= item.start:
+                    items[-1].end = max(items[-1].start, item.start - 1)
                 items.append(item)
                 index += 1
 
