@@ -84,11 +84,11 @@ class PgsSubtitleItem:
 
     @property
     def height(self):
-        return self.wds.height
+        return self.image.shape[0]
 
     @property
     def width(self):
-        return self.wds.width
+        return self.image.shape[1]
 
     @property
     def h_center(self):
@@ -97,8 +97,7 @@ class PgsSubtitleItem:
 
     @property
     def shape(self):
-        height = self.height
-        width = self.width
+        height, width = self.height, self.width
         y_offset = self.wds.y_offset
         x_offset = self.wds.x_offset
 

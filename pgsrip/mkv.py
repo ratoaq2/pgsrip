@@ -90,5 +90,6 @@ class Mkv(Media):
 
             pgs = MkvPgs(self.media_path, t.id, language, selected_languages.get(language, 0))
             if pgs.matches(options):
+                logger.debug(f'Selecting track {t.id}:{language} in {self}')
                 yield pgs
                 selected_languages[language] = selected_languages.get(language, 0) + 1
