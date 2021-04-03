@@ -160,7 +160,7 @@ class Pgs:
         index = 0
         items = []
         for display_set in display_sets:
-            if not display_set.has_image:
+            if items and not display_set.has_image:
                 items[-1].end = SubRipTime.from_ordinal(display_set.wds[-1].presentation_timestamp)
                 continue
 
