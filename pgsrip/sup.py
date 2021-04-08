@@ -2,7 +2,8 @@
 import logging
 from typing import Iterable
 
-from .media import Media, Pgs, MediaPath
+from .media import Media, Pgs
+from .media_path import MediaPath
 from .options import Options
 
 logger = logging.getLogger(__name__)

@@ -6,6 +6,8 @@ import cv2
 import numpy as np
 from numpy import ndarray
 
+from .media_path import MediaPath
+
 logger = logging.getLogger(__name__)
 
 
@@ -15,6 +17,10 @@ ODS = int('0x15', 16)
 PCS = int('0x16', 16)
 WDS = int('0x17', 16)
 END = int('0x80', 16)
+
+
+def from_hex(b: bytes):
+    return int(b.hex(), base=16)
 
 
 class Palette(NamedTuple):
@@ -27,19 +33,28 @@ class Palette(NamedTuple):
 class PgsReader:
 
     @classmethod
-    def read_segments(cls, data: bytes):
+    def read_segments(cls, data: bytes, media_path: MediaPath):
         count = 0
-        b = data[:]
+        b = data
         while b:
-            size = 13 + int(b[11:13].hex(), 16)
-            yield SEGMENT_TYPE[b[10]](b[:size])
+            if b[:2] != b'PG':
+                logger.warning(f'{media_path} Ignoring invalid PGS segment data: {b}')
+                break
+
+            if len(b) < 13:
+                logger.warning(f'{media_path} Ignoring invalid PGS segment data with less than 13 bytes: {b}')
+                break
+
+            size = 13 + from_hex(b[11:13])
+            segment_type = SEGMENT_TYPE[b[10]]
+            yield segment_type(b[:size])
             count += size
             b = b[size:]
 
     @classmethod
-    def create_display_sets(cls, segments):
+    def decode(cls, data: bytes, media_path: MediaPath):
         ds = []
-        for s in segments:
+        for s in cls.read_segments(data, media_path):
             ds.append(s)
             if s.type == 'END':
                 yield DisplaySet(ds)
@@ -124,10 +139,6 @@ class PgsImage:
         return self.data.shape
 
 
-class InvalidSegmentError(Exception):
-    """Raised when a segment does not match PGS specification"""
-
-
 class BaseSegment:
     SEGMENT = {
         PDS: 'PDS',
@@ -137,69 +148,104 @@ class BaseSegment:
         END: 'END'
     }
 
-    def __init__(self, bytes_):
-        self.bytes = bytes_
-        if bytes_[:2] != b'PG':
-            raise InvalidSegmentError
-        self.pts = int(bytes_[2:6].hex(), base=16) / 90
-        self.dts = int(bytes_[6:10].hex(), base=16) / 90
-        self.type = self.SEGMENT[bytes_[10]]
-        self.size = int(bytes_[11:13].hex(), base=16)
-        self.data = bytes_[13:]
+    def __init__(self, b: bytes):
+        self.bytes = b
 
     def __len__(self):
         return self.size
 
     @property
     def presentation_timestamp(self):
-        return self.pts
+        return from_hex(self.bytes[2:6]) / 90
 
     @property
     def decoding_timestamp(self):
-        return self.dts
+        return from_hex(self.bytes[6:10]) / 90
 
     @property
-    def segment_type(self):
-        return self.type
+    def type(self):
+        return self.SEGMENT[self.bytes[10]]
+
+    @property
+    def size(self):
+        return from_hex(self.bytes[11:13])
+
+    @property
+    def data(self):
+        return self.bytes[13:]
 
 
 class PresentationCompositionSegment(BaseSegment):
     STATE = {
-        int('0x00', base=16): 'Normal',
-        int('0x40', base=16): 'Acquisition Point',
-        int('0x80', base=16): 'Epoch Start'
+        from_hex(b'\x00'): 'Normal',
+        from_hex(b'\x40'): 'Acquisition Point',
+        from_hex(b'\x80'): 'Epoch Start'
     }
 
-    def __init__(self, bytes_):
-        super().__init__(bytes_)
-        self.width = int(self.data[0:2].hex(), base=16)
-        self.height = int(self.data[2:4].hex(), base=16)
-        self.frame_rate = self.data[4]
-        self._num = int(self.data[5:7].hex(), base=16)
-        self._state = self.STATE[self.data[7]]
-        self.palette_update = bool(self.data[8])
-        self.palette_id = self.data[9]
-        self._num_comps = self.data[10]
+    @property
+    def width(self):
+        return from_hex(self.data[0:2])
+
+    @property
+    def height(self):
+        return from_hex(self.data[2:4])
+
+    @property
+    def frame_rate(self):
+        return self.data[4]
+
+    @property
+    def _num(self):
+        return from_hex(self.data[5:7])
+
+    @property
+    def _state(self):
+        return self.STATE[self.data[7]]
+
+    @property
+    def palette_update(self):
+        return bool(self.data[8])
+
+    @property
+    def palette_id(self):
+        return self.data[9]
+
+    @property
+    def _num_comps(self):
+        return self.data[10]
 
 
 class WindowDefinitionSegment(BaseSegment):
 
-    def __init__(self, bytes_):
-        BaseSegment.__init__(self, bytes_)
-        self.num_windows = self.data[0]
-        self.window_id = self.data[1]
-        self.x_offset = int(self.data[2:4].hex(), base=16)
-        self.y_offset = int(self.data[4:6].hex(), base=16)
-        self.width = int(self.data[6:8].hex(), base=16)
-        self.height = int(self.data[8:10].hex(), base=16)
+    @property
+    def num_windows(self):
+        return self.data[0]
+
+    @property
+    def window_id(self):
+        return self.data[1]
+
+    @property
+    def x_offset(self):
+        return from_hex(self.data[2:4])
+
+    @property
+    def y_offset(self):
+        return from_hex(self.data[4:6])
+
+    @property
+    def width(self):
+        return from_hex(self.data[6:8])
+
+    @property
+    def height(self):
+        return from_hex(self.data[8:10])
 
 
 class PaletteDefinitionSegment(BaseSegment):
 
-    def __init__(self, bytes_):
-        BaseSegment.__init__(self, bytes_)
-        self.palette_id = self.data[0]
-        self.version = self.data[1]
+    def __init__(self, b: bytes):
+        super().__init__(b)
         self.palettes = [Palette(0, 0, 0, 0)] * 256
         # Slice from byte 2 til end of segment. Divide by 5 to determine number of palette entries
         # Iterate entries. Explode the 5 bytes into namedtuple Palette. Must be exploded
@@ -207,23 +253,49 @@ class PaletteDefinitionSegment(BaseSegment):
             i = 2 + entry * 5
             self.palettes[self.data[i]] = Palette(*self.data[i + 1:i + 5])
 
+    @property
+    def palette_id(self):
+        return self.data[0]
+
+    @property
+    def version(self):
+        return self.data[1]
+
 
 class ObjectDefinitionSegment(BaseSegment):
     SEQUENCE = {
-        int('0x40', base=16): 'Last',
-        int('0x80', base=16): 'First',
-        int('0xc0', base=16): 'First and last'
+        from_hex(b'\x40'): 'Last',
+        from_hex(b'\x80'): 'First',
+        from_hex(b'\xc0'): 'First and last'
     }
 
-    def __init__(self, bytes_):
-        BaseSegment.__init__(self, bytes_)
-        self.id = int(self.data[0:2].hex(), base=16)
-        self.version = self.data[2]
-        self.in_sequence = self.SEQUENCE[self.data[3]]
-        self.data_len = int(self.data[4:7].hex(), base=16)
-        self.width = int(self.data[7:9].hex(), base=16)
-        self.height = int(self.data[9:11].hex(), base=16)
-        self.img_data = self.data[11:]
+    @property
+    def id(self):
+        return from_hex(self.data[0:2])
+
+    @property
+    def version(self):
+        return self.data[2]
+
+    @property
+    def in_sequence(self):
+        return self.SEQUENCE[self.data[3]]
+
+    @property
+    def data_len(self):
+        return from_hex(self.data[4:7])
+
+    @property
+    def width(self):
+        return from_hex(self.data[7:9])
+
+    @property
+    def height(self):
+        return from_hex(self.data[9:11])
+
+    @property
+    def img_data(self):
+        return self.data[11:]
 
     def check_corruption(self):
         if len(self.img_data) != self.data_len - 4:

@@ -66,7 +66,8 @@ def rip_pgs(pgs: Pgs, options: Options):
         srt.save(encoding=options.encoding)
         return True
     except Exception as e:
-        logger.warning(f'Error while trying to rip {pgs.media_path}: <{type(e).__name__}> [{e}]')
+        logger.warning(f'Error while trying to rip {pgs.media_path}: <{type(e).__name__}> [{e}]',
+                       exc_info=logger.isEnabledFor(logging.DEBUG))
     finally:
         pgs.deallocate()
 
