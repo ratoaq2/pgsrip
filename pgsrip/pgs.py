@@ -23,6 +23,13 @@ def from_hex(b: bytes):
     return int(b.hex(), base=16)
 
 
+def safe_get(b: bytes, i: int, default_value=0):
+    try:
+        return b[i]
+    except IndexError:
+        return default_value
+
+
 class Palette(NamedTuple):
     y: int
     cr: int
@@ -88,7 +95,8 @@ class PgsImage:
             palette = palettes[color]
             image_color = cls.get_color(palette, binary)
             image_array.extend(image_color * length)
-            alpha_array.extend([palette[3]] * length)
+            if not binary:
+                alpha_array.extend([palette[3]] * length)
             i += count
 
         rows = (len(image_array) // dimension + cols - 1) // cols
@@ -113,26 +121,22 @@ class PgsImage:
 
     @classmethod
     def decode_rle_position(cls, data: bytes, i: int):
-        if data[i]:
-            return 1, data[i], 1
-        if len(data) < i + 2:
-            # corrupted image
-            return 0, 0, 2
+        first = safe_get(data, i)
+        if first:
+            return 1, first, 1
 
-        check = data[i + 1]
-        if check == 0:
-            return 0, 0, 2
-        elif check < 64:
-            return check, 0, 2
-        elif len(data) < i + 3:
-            # corrupted image
-            return 0, 0, 4
-        elif check < 128:
-            return ((check - 64) << 8) + data[i + 2], 0, 3
-        elif check < 192:
-            return check - 128, data[i + 2], 3
+        second = safe_get(data, i + 1)
+        if second < 64:
+            return second, 0, 2
 
-        return ((check - 192) << 8) + data[i + 2], data[i + 3], 4
+        third = safe_get(data, i + 2)
+        if second < 128:
+            return ((second - 64) << 8) + third, 0, 3
+        elif second < 192:
+            return second - 128, third, 3
+
+        fourth = safe_get(data, i + 3)
+        return ((second - 192) << 8) + third, fourth, 4
 
     @property
     def shape(self):
