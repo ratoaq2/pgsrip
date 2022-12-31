@@ -136,3 +136,4 @@ def pgsrip(config: Optional[str], language: Optional[Tuple[Language]], tag: Tupl
                    f"PGS subtitle{'s' if ripped_count > 1 else ''} ripped from "
                    f"{click.style(str(len(collected_medias)), bold=True, fg='blue')} "
                    f"file{'s' if len(collected_medias) > 1 else ''}")
+
