@@ -5,9 +5,6 @@ Rip your PGS subtitles.
 [![Latest
 Version](https://img.shields.io/pypi/v/pgsrip.svg)](https://pypi.python.org/pypi/pgsrip)
 
-[![Travis CI build
-status](https://travis-ci.org/ratoaq2/pgsrip.svg?branch=master)](https://travis-ci.org/ratoaq2/pgsrip)
-
 [![License](https://img.shields.io/github/license/ratoaq2/pgsrip.svg)](https://github.com/ratoaq2/pgsrip/blob/master/LICENSE)
 
   - Project page  
