@@ -6,6 +6,8 @@ from tempfile import NamedTemporaryFile
 
 from babelfish import Language
 
+from trakit.api import trakit
+
 from .media import Media, Pgs
 from .media_path import MediaPath
 from .options import Options
@@ -46,9 +48,16 @@ class MkvTrack:
 
     @property
     def language(self):
-        lang_ietf = self.properties.get('language_ietf')
-        lang_alpha = self.properties.get('language')
-        return Language.fromcleanit(lang_ietf or lang_alpha or 'und')
+        code = self.properties.get('language_ietf') or self.properties.get('language')
+        track_name = self.properties.get('track_name')
+        guess = trakit(track_name) if track_name else {}
+        language = Language.fromcleanit(code) if code else None
+        guessed = guess.get('language')
+
+        if language and guessed and str(language).count('-') < str(guessed).count('-'):
+            return guessed
+
+        return language or guessed or Language('und')
 
     @property
     def forced(self):

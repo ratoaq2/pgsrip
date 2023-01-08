@@ -582,6 +582,23 @@ files = [
 ]
 
 [[package]]
+name = "rebulk"
+version = "3.1.0"
+description = "Rebulk - Define simple search patterns in bulk to perform advanced matching on any string."
+category = "main"
+optional = false
+python-versions = "*"
+files = [
+    {file = "rebulk-3.1.0-py3-none-any.whl", hash = "sha256:e56550ae25a822111bff8c8f5eeea14cb44f406e9a9ce67ad4e350253b2fff6c"},
+    {file = "rebulk-3.1.0.tar.gz", hash = "sha256:809de3a97c68afa831f7101b10d316fe62e061dc9f7f67a44b7738128721173a"},
+]
+
+[package.extras]
+dev = ["pylint", "pytest", "tox"]
+native = ["regex"]
+test = ["pylint", "pytest"]
+
+[[package]]
 name = "tomli"
 version = "2.0.1"
 description = "A lil' TOML parser"
@@ -592,6 +609,22 @@ files = [
     {file = "tomli-2.0.1-py3-none-any.whl", hash = "sha256:939de3e7a6161af0c887ef91b7d41a53e7c5a1ca976325f429cb46ea9bc30ecc"},
     {file = "tomli-2.0.1.tar.gz", hash = "sha256:de526c12914f0c550d15924c62d72abc48d6fe7364aa87328337a31007fe8a4f"},
 ]
+
+[[package]]
+name = "trakit"
+version = "0.1.2"
+description = "Guess additional information from track titles"
+category = "main"
+optional = false
+python-versions = ">=3.8.1,<4.0.0"
+files = [
+    {file = "trakit-0.1.2-py3-none-any.whl", hash = "sha256:d7c6a3ac4ab85090aacb4556c4d32fe2713ccdf4d2bf15650eb31c4c619e6fce"},
+    {file = "trakit-0.1.2.tar.gz", hash = "sha256:b949a259e4ebdd94e47835891535cde104829c64d3a9b5a91b9256b089295d0a"},
+]
+
+[package.dependencies]
+babelfish = ">=0.6.0,<0.7.0"
+rebulk = ">=3.1.0,<4.0.0"
 
 [[package]]
 name = "zipp"
@@ -611,5 +644,5 @@ testing = ["flake8 (<5)", "func-timeout", "jaraco.functools", "jaraco.itertools"
 
 [metadata]
 lock-version = "2.0"
-python-versions = "^3.8"
-content-hash = "09d35eed23a3641dcd7465b2b0a35a7f7477b1c3a146c429973dd20d81f36986"
+python-versions = "^3.8.1"
+content-hash = "b8670ed3cb3e887927b3439a8b936e742555486d261079e051140d86c3b8bcad"
