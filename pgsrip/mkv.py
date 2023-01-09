@@ -48,16 +48,15 @@ class MkvTrack:
 
     @property
     def language(self):
-        code = self.properties.get('language_ietf') or self.properties.get('language')
+        lang_ietf = self.properties.get('language_ietf')
+        lang_alpha = self.properties.get('language')
         track_name = self.properties.get('track_name')
-        guess = trakit(track_name) if track_name else {}
-        language = Language.fromcleanit(code) if code else None
-        guessed = guess.get('language')
 
-        if language and guessed and str(language).count('-') < str(guessed).count('-'):
-            return guessed
+        language = Language.fromcleanit(lang_ietf or lang_alpha or 'und')
+        options = {'expected_language': language} if language else {}
+        guess = trakit(track_name, options) if track_name else {}
 
-        return language or guessed or Language('und')
+        return guess.get('language') or language
 
     @property
     def forced(self):

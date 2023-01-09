@@ -46,13 +46,13 @@ pgsrip = "pgsrip.cli:pgsrip"
 [tool.poetry.dependencies]
 python = "^3.8.1"
 babelfish = "^0.6.0"
-cleanit = "^0.4.4"
+cleanit = "^0.4.6"
 click = "^8.1.3"
 pysrt = "^1.1.2"
 pytesseract = "^0.3.10"
 numpy = "^1.24.1"
-opencv-python = "^4.7.0.68"
-trakit = "^0.1.2"
+opencv-python = "^4.7.0"
+trakit = "^0.2.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.2.0"
