@@ -618,14 +618,14 @@ files = [
 
 [[package]]
 name = "trakit"
-version = "0.2.0"
+version = "0.2.1"
 description = "Guess additional information from track titles"
 category = "main"
 optional = false
 python-versions = ">=3.8.1,<4.0.0"
 files = [
-    {file = "trakit-0.2.0-py3-none-any.whl", hash = "sha256:039ee13eb1b42ae75109fe4882addc9bc9c5387fca853f964cade0f2340035cc"},
-    {file = "trakit-0.2.0.tar.gz", hash = "sha256:7e8b1c7fa32da81206360f4a2f618354d21764a7800700b8cabc96803f50750f"},
+    {file = "trakit-0.2.1-py3-none-any.whl", hash = "sha256:205f5e5d6b116fb7a8cee43ab1d6ab2527cdc50d21d2e0afb3fadc8d2d480a3a"},
+    {file = "trakit-0.2.1.tar.gz", hash = "sha256:125c67501a022f646aceb42e458d1bdfda3b9d3e5e91bc40af23c2f4d4436e9b"},
 ]
 
 [package.dependencies]
@@ -652,4 +652,4 @@ testing = ["flake8 (<5)", "func-timeout", "jaraco.functools", "jaraco.itertools"
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.8.1"
-content-hash = "a2712275fb0be1c0d2cb7ba825f466b575cd96ae7ebf5403829713eb2876cdb6"
+content-hash = "073123310e5e2f7678e3434441078886b44a3f2c9fc03091bc456fd2dbf6f3d9"
