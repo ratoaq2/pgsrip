@@ -9,7 +9,9 @@ from babelfish import Error as BabelfishError, Language
 
 import click
 
-from pgsrip import Pgs, api
+import pytesseract as tess
+
+from pgsrip import Pgs, __version__, api
 from pgsrip.media import Media
 from pgsrip.options import Options
 
@@ -94,6 +96,7 @@ AGE = AgeParamType()
 @click.option('--debug', is_flag=True, help='Print useful information for debugging and for reporting bugs.')
 @click.option('-v', '--verbose', count=True, help='Display debug messages')
 @click.argument('path', type=click.Path(), required=True, nargs=-1)
+@click.version_option(__version__)
 def pgsrip(config: typing.Optional[str],
            language: typing.Optional[typing.Tuple[Language]],
            tag: typing.Optional[typing.Tuple[str]],
@@ -112,6 +115,8 @@ def pgsrip(config: typing.Optional[str],
         handler.setFormatter(logging.Formatter(logging.BASIC_FORMAT))
         logger.addHandler(handler)
         logger.setLevel(logging.DEBUG)
+        logger.info(f'Tesseract version: {tess.get_tesseract_version()}')
+        logger.info(f'Tesseract data: {os.getenv("TESSDATA_PREFIX")}')
 
     if config and (not os.path.isfile(config) or os.path.isdir(config)):
         click.echo(f"Invalid configuration is defined: {click.style(config, bold=True)}")

@@ -1,7 +1,6 @@
 import json
 import logging
 import os
-import tempfile
 import typing
 from subprocess import check_output
 
