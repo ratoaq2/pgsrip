@@ -1,17 +1,18 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 import logging
 import os
-from typing import List, Tuple, Callable
+import typing
 
 import numpy as np
+
 from pysrt import SubRipFile, SubRipItem
+
 import pytesseract as tess
 
-from .options import Options
-from .media import PgsSubtitleItem, Pgs
-from .tsv import TsvData
+from pgsrip.media import Pgs, PgsSubtitleItem
+from pgsrip.options import Options
+from pgsrip.tsv import TsvData
 
 
 logger = logging.getLogger(__name__)
@@ -19,7 +20,7 @@ logger = logging.getLogger(__name__)
 
 class ImageArea:
 
-    def __init__(self, items: List[PgsSubtitleItem], gap: Tuple[int, int]):
+    def __init__(self, items: typing.List[PgsSubtitleItem], gap: typing.Tuple[int, int]):
         self.gap = gap
         self.width = sum([(item.shape[3] - item.shape[1]) for item in items]) + (len(items) - 1) * gap[1]
         self.shape = (
@@ -37,7 +38,7 @@ class ImageArea:
     def height(self):
         return self.shape[2] - self.shape[0]
 
-    def create_area_image(self, start: Tuple[int, int]):
+    def create_area_image(self, start: typing.Tuple[int, int]):
         area_image = np.full((self.height, self.width), 255, dtype=np.uint8)
 
         current_width = 0
@@ -65,7 +66,7 @@ class ImageArea:
 
 class FullImage:
 
-    def __init__(self, areas: List[ImageArea], gap: Tuple[int, int]):
+    def __init__(self, areas: typing.List[ImageArea], gap: typing.Tuple[int, int]):
         total_height = sum([area.height for area in areas]) + (len(areas) - 1) * gap[0]
         total_width = max([area.width for area in areas])
         full_image = np.full((total_height, total_width), 255, dtype=np.uint8)
@@ -80,15 +81,15 @@ class FullImage:
         self.data = full_image
 
     @classmethod
-    def from_items(cls, items: List[PgsSubtitleItem], gap: Tuple[int, int], max_width: int):
-        areas = []
+    def from_items(cls, items: typing.List[PgsSubtitleItem], gap: typing.Tuple[int, int], max_width: int):
+        areas: typing.List[ImageArea] = []
         remaining = list(items)
         remaining.sort(key=lambda x: x.height)
         while len(remaining) > 0:
             first_item = remaining.pop(0)
             area_items = [first_item] + [item for item in remaining if item.intersect(first_item)]
             remaining = [item for item in remaining if not item.intersect(first_item)]
-            current_items = []
+            current_items: typing.List[PgsSubtitleItem] = []
             current_width = 0
             for area_item in area_items:
                 current_width += area_item.width + gap[1]
@@ -121,7 +122,12 @@ class PgsToSrtRipper:
         max_height = max([item.height for item in self.pgs.items]) // 2
         self.gap = (max_height // 2, max_height // 2)
 
-    def process(self, subs: SubRipFile, items: List[PgsSubtitleItem], post_process, confidence: int, max_width: int):
+    def process(self,
+                subs: SubRipFile,
+                items: typing.List[PgsSubtitleItem],
+                post_process,
+                confidence: int,
+                max_width: int):
         full_image = FullImage.from_items(items, self.gap, max_width)
 
         config = {
@@ -155,7 +161,7 @@ class PgsToSrtRipper:
 
     @classmethod
     def accept(cls, data: TsvData, item: PgsSubtitleItem, confidence: int):
-        rows = data.select(item.place)
+        rows = data.select(item.place) if item.place else []
         lines = []
         words = []
         last_row = None
@@ -181,7 +187,7 @@ class PgsToSrtRipper:
         item.text = '\n'.join(lines).strip()
         return item.text
 
-    def rip(self, post_process: Callable[[str], str]):
+    def rip(self, post_process: typing.Callable[[str], str]):
         subs = SubRipFile(path=str(self.pgs.media_path.translate(extension='srt')))
         items = self.pgs.items
         confidence = self.confidence
@@ -198,7 +204,7 @@ class PgsToSrtRipper:
                 confidence = 0
                 remaining_items = self.process(subs, items, post_process, confidence, max_width)
                 if remaining_items:
-                    logger.warning(f'Subtitles were not ripped: {remaining_items!r}')
+                    logger.warning('Subtitles were not ripped: %r', remaining_items)
                 break
             elif current_size > previous_size * 0.8:
                 max_width = min(sum([item.width + self.gap[1] for item in items]), self.max_tess_width) // 2

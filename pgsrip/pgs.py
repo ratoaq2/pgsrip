@@ -1,12 +1,12 @@
-# -*- coding: utf-8 -*-
 import logging
-from typing import NamedTuple, List, Optional
+import typing
 
 import cv2
+
 import numpy as np
 from numpy import ndarray
 
-from .media_path import MediaPath
+from pgsrip.media_path import MediaPath
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +30,7 @@ def safe_get(b: bytes, i: int, default_value=0):
         return default_value
 
 
-class Palette(NamedTuple):
+class Palette(typing.NamedTuple):
     y: int
     cr: int
     cb: int
@@ -45,11 +45,11 @@ class PgsReader:
         b = data
         while b:
             if b[:2] != b'PG':
-                logger.warning(f'{media_path} Ignoring invalid PGS segment data: {b}')
+                logger.warning('%s Ignoring invalid PGS segment data: %s', media_path, b)
                 break
 
             if len(b) < 13:
-                logger.warning(f'{media_path} Ignoring invalid PGS segment data with less than 13 bytes: {b}')
+                logger.warning('%s Ignoring invalid PGS segment data with less than 13 bytes: %s', media_path, b)
                 break
 
             size = 13 + from_hex(b[11:13])
@@ -70,10 +70,10 @@ class PgsReader:
 
 class PgsImage:
 
-    def __init__(self, data: bytes, palettes: List[Palette]):
+    def __init__(self, data: bytes, palettes: typing.List[Palette]):
         self.rle_data = data
         self.palettes = palettes
-        self._data: Optional[ndarray] = None
+        self._data: typing.Optional[ndarray] = None
 
     @property
     def data(self):
@@ -82,9 +82,9 @@ class PgsImage:
         return self._data
 
     @classmethod
-    def decode_rle_image(cls, data: bytes, palettes: List[Palette], binary=True):
-        image_array = []
-        alpha_array = []
+    def decode_rle_image(cls, data: bytes, palettes: typing.List[Palette], binary=True):
+        image_array: typing.List[int] = []
+        alpha_array: typing.List[int] = []
         dimension = 1 if binary else 3
         cols = 1
         i = 0

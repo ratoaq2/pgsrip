@@ -1,6 +1,5 @@
-# -*- coding: utf-8 -*-
 import re
-from typing import Tuple
+import typing
 
 
 class TsvDataItem:
@@ -33,7 +32,7 @@ class TsvDataItem:
     def w_center(self):
         return self.left + self.width // 2
 
-    def matches(self, shape: Tuple[int, int, int, int]):
+    def matches(self, shape: typing.Tuple[int, int, int, int]):
         h_start, w_start, h_end, w_end = shape
         return h_start <= self.h_center <= h_end and w_start <= self.w_center <= w_end
 
@@ -54,7 +53,7 @@ class TsvData:
         self.items = items
         self.words = {text for text in [self.NON_WORD_RE.sub('', item.text) for item in items] if text}
 
-    def select(self, shape: Tuple[int, int, int, int]):
+    def select(self, shape: typing.Tuple[int, int, int, int]):
         return [item for item in self.items if item.level == 5 and item.matches(shape)]
 
     def has_word(self, word: str):

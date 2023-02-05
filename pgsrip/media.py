@@ -1,16 +1,17 @@
-# -*- coding: utf-8 -*-
 from __future__ import annotations
+
 import logging
+import typing
 from abc import ABC, abstractmethod
 from datetime import timedelta
-from typing import Set, Iterable, List, Optional, Tuple, Callable
 
 from babelfish import Language
+
 from pysrt import SubRipTime
 
-from .media_path import MediaPath
-from .options import Options
-from .pgs import PgsReader, PaletteDefinitionSegment, ObjectDefinitionSegment, WindowDefinitionSegment, PgsImage
+from pgsrip.media_path import MediaPath
+from pgsrip.options import Options
+from pgsrip.pgs import ObjectDefinitionSegment, PaletteDefinitionSegment, PgsImage, PgsReader, WindowDefinitionSegment
 
 logger = logging.getLogger(__name__)
 
@@ -21,14 +22,14 @@ class PgsSubtitleItem:
                  pds: PaletteDefinitionSegment, ods: ObjectDefinitionSegment, wds: WindowDefinitionSegment):
         self.index = index
         self.start = SubRipTime.from_ordinal(ods.presentation_timestamp)
-        self.end: Optional[SubRipTime] = None
+        self.end: typing.Optional[SubRipTime] = None
         self.pds = pds
         self.ods = ods
         self.wds = wds
         self.media_path = media_path
         self.image = PgsImage(ods.img_data, pds.palettes)
-        self.text: Optional[str] = None
-        self.place: Optional[Tuple[int, int, int, int]] = None
+        self.text: typing.Optional[str] = None
+        self.place: typing.Optional[typing.Tuple[int, int, int, int]] = None
 
     def __repr__(self):
         return f'<{self.__class__.__name__} [{self}]>'
@@ -64,11 +65,11 @@ class PgsSubtitleItem:
     def validate(self):
         corruption = self.ods.check_corruption()
         if corruption:
-            logger.warning(f'Corrupted {self!r}: {corruption}')
+            logger.warning('Corrupted %r: %s', self, corruption)
         if not self.end:
-            logger.warning(f'Corrupted {self!r}: No end timestamp')
+            logger.warning('Corrupted %r: No end timestamp', self)
         elif self.end <= self.start:
-            logger.warning(f'Corrupted {self!r}: End is before the start')
+            logger.warning('Corrupted %r: End is before the start', self)
 
     def intersect(self, item: PgsSubtitleItem):
         shape = self.shape
@@ -78,10 +79,10 @@ class PgsSubtitleItem:
 
 class Pgs:
 
-    def __init__(self, media_path: MediaPath, data_reader: Callable[[], bytes]):
+    def __init__(self, media_path: MediaPath, data_reader: typing.Callable[[], bytes]):
         self.media_path = media_path
         self.data_reader = data_reader
-        self._items: Optional[List[PgsSubtitleItem]] = None
+        self._items: typing.Optional[typing.List[PgsSubtitleItem]] = None
 
     @property
     def language(self):
@@ -103,10 +104,10 @@ class Pgs:
             return True
 
         if not options.overwrite:
-            logger.debug(f'Skipping {self} since {self.srt_path} already exists')
+            logger.debug('Skipping %s since %s already exists', self, self.srt_path)
             return False
         if options.srt_age and self.srt_path.m_age < options.srt_age:
-            logger.debug(f'Skipping since {self.srt_path} is too new')
+            logger.debug('Skipping since %s is too new', self.srt_path)
             return False
 
         return True
@@ -115,7 +116,7 @@ class Pgs:
     def decode(cls, data: bytes, media_path: MediaPath):
         display_sets = PgsReader.decode(data, media_path)
         index = 0
-        items = []
+        items: typing.List[PgsSubtitleItem] = []
         for display_set in display_sets:
             if items and not display_set.has_image and display_set.wds:
                 items[-1].end = SubRipTime.from_ordinal(display_set.wds[-1].presentation_timestamp)
@@ -145,7 +146,7 @@ class Pgs:
 
 class Media(ABC):
 
-    def __init__(self, media_path: MediaPath, languages: Set[Language]):
+    def __init__(self, media_path: MediaPath, languages: typing.Set[Language]):
         self.name = str(media_path)
         self.media_path = media_path
         self.languages = languages
@@ -172,5 +173,5 @@ class Media(ABC):
         return True
 
     @abstractmethod
-    def get_pgs_medias(self, options: Options) -> Iterable[Pgs]:
+    def get_pgs_medias(self, options: Options) -> typing.Iterable[Pgs]:
         pass

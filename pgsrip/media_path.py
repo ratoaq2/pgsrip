@@ -1,4 +1,5 @@
 import os
+import typing
 from copy import copy
 from datetime import datetime
 
@@ -35,7 +36,10 @@ class MediaPath:
     def exists(self):
         return os.path.exists(str(self))
 
-    def translate(self, language: Language = None, extension: str = None, number: int = None):
+    def translate(self,
+                  language: typing.Optional[Language] = None,
+                  extension: typing.Optional[str] = None,
+                  number: typing.Optional[int] = None):
         media_path = copy(self)
         if number is not None:
             media_path.number = number

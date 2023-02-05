@@ -1,19 +1,51 @@
-# -*- coding: utf-8 -*-
-import re
-from datetime import timedelta
-from typing import List, Tuple, Optional
-
-import click
 import logging
 import os
+import re
+import typing
+from datetime import timedelta
+from types import TracebackType
 
 from babelfish import Error as BabelfishError, Language
 
-from pgsrip import api
+import click
+
+from pgsrip import Pgs, api
 from pgsrip.media import Media
 from pgsrip.options import Options
 
 logger = logging.getLogger('pgsrip')
+
+
+T = typing.TypeVar('T')
+
+
+class DebugProgressBar(typing.Generic[T]):
+
+    def __init__(self, debug: bool, iterable: typing.Iterable[T], **kwargs):
+        self.debug = debug
+        self.iterable = iterable
+        self.progressbar = click.progressbar(iterable, **kwargs)
+
+    def __iter__(self) -> typing.Iterator[T]:
+        if not self.debug:
+            return self.progressbar.__iter__()
+
+        yield from self.iterable
+
+    def __enter__(self):
+        if not self.debug:
+            return self.progressbar.__enter__()
+
+    def __exit__(self,
+                 exc_type: typing.Optional[typing.Type[BaseException]],
+                 exc: typing.Optional[BaseException],
+                 traceback: typing.Optional[TracebackType]):
+        if not self.debug:
+            return self.progressbar.__exit__(exc_type, exc, traceback)
+
+    def update(self, n_steps: int, current_item: typing.Optional[T] = None) -> None:
+        if not self.debug:
+            return self.progressbar.update(n_steps, current_item)
 
 
 class LanguageParamType(click.ParamType):
@@ -58,9 +90,18 @@ AGE = AgeParamType()
 @click.option('--debug', is_flag=True, help='Print useful information for debugging and for reporting bugs.')
 @click.option('-v', '--verbose', count=True, help='Display debug messages')
 @click.argument('path', type=click.Path(), required=True, nargs=-1)
-def pgsrip(config: Optional[str], language: Optional[Tuple[Language]], tag: Tuple[str], encoding: Optional[str],
-           age: timedelta, srt_age: timedelta, force: bool, all: bool, debug: bool, max_workers: Optional[int],
-           verbose: int, path: Tuple[str]):
+def pgsrip(config: typing.Optional[str],
+           language: typing.Optional[typing.Tuple[Language]],
+           tag: typing.Optional[typing.Tuple[str]],
+           encoding: typing.Optional[str],
+           age: typing.Optional[timedelta],
+           srt_age: typing.Optional[timedelta],
+           force: bool,
+           all: bool,
+           debug: bool,
+           max_workers: typing.Optional[int],
+           verbose: int,
+           path: typing.Tuple[str]):
     if debug:
         handler = logging.StreamHandler()
         handler.setFormatter(logging.Formatter(logging.BASIC_FORMAT))
@@ -71,18 +112,25 @@ def pgsrip(config: Optional[str], language: Optional[Tuple[Language]], tag: Tupl
         click.echo(f"Invalid configuration is defined: {click.style(config, bold=True)}")
         return
 
-    options = Options(config_path=config, languages=set(language), tags=set(tag), encoding=encoding,
-                      overwrite=force, one_per_lang=not all, max_workers=max_workers, age=age, srt_age=srt_age)
+    options = Options(config_path=config,
+                      languages=set(language or []),
+                      tags=set(tag or []),
+                      encoding=encoding,
+                      overwrite=force,
+                      one_per_lang=not all,
+                      max_workers=max_workers,
+                      age=age,
+                      srt_age=srt_age)
 
     rules = options.config.select_rules(tags=options.tags, languages=options.languages)
     if not rules:
-        click.echo(f"No rules defined for "
-                   f"{click.style(', '.join(tag + tuple(str(lang) for lang in options.languages)), bold=True)}")
+        values = tuple(options.tags) + tuple(str(lang) for lang in options.languages)
+        click.echo(f"No rules defined for {click.style(', '.join(values), bold=True)}")
         return
 
-    collected_medias: List[Media] = []
-    filtered_out_paths: List[str] = []
-    discarded_paths: List[str] = []
+    collected_medias: typing.List[Media] = []
+    filtered_out_paths: typing.List[str] = []
+    discarded_paths: typing.List[str] = []
     for p in path:
         c, f, d = api.scan_path(p, options)
         collected_medias.extend(c)
@@ -96,15 +144,15 @@ def pgsrip(config: Optional[str], language: Optional[Tuple[Language]], tag: Tupl
         for p in discarded_paths:
             click.echo(f"{click.style(p, fg='red', bold=True)} discarded")
 
-    collected_pgs_medias = []
-    if debug or verbose > 1:
-        for m in collected_medias:
+    collected_pgs_medias: typing.List[Pgs] = []
+    progressbar = DebugProgressBar(debug or verbose > 1,
+                                   collected_medias,
+                                   label='Collecting pgs subtitles',
+                                   item_show_func=lambda item: str(item or ''))
+
+    with progressbar:
+        for m in progressbar:
             collected_pgs_medias.extend(list(m.get_pgs_medias(options)))
-    else:
-        with click.progressbar(collected_medias,
-                               label='Collecting pgs subtitles', item_show_func=lambda item: str(item or '')) as bar:
-            for m in bar:
-                collected_pgs_medias.extend(list(m.get_pgs_medias(options)))
 
     # report collected medias
     report = (f"{click.style(str(len(collected_pgs_medias)), bold=True, fg='green')} "
@@ -119,21 +167,20 @@ def pgsrip(config: Optional[str], language: Optional[Tuple[Language]], tag: Tupl
                    f"path{'s' if len(discarded_paths) > 1 else ''} ignored")
     click.echo(report)
 
-    if debug or verbose > 1:
-        for pgs in collected_pgs_medias:
-            api.rip_pgs(pgs, options)
-    else:
-        ripped_count = 0
-        with click.progressbar(collected_pgs_medias, label='Ripping subtitles', update_min_steps=0,
-                               item_show_func=lambda s: click.style(str(s or ''), bold=True)) as bar:
-            bar.short_limit = 0
-            for pgs in bar:
-                bar.update(0, pgs)
-                ripped_count += api.rip_pgs(pgs, options)
+    bar = DebugProgressBar(debug or verbose > 1,
+                           collected_pgs_medias,
+                           label='Ripping subtitles',
+                           update_min_steps=0,
+                           item_show_func=lambda s: click.style(str(s or ''), bold=True))
 
-        # report ripped subtitles
-        click.echo(f"{click.style(str(ripped_count), bold=True, fg='green')} "
-                   f"PGS subtitle{'s' if ripped_count > 1 else ''} ripped from "
-                   f"{click.style(str(len(collected_medias)), bold=True, fg='blue')} "
-                   f"file{'s' if len(collected_medias) > 1 else ''}")
+    ripped_count = 0
+    with bar:
+        for pgs in bar:
+            bar.update(0, pgs)
+            ripped_count += api.rip_pgs(pgs, options)
 
+    # report ripped subtitles
+    click.echo(f"{click.style(str(ripped_count), bold=True, fg='green')} "
+               f"PGS subtitle{'s' if ripped_count > 1 else ''} ripped from "
+               f"{click.style(str(len(collected_medias)), bold=True, fg='blue')} "
+               f"file{'s' if len(collected_medias) > 1 else ''}")

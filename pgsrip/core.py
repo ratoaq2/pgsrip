@@ -1,18 +1,17 @@
-# -*- coding: utf-8 -*-
 import logging
 import os
-from typing import List
+import typing
 
-from .media import Media, Pgs
-from .mkv import Mkv
-from .options import Options
-from .ripper import PgsToSrtRipper
-from .sup import Sup
+from pgsrip.media import Media, Pgs
+from pgsrip.mkv import Mkv
+from pgsrip.options import Options
+from pgsrip.ripper import PgsToSrtRipper
+from pgsrip.sup import Sup
 
 
 logger = logging.getLogger(__name__)
 
-MEDIAS = {
+MEDIAS: typing.Dict[str, typing.Union[typing.Type[Sup], typing.Type[Mkv]]] = {
     '.sup': Sup,
     '.mkv': Mkv,
     '.mks': Mkv
@@ -20,9 +19,13 @@ MEDIAS = {
 EXTENSIONS = tuple(MEDIAS.keys())
 
 
-def scan_path(path: str, collected: List[Media], filtered_out: List[str], discarded: List[str], options: Options):
+def scan_path(path: str,
+              collected: typing.List[Media],
+              filtered_out: typing.List[str],
+              discarded: typing.List[str],
+              options: Options):
     if not os.path.exists(path):
-        logger.debug(f'Non existent path {path} discarded')
+        logger.debug('Non existent path %s discarded', path)
         discarded.append(path)
 
     elif os.path.isfile(path):
@@ -37,7 +40,7 @@ def scan_path(path: str, collected: List[Media], filtered_out: List[str], discar
                     else:
                         filtered_out.append(path)
                 except Exception as exc:
-                    logger.debug(f'Path {path} discarded: <{type(exc).__name__}> {exc}')
+                    logger.debug('Path %s discarded: <%s> %s', path, type(exc).__name__, exc)
                     discarded.append(path)
 
     elif os.path.isdir(path):
@@ -66,7 +69,8 @@ def rip_pgs(pgs: Pgs, options: Options):
         srt.save(encoding=options.encoding)
         return True
     except Exception as e:
-        logger.warning(f'Error while trying to rip {pgs.media_path}: <{type(e).__name__}> [{e}]',
+        logger.warning('Error while trying to rip %s: <%s> [%s]',
+                       pgs.media_path, type(e).__name__, e,
                        exc_info=logger.isEnabledFor(logging.DEBUG))
     finally:
         pgs.deallocate()

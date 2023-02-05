@@ -1,6 +1,6 @@
-# -*- coding: utf-8 -*-
 import json
 import logging
+import typing
 from subprocess import check_output
 from tempfile import NamedTemporaryFile
 
@@ -8,9 +8,9 @@ from babelfish import Language
 
 from trakit.api import trakit
 
-from .media import Media, Pgs
-from .media_path import MediaPath
-from .options import Options
+from pgsrip.media import Media, Pgs
+from pgsrip.media_path import MediaPath
+from pgsrip.options import Options
 
 logger = logging.getLogger(__name__)
 
@@ -82,23 +82,23 @@ class Mkv(Media):
                   if t.type == 'subtitles' and t.codec == 'HDMV PGS' and t.enabled]
         tracks.sort(key=lambda x: x.forced)
         tracks.sort(key=lambda x: x.id)
-        selected_languages = {}
+        selected_languages: typing.Dict[Language, int] = {}
         for t in tracks:
             language = t.language
             if options.languages and language not in options.languages:
-                logger.debug(f'Filtering out track {t.id}:{language} in {self}')
+                logger.debug('Filtering out track %s:%s in %s', t.id, language, self)
                 continue
 
             if options.one_per_lang and language in selected_languages:
-                logger.debug(f'Skipping track {t.id}:{language} in {self}')
+                logger.debug('Skipping track %s:%s in %s', t.id, language, self)
                 continue
 
             if not language:
-                logger.debug(f'Skipping unknown language track {t.id} in {self}')
+                logger.debug('Skipping unknown language track %s in %s', t.id, self)
                 continue
 
             pgs = MkvPgs(self.media_path, t.id, language, selected_languages.get(language, 0))
             if pgs.matches(options):
-                logger.debug(f'Selecting track {t.id}:{language} in {self}')
+                logger.debug('Selecting track %s:%s in %s', t.id, language, self)
                 yield pgs
                 selected_languages[language] = selected_languages.get(language, 0) + 1

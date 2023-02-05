@@ -1,10 +1,9 @@
-# -*- coding: utf-8 -*-
 import logging
 from typing import Iterable
 
-from .media import Media, Pgs
-from .media_path import MediaPath
-from .options import Options
+from pgsrip.media import Media, Pgs
+from pgsrip.media_path import MediaPath
+from pgsrip.options import Options
 
 logger = logging.getLogger(__name__)
 

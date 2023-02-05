@@ -1,5 +1,4 @@
-# -*- coding: utf-8 -*-
-from . import cli
+from pgsrip.cli import pgsrip
 
 if __name__ == '__main__':
-    cli.pgsrip()
+    pgsrip()
