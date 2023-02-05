@@ -1,6 +1,6 @@
 FROM python:3.11-slim as tesseract-image
 
-ENV TESSDATA_VERSION=4.1.0
+ENV TESSDATA_VERSION=main
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends git \
@@ -48,11 +48,12 @@ ENV PYTHONFAULTHANDLER=1 \
     TESSDATA_PREFIX=/usr/src/tessdata
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl software-properties-common \
+    && apt-get install -y --no-install-recommends curl gpg \
+    && curl -sSL https://notesalexp.org/debian/alexp_key.asc | gpg --dearmor > /etc/apt/trusted.gpg.d/alex-p-ubuntu-tesseract-ocr5.gpg \
     && curl -sSL -o /usr/share/keyrings/gpg-pub-moritzbunkus.gpg https://mkvtoolnix.download/gpg-pub-moritzbunkus.gpg \
+    && echo "deb https://notesalexp.org/tesseract-ocr5/bullseye/ bullseye main" >> /etc/apt/sources.list \
     && echo "deb [signed-by=/usr/share/keyrings/gpg-pub-moritzbunkus.gpg] https://mkvtoolnix.download/debian/ bullseye main" >> /etc/apt/sources.list.d/mkvtoolnix.download.list \
     && echo "deb-src [signed-by=/usr/share/keyrings/gpg-pub-moritzbunkus.gpg] https://mkvtoolnix.download/debian/ bullseye main" >> /etc/apt/sources.list.d/mkvtoolnix.download.list \
-    && add-apt-repository -y ppa:alex-p/tesseract-ocr5 \
     && apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg libsm6 libxext6 tesseract-ocr mkvtoolnix \
     && apt-get clean \
