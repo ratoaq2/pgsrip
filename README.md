@@ -23,11 +23,20 @@ pgsrip:
 
 MKVToolNix:
 
+    [Linux/WSL - Ubuntu/Debian]
     $ sudo apt-get install mkvtoolnix
+
+    [Windows/Chocolatey]
+    $ choco install mkvtoolnix
 
 tesseract:
 
+    [Linux/WSL - Ubuntu/Debian]
     $ sudo apt-get install tesseract-ocr
+
+    [Windows/Chocolatey]
+    $ choco install tesseract-ocr
+
 
 tessdata:
 
