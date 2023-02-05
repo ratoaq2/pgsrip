@@ -48,10 +48,11 @@ ENV PYTHONFAULTHANDLER=1 \
     TESSDATA_PREFIX=/usr/src/tessdata
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends curl software-properties-common \
     && curl -sSL -o /usr/share/keyrings/gpg-pub-moritzbunkus.gpg https://mkvtoolnix.download/gpg-pub-moritzbunkus.gpg \
     && echo "deb [signed-by=/usr/share/keyrings/gpg-pub-moritzbunkus.gpg] https://mkvtoolnix.download/debian/ bullseye main" >> /etc/apt/sources.list.d/mkvtoolnix.download.list \
     && echo "deb-src [signed-by=/usr/share/keyrings/gpg-pub-moritzbunkus.gpg] https://mkvtoolnix.download/debian/ bullseye main" >> /etc/apt/sources.list.d/mkvtoolnix.download.list \
+    && add-apt-repository -y ppa:alex-p/tesseract-ocr5 \
     && apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg libsm6 libxext6 tesseract-ocr mkvtoolnix \
     && apt-get clean \

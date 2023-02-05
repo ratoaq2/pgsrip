@@ -31,7 +31,11 @@ MKVToolNix:
 
 tesseract:
 
+PPA is used to install latest tesseract 5.x. Skip PPA repository if you decide to stick with latest official Debian/Ubuntu package
+
     [Linux/WSL - Ubuntu/Debian]
+    $ sudo add-apt-repository ppa:alex-p/tesseract-ocr5
+    $ sudo apt update
     $ sudo apt-get install tesseract-ocr
 
     [Windows/Chocolatey]
