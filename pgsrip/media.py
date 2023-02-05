@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+import shutil
 import typing
 from abc import ABC, abstractmethod
 from datetime import timedelta
+from types import TracebackType
 
 from babelfish import Language
 
@@ -79,9 +81,15 @@ class PgsSubtitleItem:
 
 class Pgs:
 
-    def __init__(self, media_path: MediaPath, data_reader: typing.Callable[[], bytes]):
+    def __init__(self,
+                 media_path: MediaPath,
+                 options: Options,
+                 data_reader: typing.Callable[[], bytes],
+                 temp_folder: str):
         self.media_path = media_path
+        self.options = options
         self.data_reader = data_reader
+        self.temp_folder = temp_folder
         self._items: typing.Optional[typing.List[PgsSubtitleItem]] = None
 
     @property
@@ -134,14 +142,25 @@ class Pgs:
 
         return items
 
-    def deallocate(self):
-        self._items = None
-
     def __repr__(self):
         return f'<{self.__class__.__name__} [{self}]>'
 
     def __str__(self):
         return str(self.media_path)
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self,
+                 exc_type: typing.Optional[typing.Type[BaseException]],
+                 exc: typing.Optional[BaseException],
+                 traceback: typing.Optional[TracebackType]):
+        self._items = None
+        if self.options.keep_temp_files:
+            logger.info('Keeping temporary files in %s', self.temp_folder)
+        else:
+            logger.debug('Removing temporary files in %s', self.temp_folder)
+            shutil.rmtree(self.temp_folder)
 
 
 class Media(ABC):

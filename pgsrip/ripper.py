@@ -4,6 +4,8 @@ import logging
 import os
 import typing
 
+import cv2
+
 import numpy as np
 
 from pysrt import SubRipFile, SubRipItem
@@ -121,6 +123,7 @@ class PgsToSrtRipper:
         self.omp_thread_limit = options.max_workers
         max_height = max([item.height for item in self.pgs.items]) // 2
         self.gap = (max_height // 2, max_height // 2)
+        self.keep_temp_files = options.keep_temp_files
 
     def process(self,
                 subs: SubRipFile,
@@ -140,7 +143,12 @@ class PgsToSrtRipper:
 
         if self.omp_thread_limit:
             os.environ['OMP_THREAD_LIMIT'] = str(self.omp_thread_limit)
-        # cv2.imwrite(f'{subs.path}-{len(items)}-{confidence}.png', full_image.data)
+        if self.keep_temp_files:
+            png_file = os.path.join(self.pgs.temp_folder,
+                                    f'{os.path.basename(subs.path)}-{len(items)}-{confidence}.png')
+            logger.debug('Writing temporary png file %s', png_file)
+            cv2.imwrite(png_file, full_image.data)
+
         data = TsvData(tess.image_to_data(full_image.data, **config))
 
         remaining = []

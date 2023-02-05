@@ -1,9 +1,14 @@
+import logging
 import os
+import tempfile
 import typing
 from copy import copy
 from datetime import datetime
 
 from babelfish import Language
+
+
+logger = logging.getLogger(__name__)
 
 
 class MediaPath:
@@ -28,6 +33,12 @@ class MediaPath:
     @property
     def m_age(self):
         return datetime.utcnow() - datetime.utcfromtimestamp(os.path.getmtime(str(self)))
+
+    def create_temp_folder(self):
+        base_name = os.path.basename(str(self))
+        temp_folder = tempfile.mkdtemp(prefix=base_name, suffix='.pgsrip')
+        logger.debug('%s is using temporary folder %s', self, temp_folder)
+        return temp_folder
 
     def get_data(self):
         with open(str(self), 'rb') as f:

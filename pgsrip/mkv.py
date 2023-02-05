@@ -1,8 +1,9 @@
 import json
 import logging
+import os
+import tempfile
 import typing
 from subprocess import check_output
-from tempfile import NamedTemporaryFile
 
 from babelfish import Language
 
@@ -18,15 +19,20 @@ logger = logging.getLogger(__name__)
 class MkvPgs(Pgs):
 
     @classmethod
-    def read_data(cls, media_path: MediaPath, track_id: int):
-        with NamedTemporaryFile() as temp_file:
-            cmd = ['mkvextract', str(media_path), 'tracks', f'{track_id}:{temp_file.name}']
-            check_output(cmd)
-            return temp_file.read()
+    def read_data(cls, media_path: MediaPath, track_id: int, temp_folder: str):
+        sup_file = os.path.join(temp_folder, f'{track_id}.sup')
+        cmd = ['mkvextract', str(media_path), 'tracks', f'{track_id}:{sup_file}']
+        check_output(cmd)
+        with open(sup_file, mode='rb') as f:
+            return f.read()
 
-    def __init__(self, media_path: MediaPath, track_id: int, language: Language, number: int):
+    def __init__(self, media_path: MediaPath, track_id: int, language: Language, number: int, options: Options):
+        temp_folder = media_path.create_temp_folder()
         super().__init__(media_path=media_path.translate(language=language, number=number),
-                         data_reader=lambda: self.read_data(media_path=media_path, track_id=track_id))
+                         options=options,
+                         data_reader=lambda: self.read_data(
+                             media_path=media_path, track_id=track_id, temp_folder=temp_folder),
+                         temp_folder=temp_folder)
         self.track_id = track_id
 
     def __str__(self):
@@ -97,7 +103,7 @@ class Mkv(Media):
                 logger.debug('Skipping unknown language track %s in %s', t.id, self)
                 continue
 
-            pgs = MkvPgs(self.media_path, t.id, language, selected_languages.get(language, 0))
+            pgs = MkvPgs(self.media_path, t.id, language, selected_languages.get(language, 0), options=options)
             if pgs.matches(options):
                 logger.debug('Selecting track %s:%s in %s', t.id, language, self)
                 yield pgs

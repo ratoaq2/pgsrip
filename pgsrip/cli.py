@@ -36,6 +36,8 @@ class DebugProgressBar(typing.Generic[T]):
         if not self.debug:
             return self.progressbar.__enter__()
 
+        return self
+
     def __exit__(self,
                  exc_type: typing.Optional[typing.Type[BaseException]],
                  exc: typing.Optional[BaseException],
@@ -87,6 +89,8 @@ AGE = AgeParamType()
 @click.option('-a', '--all', is_flag=True, default=False,
               help='rip all tracks for a given language, even another track for that language was already ripped')
 @click.option('-w', '--max-workers', type=click.IntRange(1, 50), default=None, help='Maximum number of threads to use.')
+@click.option('--keep-temp-files', is_flag=True, help='Do not delete temporary files created, '
+                                                      'e.g. extracted sup files or generated png files')
 @click.option('--debug', is_flag=True, help='Print useful information for debugging and for reporting bugs.')
 @click.option('-v', '--verbose', count=True, help='Display debug messages')
 @click.argument('path', type=click.Path(), required=True, nargs=-1)
@@ -100,6 +104,7 @@ def pgsrip(config: typing.Optional[str],
            all: bool,
            debug: bool,
            max_workers: typing.Optional[int],
+           keep_temp_files: bool,
            verbose: int,
            path: typing.Tuple[str]):
     if debug:
@@ -118,6 +123,7 @@ def pgsrip(config: typing.Optional[str],
                       encoding=encoding,
                       overwrite=force,
                       one_per_lang=not all,
+                      keep_temp_files=keep_temp_files,
                       max_workers=max_workers,
                       age=age,
                       srt_age=srt_age)
@@ -145,13 +151,13 @@ def pgsrip(config: typing.Optional[str],
             click.echo(f"{click.style(p, fg='red', bold=True)} discarded")
 
     collected_pgs_medias: typing.List[Pgs] = []
-    progressbar = DebugProgressBar(debug or verbose > 1,
-                                   collected_medias,
-                                   label='Collecting pgs subtitles',
-                                   item_show_func=lambda item: str(item or ''))
+    medias_progressbar = DebugProgressBar(debug or verbose > 1,
+                                          collected_medias,
+                                          label='Collecting pgs subtitles',
+                                          item_show_func=lambda item: str(item or ''))
 
-    with progressbar:
-        for m in progressbar:
+    with medias_progressbar as bar:
+        for m in bar:
             collected_pgs_medias.extend(list(m.get_pgs_medias(options)))
 
     # report collected medias
@@ -167,14 +173,14 @@ def pgsrip(config: typing.Optional[str],
                    f"path{'s' if len(discarded_paths) > 1 else ''} ignored")
     click.echo(report)
 
-    bar = DebugProgressBar(debug or verbose > 1,
-                           collected_pgs_medias,
-                           label='Ripping subtitles',
-                           update_min_steps=0,
-                           item_show_func=lambda s: click.style(str(s or ''), bold=True))
+    pgs_progressbar = DebugProgressBar(debug or verbose > 1,
+                                       collected_pgs_medias,
+                                       label='Ripping subtitles',
+                                       update_min_steps=0,
+                                       item_show_func=lambda s: click.style(str(s or ''), bold=True))
 
     ripped_count = 0
-    with bar:
+    with pgs_progressbar as bar:
         for pgs in bar:
             bar.update(0, pgs)
             ripped_count += api.rip_pgs(pgs, options)

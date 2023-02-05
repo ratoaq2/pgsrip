@@ -15,6 +15,7 @@ class Options:
                  encoding: typing.Optional[str] = None,
                  overwrite=False,
                  one_per_lang=True,
+                 keep_temp_files=False,
                  max_workers: typing.Optional[int] = None,
                  confidence=65,
                  tesseract_width: typing.Optional[int] = None,
@@ -26,6 +27,7 @@ class Options:
         self.encoding = encoding
         self.overwrite = overwrite
         self.one_per_lang = one_per_lang
+        self.keep_temp_files = keep_temp_files
         self.max_workers = max_workers
         self.confidence = confidence
         self.tesseract_width = tesseract_width
@@ -41,6 +43,7 @@ class Options:
                 f'encoding:{self.encoding}, '
                 f'overwrite:{self.overwrite}, '
                 f'one_per_lang:{self.one_per_lang}, '
+                f'keep_temp_files:{self.keep_temp_files}, '
                 f'max_workers:{self.max_workers}, '
                 f'confidence:{self.confidence}, '
                 f'tesseract_width:{self.tesseract_width}, '

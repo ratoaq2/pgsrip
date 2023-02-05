@@ -61,18 +61,17 @@ def rip(media: Media, options: Options):
 def rip_pgs(pgs: Pgs, options: Options):
     # noinspection PyBroadException
     try:
-        if not pgs.matches(options):
-            return False
+        with pgs as p:
+            if not p.matches(options):
+                return False
 
-        rules = options.config.select_rules(tags=options.tags, languages={pgs.language})
-        srt = PgsToSrtRipper(pgs, options).rip(lambda t: rules.apply(t, '')[0])
-        srt.save(encoding=options.encoding)
-        return True
+            rules = options.config.select_rules(tags=options.tags, languages={p.language})
+            srt = PgsToSrtRipper(p, options).rip(lambda t: rules.apply(t, '')[0])
+            srt.save(encoding=options.encoding)
+            return True
     except Exception as e:
         logger.warning('Error while trying to rip %s: <%s> [%s]',
                        pgs.media_path, type(e).__name__, e,
                        exc_info=logger.isEnabledFor(logging.DEBUG))
-    finally:
-        pgs.deallocate()
 
     return False
