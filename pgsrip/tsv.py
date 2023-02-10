@@ -39,9 +39,8 @@ class TsvDataItem:
 
 class TsvData:
 
-    NON_WORD_RE = re.compile(r'\W')
-
-    def __init__(self, data: dict):
+    def __init__(self, data: dict, confidence: int):
+        self.confidence = confidence
         keys = data.keys()
         items = [TsvDataItem(**{k: values[i] for (i, k) in enumerate(keys)}) for values in (
             zip(*[data[key] for key in keys]))]
@@ -51,10 +50,10 @@ class TsvData:
         items.sort(key=lambda x: x.block_num)
         items.sort(key=lambda x: x.page_num)
         self.items = items
-        self.words = {text for text in [self.NON_WORD_RE.sub('', item.text) for item in items] if text}
+        self.words = {item.text for item in items if item.text and item.conf >= confidence}
 
     def select(self, shape: typing.Tuple[int, int, int, int]):
         return [item for item in self.items if item.level == 5 and item.matches(shape)]
 
     def has_word(self, word: str):
-        return self.NON_WORD_RE.sub('', word) in self.words
+        return word in self.words

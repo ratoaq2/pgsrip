@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import typing
@@ -13,7 +14,7 @@ from pysrt import SubRipFile, SubRipItem
 import pytesseract as tess
 
 from pgsrip.media import Pgs, PgsSubtitleItem
-from pgsrip.options import Options
+from pgsrip.options import Options, TesseractEngineMode
 from pgsrip.tsv import TsvData
 
 
@@ -69,11 +70,11 @@ class ImageArea:
 class FullImage:
 
     def __init__(self, areas: typing.List[ImageArea], gap: typing.Tuple[int, int]):
-        total_height = sum([area.height for area in areas]) + (len(areas) - 1) * gap[0]
-        total_width = max([area.width for area in areas])
+        total_height = sum([area.height for area in areas]) + (len(areas) - 1) * gap[0] + 20
+        total_width = max([area.width for area in areas]) + 20
         full_image = np.full((total_height, total_width), 255, dtype=np.uint8)
-        h_start = 0
-        w_start = 0
+        h_start = 10
+        w_start = 10
         for area in areas:
             h_end = h_start + area.height
             w_end = w_start + area.width
@@ -121,8 +122,9 @@ class PgsToSrtRipper:
         self.confidence = min(max(options.confidence or 0, 0), 100)
         self.max_tess_width = min(max(options.tesseract_width or 0, 31 * 1024), 31 * 1024)
         self.omp_thread_limit = options.max_workers
+        self.oem = options.tesseract_oem
         max_height = max([item.height for item in self.pgs.items]) // 2
-        self.gap = (max_height // 2, max_height // 2)
+        self.gap = (max_height // 2 + 20, max_height // 2 + 20)
         self.keep_temp_files = options.keep_temp_files
 
     def process(self,
@@ -130,12 +132,13 @@ class PgsToSrtRipper:
                 items: typing.List[PgsSubtitleItem],
                 post_process,
                 confidence: int,
-                max_width: int):
+                max_width: int,
+                oem: TesseractEngineMode):
         full_image = FullImage.from_items(items, self.gap, max_width)
 
         config = {
             'output_type': tess.Output.DICT,
-            'config': '--psm 11'
+            'config': f'--psm 11 --oem {oem.value}'
         }
 
         if self.pgs.language:
@@ -145,11 +148,18 @@ class PgsToSrtRipper:
             os.environ['OMP_THREAD_LIMIT'] = str(self.omp_thread_limit)
         if self.keep_temp_files:
             png_file = os.path.join(self.pgs.temp_folder,
-                                    f'{os.path.basename(subs.path)}-{len(items)}-{confidence}.png')
+                                    f'{os.path.basename(subs.path)}-{len(items)}-{oem.name}-{confidence}.png')
             logger.debug('Writing temporary png file %s', png_file)
             cv2.imwrite(png_file, full_image.data)
 
-        data = TsvData(tess.image_to_data(full_image.data, **config))
+        data = TsvData(tess.image_to_data(full_image.data, **config), confidence=confidence)
+
+        if self.keep_temp_files:
+            results_file = os.path.join(self.pgs.temp_folder,
+                                        f'{os.path.basename(subs.path)}-{len(items)}-{confidence}.json')
+            logger.debug('Writing temporary results file %s', results_file)
+            with open(results_file, mode='w', encoding='utf8') as f:
+                json.dump([i.__dict__ for i in data.items], f, indent=2, ensure_ascii=False)
 
         remaining = []
         for item in items:
@@ -197,12 +207,13 @@ class PgsToSrtRipper:
 
     def rip(self, post_process: typing.Callable[[str], str]):
         subs = SubRipFile(path=str(self.pgs.media_path.translate(extension='srt')))
+        oem = self.oem
         items = self.pgs.items
         confidence = self.confidence
         max_width = self.max_tess_width
         previous_size = len(items)
         while previous_size > 0:
-            items = self.process(subs, items, post_process, confidence, max_width)
+            items = self.process(subs, items, post_process, confidence, max_width, oem)
             if not items:
                 break
 
@@ -210,7 +221,7 @@ class PgsToSrtRipper:
             if current_size < 20:
                 max_width = min(sum([item.width + self.gap[1] for item in items]), self.max_tess_width)
                 confidence = 0
-                remaining_items = self.process(subs, items, post_process, confidence, max_width)
+                remaining_items = self.process(subs, items, post_process, confidence, max_width, oem)
                 if remaining_items:
                     logger.warning('Subtitles were not ripped: %r', remaining_items)
                 break

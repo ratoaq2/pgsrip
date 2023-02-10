@@ -1,9 +1,18 @@
+import enum
 import typing
 from datetime import timedelta
 
 from babelfish import Language
 
 from cleanit import Config
+
+
+@enum.unique
+class TesseractEngineMode(enum.Enum):
+    LEGACY = 0
+    NEURAL = 1
+    LEGACY_AND_NEURAL = 2
+    DEFAULT_AVAILABLE = 3
 
 
 class Options:
@@ -19,6 +28,7 @@ class Options:
                  max_workers: typing.Optional[int] = None,
                  confidence=65,
                  tesseract_width: typing.Optional[int] = None,
+                 tesseract_oem: TesseractEngineMode = TesseractEngineMode.NEURAL,
                  age: typing.Optional[timedelta] = None,
                  srt_age: typing.Optional[timedelta] = None):
         self.config = Config.from_path(config_path) if config_path else Config()
@@ -31,6 +41,7 @@ class Options:
         self.max_workers = max_workers
         self.confidence = confidence
         self.tesseract_width = tesseract_width
+        self.tesseract_oem = tesseract_oem
         self.age = age
         self.srt_age = srt_age
 
@@ -47,5 +58,6 @@ class Options:
                 f'max_workers:{self.max_workers}, '
                 f'confidence:{self.confidence}, '
                 f'tesseract_width:{self.tesseract_width}, '
+                f'tesseract_oem:{self.tesseract_oem}, '
                 f'age:{self.age}, '
                 f'srt_age:{self.srt_age}')
