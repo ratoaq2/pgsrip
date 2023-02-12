@@ -15,6 +15,24 @@ class TesseractEngineMode(enum.Enum):
     DEFAULT_AVAILABLE = 3
 
 
+@enum.unique
+class TesseractPageSegmentationMode(enum.Enum):
+    OSD_ONLY = 0
+    AUTOMATIC_PAGE_SEGMENTATION_WITH_OSD = 1
+    AUTOMATIC_PAGE_SEGMENTATION_WITHOUT_OSD_OR_OCR = 2
+    FULLY_AUTOMATIC_PAGE_SEGMENTATION_WITHOUT_OSD = 3
+    SINGLE_COLUMN_OF_TEXT_OF_VARIABLE_SIZES = 4
+    SINGLE_UNIFORM_BLOCK_OF_VERTICALLY_ALIGNED_TEXT = 5
+    SINGLE_UNIFORM_BLOCK_OF_TEXT = 6
+    SINGLE_TEXT_LINE = 7
+    SINGLE_WORD = 8
+    SINGLE_WORD_IN_CIRCLE = 9
+    SINGLE_CHARACTER = 10
+    SPARSE_TEXT = 11
+    SPARSE_TEXT_WITH_OSD = 12
+    RAW_LINE = 13
+
+
 class Options:
 
     def __init__(self,
@@ -26,9 +44,10 @@ class Options:
                  one_per_lang=True,
                  keep_temp_files=False,
                  max_workers: typing.Optional[int] = None,
-                 confidence=65,
+                 confidence: typing.Optional[int] = None,
                  tesseract_width: typing.Optional[int] = None,
-                 tesseract_oem: TesseractEngineMode = TesseractEngineMode.NEURAL,
+                 tesseract_oem: typing.Optional[TesseractEngineMode] = None,
+                 tesseract_psm: typing.Optional[TesseractPageSegmentationMode] = None,
                  age: typing.Optional[timedelta] = None,
                  srt_age: typing.Optional[timedelta] = None):
         self.config = Config.from_path(config_path) if config_path else Config()
@@ -42,6 +61,7 @@ class Options:
         self.confidence = confidence
         self.tesseract_width = tesseract_width
         self.tesseract_oem = tesseract_oem
+        self.tesseract_psm = tesseract_psm
         self.age = age
         self.srt_age = srt_age
 
@@ -59,5 +79,6 @@ class Options:
                 f'confidence:{self.confidence}, '
                 f'tesseract_width:{self.tesseract_width}, '
                 f'tesseract_oem:{self.tesseract_oem}, '
+                f'tesseract_psm:{self.tesseract_psm}, '
                 f'age:{self.age}, '
                 f'srt_age:{self.srt_age}')
