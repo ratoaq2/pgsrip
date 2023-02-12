@@ -92,7 +92,8 @@ AGE = AgeParamType()
               help='rip all tracks for a given language, even another track for that language was already ripped')
 @click.option('-w', '--max-workers', type=click.IntRange(1, 50), default=None, help='Maximum number of threads to use.')
 @click.option('--keep-temp-files', is_flag=True, help='Do not delete temporary files created, '
-                                                      'e.g. extracted sup files or generated png files')
+                                                      'e.g. extracted sup files, generated png files '
+                                                      'and other useful debug files')
 @click.option('--debug', is_flag=True, help='Print useful information for debugging and for reporting bugs.')
 @click.option('-v', '--verbose', count=True, help='Display debug messages')
 @click.argument('path', type=click.Path(), required=True, nargs=-1)

@@ -19,7 +19,8 @@ class MkvPgs(Pgs):
 
     @classmethod
     def read_data(cls, media_path: MediaPath, track_id: int, temp_folder: str):
-        sup_file = os.path.join(temp_folder, f'{track_id}.sup')
+        lang_ext = f'.{str(media_path.language)}' if media_path.language else ''
+        sup_file = os.path.join(temp_folder, f'{track_id}{lang_ext}.sup')
         cmd = ['mkvextract', str(media_path), 'tracks', f'{track_id}:{sup_file}']
         check_output(cmd)
         with open(sup_file, mode='rb') as f:

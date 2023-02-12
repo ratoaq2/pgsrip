@@ -1,3 +1,4 @@
+import enum
 import logging
 import typing
 
@@ -7,27 +8,32 @@ import numpy as np
 from numpy import ndarray
 
 from pgsrip.media_path import MediaPath
+from pgsrip.utils import from_hex, safe_get, to_time
 
 logger = logging.getLogger(__name__)
 
 
-# Constants for Segments
-PDS = int('0x14', 16)
-ODS = int('0x15', 16)
-PCS = int('0x16', 16)
-WDS = int('0x17', 16)
-END = int('0x80', 16)
+@enum.unique
+class SegmentType(enum.Enum):
+    PDS = int('0x14', 16)
+    ODS = int('0x15', 16)
+    PCS = int('0x16', 16)
+    WDS = int('0x17', 16)
+    END = int('0x80', 16)
 
 
-def from_hex(b: bytes):
-    return int(b.hex(), base=16)
+@enum.unique
+class CompositionState(enum.Enum):
+    NORMAL_CASE = from_hex(b'\x00')
+    ACQUISITION_POINT = from_hex(b'\x40')
+    EPOCH_START = from_hex(b'\x80')
 
 
-def safe_get(b: bytes, i: int, default_value=0):
-    try:
-        return b[i]
-    except IndexError:
-        return default_value
+@enum.unique
+class ObjectSequenceType(enum.Enum):
+    LAST = from_hex(b'\x40')
+    FIRST = from_hex(b'\x80')
+    FIRST_AND_LAST = from_hex(b'\xc0')
 
 
 class Palette(typing.NamedTuple):
@@ -52,20 +58,22 @@ class PgsReader:
                 logger.warning('%s Ignoring invalid PGS segment data with less than 13 bytes: %s', media_path, b)
                 break
 
+            segment_type = SEGMENT_TYPE[SegmentType(b[10])]
             size = 13 + from_hex(b[11:13])
-            segment_type = SEGMENT_TYPE[b[10]]
             yield segment_type(b[:size])
             count += size
             b = b[size:]
 
     @classmethod
     def decode(cls, data: bytes, media_path: MediaPath):
-        ds = []
+        segments: typing.List[BaseSegment] = []
+        index = 0
         for s in cls.read_segments(data, media_path):
-            ds.append(s)
-            if s.type == 'END':
-                yield DisplaySet(ds)
-                ds = []
+            segments.append(s)
+            if s.type == SegmentType.END:
+                yield DisplaySet(index, segments)
+                segments = []
+                index += 1
 
 
 class PgsImage:
@@ -144,31 +152,21 @@ class PgsImage:
 
 
 class BaseSegment:
-    SEGMENT = {
-        PDS: 'PDS',
-        ODS: 'ODS',
-        PCS: 'PCS',
-        WDS: 'WDS',
-        END: 'END'
-    }
 
     def __init__(self, b: bytes):
         self.bytes = b
 
-    def __len__(self):
-        return self.size
-
     @property
     def presentation_timestamp(self):
-        return from_hex(self.bytes[2:6]) / 90
+        return to_time(from_hex(self.bytes[2:6]) / 90)
 
     @property
     def decoding_timestamp(self):
-        return from_hex(self.bytes[6:10]) / 90
+        return to_time(from_hex(self.bytes[6:10]) / 90)
 
     @property
     def type(self):
-        return self.SEGMENT[self.bytes[10]]
+        return SegmentType(self.bytes[10])
 
     @property
     def size(self):
@@ -178,13 +176,44 @@ class BaseSegment:
     def data(self):
         return self.bytes[13:]
 
+    def to_json(self):
+        attributes = {
+            'type': 'type',
+            'pts': 'presentation_timestamp',
+            'dts': 'decoding_timestamp',
+            'size': 'size',
+            **self.attributes()
+        }
+
+        def to_value(v: typing.Any):
+            return v.name if isinstance(v, enum.Enum) else v
+
+        return {
+            k: to_value(getattr(self, v)) for k, v in attributes.items() if getattr(self, v) is not None
+        }
+
+    def attributes(self):
+        raise NotImplementedError
+
+    def __len__(self):
+        return self.size
+
+    def __bool__(self):
+        return True
+
+    def __str__(self):
+        strings = []
+        for k, v in self.to_json().items():
+            if v is not None:
+                strings.append(f'{k}={v}')
+
+        return ', '.join(strings)
+
+    def __repr__(self):
+        return f'<{self.__class__.__name__}: [{self}]>'
+
 
 class PresentationCompositionSegment(BaseSegment):
-    STATE = {
-        from_hex(b'\x00'): 'Normal',
-        from_hex(b'\x40'): 'Acquisition Point',
-        from_hex(b'\x80'): 'Epoch Start'
-    }
 
     @property
     def width(self):
@@ -199,12 +228,12 @@ class PresentationCompositionSegment(BaseSegment):
         return self.data[4]
 
     @property
-    def _num(self):
+    def composition_number(self):
         return from_hex(self.data[5:7])
 
     @property
-    def _state(self):
-        return self.STATE[self.data[7]]
+    def composition_state(self):
+        return CompositionState(self.data[7])
 
     @property
     def palette_update(self):
@@ -215,8 +244,23 @@ class PresentationCompositionSegment(BaseSegment):
         return self.data[9]
 
     @property
-    def _num_comps(self):
+    def number_composition_objects(self):
         return self.data[10]
+
+    def attributes(self):
+        return {
+            'width': 'width',
+            'height': 'height',
+            'frame_rate': 'frame_rate',
+            'number': 'composition_number',
+            'state': 'composition_state',
+            'palette_update': 'palette_update',
+            'palette_id': 'palette_id',
+            'num_objects': 'number_composition_objects'
+        }
+
+    def is_epoch_start(self):
+        return self.composition_state == CompositionState.EPOCH_START
 
 
 class WindowDefinitionSegment(BaseSegment):
@@ -245,6 +289,16 @@ class WindowDefinitionSegment(BaseSegment):
     def height(self):
         return from_hex(self.data[8:10])
 
+    def attributes(self):
+        return {
+            'num_windows': 'num_windows',
+            'window_id': 'window_id',
+            'x_offset': 'x_offset',
+            'y_offset': 'y_offset',
+            'width': 'width',
+            'height': 'height'
+        }
+
 
 class PaletteDefinitionSegment(BaseSegment):
 
@@ -265,13 +319,14 @@ class PaletteDefinitionSegment(BaseSegment):
     def version(self):
         return self.data[1]
 
+    def attributes(self):
+        return {
+            'palette_id': 'palette_id',
+            'version': 'version'
+        }
+
 
 class ObjectDefinitionSegment(BaseSegment):
-    SEQUENCE = {
-        from_hex(b'\x40'): 'Last',
-        from_hex(b'\x80'): 'First',
-        from_hex(b'\xc0'): 'First and last'
-    }
 
     @property
     def id(self):
@@ -282,53 +337,118 @@ class ObjectDefinitionSegment(BaseSegment):
         return self.data[2]
 
     @property
-    def in_sequence(self):
-        return self.SEQUENCE[self.data[3]]
+    def sequence_type(self):
+        return ObjectSequenceType(self.data[3])
 
     @property
     def data_len(self):
-        return from_hex(self.data[4:7])
+        if self.sequence_type != ObjectSequenceType.LAST:
+            return from_hex(self.data[4:7])
 
     @property
     def width(self):
-        return from_hex(self.data[7:9])
+        if self.sequence_type != ObjectSequenceType.LAST:
+            return from_hex(self.data[7:9])
 
     @property
     def height(self):
-        return from_hex(self.data[9:11])
+        if self.sequence_type != ObjectSequenceType.LAST:
+            return from_hex(self.data[9:11])
 
     @property
     def img_data(self):
+        if self.sequence_type == ObjectSequenceType.LAST:
+            return self.data[4:]
+
         return self.data[11:]
 
-    def check_corruption(self):
-        if len(self.img_data) != self.data_len - 4:
-            return f'Found {len(self.img_data)} bytes for image, but {self.data_len - 4} were expected'
+    def attributes(self):
+        return {
+            'id': 'id',
+            'version': 'version',
+            'sequence_type': 'sequence_type',
+            'data_len': 'data_len',
+            'width': 'width',
+            'height': 'height'
+        }
 
 
 class EndSegment(BaseSegment):
 
-    @property
-    def is_end(self):
-        return True
+    def attributes(self):
+        return {}
 
 
 SEGMENT_TYPE = {
-    PDS: PaletteDefinitionSegment,
-    ODS: ObjectDefinitionSegment,
-    PCS: PresentationCompositionSegment,
-    WDS: WindowDefinitionSegment,
-    END: EndSegment
+    SegmentType.PDS: PaletteDefinitionSegment,
+    SegmentType.ODS: ObjectDefinitionSegment,
+    SegmentType.PCS: PresentationCompositionSegment,
+    SegmentType.WDS: WindowDefinitionSegment,
+    SegmentType.END: EndSegment
 }
 
 
 class DisplaySet:
 
-    def __init__(self, segments):
+    def __init__(self, index: int, segments: typing.List[BaseSegment]):
+        self.index = index
         self.segments = segments
-        self.pds = [s for s in self.segments if s.type == 'PDS']
-        self.ods = [s for s in self.segments if s.type == 'ODS']
-        self.pcs = [s for s in self.segments if s.type == 'PCS']
-        self.wds = [s for s in self.segments if s.type == 'WDS']
-        self.end = [s for s in self.segments if s.type == 'END']
-        self.has_image = bool(self.ods)
+
+    @property
+    def pcs(self):
+        return [s for s in self.segments if isinstance(s, PresentationCompositionSegment)][0]
+
+    @property
+    def wds(self):
+        return [s for s in self.segments if isinstance(s, WindowDefinitionSegment)][0]
+
+    @property
+    def pds_segments(self):
+        return [s for s in self.segments if isinstance(s, PaletteDefinitionSegment)]
+
+    @property
+    def ods_segments(self):
+        return [s for s in self.segments if isinstance(s, ObjectDefinitionSegment)]
+
+    @property
+    def end(self):
+        return [s for s in self.segments if isinstance(s, EndSegment)][0]
+
+    def is_epoch_start(self):
+        return self.pcs.is_epoch_start()
+
+    def is_valid(self):
+        valid = True
+        counts: typing.Dict[SegmentType, int] = {}
+        for s in self.segments:
+            counts[s.type] = counts.get(s.type, 0) + 1
+            if (isinstance(s, PresentationCompositionSegment)
+                    and s.composition_state == CompositionState.ACQUISITION_POINT):
+                logger.warning('ACQUISITION_POINT found %s, %r', s, self)
+
+        for t in (SegmentType.PCS, SegmentType.WDS, SegmentType.END):
+            count = counts.get(t)
+            if not count:
+                logger.warning('No %s found for %r', t, self)
+                valid = False
+            elif count > 1:
+                logger.warning('Multiple %s found for %r', t, self)
+                valid = False
+
+        return valid
+
+    def to_json(self):
+        return {
+            'index': self.index,
+            'segments': [s.to_json() for s in self.segments]
+        }
+
+    def __str__(self):
+        strings = [f'DS[{self.index}]']
+        for s in self.segments:
+            strings.append(f'\t{s}')
+
+        return '\n'.join(strings)
+
+    def __repr__(self):
+        return f'<{self.__class__.__name__}: {self}]>'

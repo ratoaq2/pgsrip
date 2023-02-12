@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import logging
+import os
 import shutil
 import typing
 from abc import ABC, abstractmethod
@@ -9,35 +11,67 @@ from types import TracebackType
 
 from babelfish import Language
 
-from pysrt import SubRipTime
-
 from pgsrip.media_path import MediaPath
 from pgsrip.options import Options
-from pgsrip.pgs import ObjectDefinitionSegment, PaletteDefinitionSegment, PgsImage, PgsReader, WindowDefinitionSegment
+from pgsrip.pgs import DisplaySet, Palette, PgsImage, PgsReader
+from pgsrip.utils import pairwise
 
 logger = logging.getLogger(__name__)
 
 
 class PgsSubtitleItem:
 
-    def __init__(self, index: int, media_path: MediaPath,
-                 pds: PaletteDefinitionSegment, ods: ObjectDefinitionSegment, wds: WindowDefinitionSegment):
+    def __init__(self,
+                 index: int,
+                 media_path: MediaPath,
+                 display_sets: typing.List[DisplaySet]):
         self.index = index
-        self.start = SubRipTime.from_ordinal(ods.presentation_timestamp)
-        self.end: typing.Optional[SubRipTime] = None
-        self.pds = pds
-        self.ods = ods
-        self.wds = wds
         self.media_path = media_path
-        self.image = PgsImage(ods.img_data, pds.palettes)
+        self.start = min([ds.pcs.presentation_timestamp for ds in display_sets] or [None])
+        self.end = max([ds.pcs.presentation_timestamp for ds in display_sets] or [None])
+        self.image = PgsSubtitleItem.generate_image(display_sets)
+        self.x_offset = min([ds.wds.x_offset for ds in display_sets] or [None])
+        self.y_offset = min([ds.wds.y_offset for ds in display_sets] or [None])
         self.text: typing.Optional[str] = None
         self.place: typing.Optional[typing.Tuple[int, int, int, int]] = None
 
-    def __repr__(self):
-        return f'<{self.__class__.__name__} [{self}]>'
+    @staticmethod
+    def create_items(media_path: MediaPath, display_sets: typing.Iterable[DisplaySet]):
+        current_sets: typing.List[DisplaySet] = []
+        index = 0
+        candidates: typing.List[PgsSubtitleItem] = []
+        for ds in display_sets:
+            if current_sets and ds.is_epoch_start():
+                candidates.append(PgsSubtitleItem(index, media_path, current_sets))
+                current_sets = []
+                index += 1
 
-    def __str__(self):
-        return f'{self.media_path} [{self.start} --> {self.end or ""}]'
+            current_sets.append(ds)
+
+        if current_sets:
+            candidates.append(PgsSubtitleItem(index, media_path, current_sets))
+
+        results = []
+        for item, next_item in pairwise(candidates):
+            if item.auto_fix(next_item=next_item):
+                results.append(item)
+
+        return results
+
+    @staticmethod
+    def generate_image(display_sets: typing.Iterable[DisplaySet]):
+        for ds in display_sets:
+            if not ds.pcs.is_epoch_start():
+                continue
+
+            palettes: typing.List[Palette] = []
+            for pds in ds.pds_segments:
+                palettes += pds.palettes
+            img_data = b''
+            for ods in ds.ods_segments:
+                img_data += ods.img_data
+
+            return PgsImage(img_data, palettes)
 
     @property
     def language(self):
@@ -59,24 +93,44 @@ class PgsSubtitleItem:
     @property
     def shape(self):
         height, width = self.height, self.width
-        y_offset = self.wds.y_offset
-        x_offset = self.wds.x_offset
+        y_offset, x_offset = self.y_offset, self.x_offset
 
         return y_offset, x_offset, y_offset + height, x_offset + width
 
-    def validate(self):
-        corruption = self.ods.check_corruption()
-        if corruption:
-            logger.warning('Corrupted %r: %s', self, corruption)
-        if not self.end:
-            logger.warning('Corrupted %r: No end timestamp', self)
-        elif self.end <= self.start:
-            logger.warning('Corrupted %r: End is before the start', self)
+    def auto_fix(self, next_item: typing.Optional[PgsSubtitleItem]):
+        valid = True
+        if self.image is None:
+            logger.warning('Corrupted %r: No Image', self)
+            valid = False
+        if self.y_offset is None:
+            logger.warning('Corrupted %r: No y_offset', self)
+            valid = False
+        if self.x_offset is None:
+            logger.warning('Corrupted %r: No x_offset', self)
+            valid = False
+        if self.start is None:
+            logger.warning('Corrupted %r: No Start timestamp', self)
+            valid = False
+        elif not self.end or self.end <= self.start:
+            if next_item and next_item.start and self.start + 10000 >= next_item.start:
+                self.end = max(self.start + 1, next_item.start - 1)
+                logger.info('Fix applied for %r: Subtitle end timestamp was fixed', self)
+            else:
+                logger.warning('Corrupted %r: Subtitle with corrupted end timestamp', self)
+                valid = False
+
+        return valid
 
     def intersect(self, item: PgsSubtitleItem):
         shape = self.shape
 
         return shape[0] <= item.h_center <= shape[2]
+
+    def __repr__(self):
+        return f'<{self.__class__.__name__} [{self}]>'
+
+    def __str__(self):
+        return f'{self.media_path} [{self.start} --> {self.end or ""}]'
 
 
 class Pgs:
@@ -120,27 +174,22 @@ class Pgs:
 
         return True
 
-    @classmethod
-    def decode(cls, data: bytes, media_path: MediaPath):
-        display_sets = PgsReader.decode(data, media_path)
-        index = 0
-        items: typing.List[PgsSubtitleItem] = []
-        for display_set in display_sets:
-            if items and not display_set.has_image and display_set.wds:
-                items[-1].end = SubRipTime.from_ordinal(display_set.wds[-1].presentation_timestamp)
-                continue
+    def decode(self, data: bytes, media_path: MediaPath):
+        display_sets = list(PgsReader.decode(data, media_path))
+        logger.info(f'Decoding {media_path}')
 
-            for (pds, ods, wds) in zip(display_set.pds, display_set.ods, display_set.wds):
-                item = PgsSubtitleItem(index, media_path, pds, ods, wds)
-                if items and items[-1].end is None and items[-1].start + 10000 >= item.start:
-                    items[-1].end = max(items[-1].start, item.start - 1)
-                items.append(item)
-                index += 1
+        if self.options.keep_temp_files:
+            self.dump_display_sets(display_sets)
 
-        for item in items:
-            item.validate()
+        return PgsSubtitleItem.create_items(media_path, display_sets)
 
-        return items
+    def dump_display_sets(self, display_sets: typing.List[DisplaySet]):
+        new_line = '\n'
+        with open(os.path.join(self.temp_folder, 'display-sets.txt'), mode='w', encoding='utf8') as f:
+            f.write(f'{new_line.join([str(ds) for ds in display_sets])}')
+        with open(os.path.join(self.temp_folder, 'display-sets.json'), mode='w', encoding='utf8') as f:
+            json.dump([ds.to_json() for ds in display_sets], f,
+                      indent=2, ensure_ascii=False, default=lambda x: str(x))
 
     def __repr__(self):
         return f'<{self.__class__.__name__} [{self}]>'
@@ -189,6 +238,7 @@ class Media(ABC):
 
         if options.languages and not self.languages.intersection(options.languages):
             return False
+
         return True
 
     @abstractmethod
