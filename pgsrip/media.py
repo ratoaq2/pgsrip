@@ -41,7 +41,7 @@ class PgsSubtitleItem:
         index = 0
         candidates: typing.List[PgsSubtitleItem] = []
         for ds in display_sets:
-            if current_sets and ds.is_epoch_start():
+            if current_sets and ds.is_start():
                 candidates.append(PgsSubtitleItem(index, media_path, current_sets))
                 current_sets = []
                 index += 1
@@ -61,7 +61,7 @@ class PgsSubtitleItem:
     @staticmethod
     def generate_image(display_sets: typing.Iterable[DisplaySet]):
         for ds in display_sets:
-            if not ds.pcs.is_epoch_start():
+            if not ds.pcs.is_start():
                 continue
 
             palettes: typing.List[Palette] = []

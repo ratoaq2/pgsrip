@@ -259,8 +259,8 @@ class PresentationCompositionSegment(BaseSegment):
             'num_objects': 'number_composition_objects'
         }
 
-    def is_epoch_start(self):
-        return self.composition_state == CompositionState.EPOCH_START
+    def is_start(self):
+        return self.composition_state in (CompositionState.EPOCH_START, CompositionState.ACQUISITION_POINT)
 
 
 class WindowDefinitionSegment(BaseSegment):
@@ -414,8 +414,8 @@ class DisplaySet:
     def end(self):
         return [s for s in self.segments if isinstance(s, EndSegment)][0]
 
-    def is_epoch_start(self):
-        return self.pcs.is_epoch_start()
+    def is_start(self):
+        return self.pcs.is_start()
 
     def is_valid(self):
         valid = True
