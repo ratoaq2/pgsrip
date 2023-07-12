@@ -1,4 +1,4 @@
-FROM python:3.11-slim as tesseract-image
+FROM python:3.11-slim-bookworm as tesseract-image
 
 ENV TESSDATA_VERSION=main
 
@@ -14,7 +14,7 @@ RUN git clone --progress --depth 1 --branch ${TESSDATA_VERSION} https://github.c
     && rm -rf .git
 
 
-FROM python:3.11-slim as builder
+FROM python:3.11-slim-bookworm as builder
 
 ENV PYTHONFAULTHANDLER=1 \
     PYTHONUNBUFFERED=1 \
@@ -36,7 +36,7 @@ COPY pgsrip/ /app/pgsrip/
 RUN poetry build --no-interaction --no-ansi
 
 
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
 
 ENV PYTHONFAULTHANDLER=1 \
     PYTHONUNBUFFERED=1 \
@@ -51,9 +51,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl gpg \
     && curl -sSL https://notesalexp.org/debian/alexp_key.asc | gpg --dearmor > /etc/apt/trusted.gpg.d/alex-p-ubuntu-tesseract-ocr5.gpg \
     && curl -sSL -o /usr/share/keyrings/gpg-pub-moritzbunkus.gpg https://mkvtoolnix.download/gpg-pub-moritzbunkus.gpg \
-    && echo "deb https://notesalexp.org/tesseract-ocr5/bullseye/ bullseye main" >> /etc/apt/sources.list \
-    && echo "deb [signed-by=/usr/share/keyrings/gpg-pub-moritzbunkus.gpg] https://mkvtoolnix.download/debian/ bullseye main" >> /etc/apt/sources.list.d/mkvtoolnix.download.list \
-    && echo "deb-src [signed-by=/usr/share/keyrings/gpg-pub-moritzbunkus.gpg] https://mkvtoolnix.download/debian/ bullseye main" >> /etc/apt/sources.list.d/mkvtoolnix.download.list \
+    && echo "deb https://notesalexp.org/tesseract-ocr5/bookworm/ bookworm main" >> /etc/apt/sources.list \
+    && echo "deb [signed-by=/usr/share/keyrings/gpg-pub-moritzbunkus.gpg] https://mkvtoolnix.download/debian/ bookworm main" >> /etc/apt/sources.list.d/mkvtoolnix.download.list \
+    && echo "deb-src [signed-by=/usr/share/keyrings/gpg-pub-moritzbunkus.gpg] https://mkvtoolnix.download/debian/ bookworm main" >> /etc/apt/sources.list.d/mkvtoolnix.download.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg libsm6 libxext6 tesseract-ocr mkvtoolnix \
     && apt-get clean \
