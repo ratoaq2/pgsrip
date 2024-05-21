@@ -59,7 +59,7 @@ pytest = ">=7.2,<9.0"
 pytest-cov = ">=4,<6"
 flake8 = ">=6,<8"
 flake8-import-order = "^0.18.2"
-mypy = ">=0.991,<1.9"
+mypy = ">=0.991,<1.11"
 
 [build-system]
 requires = ["poetry-core"]
