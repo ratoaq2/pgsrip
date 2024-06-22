@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pgsrip"
-version = "0.1.10"
+version = "0.1.11-dev"
 description = "Rip your PGS subtitles"
 authors = [
     "Rato",
