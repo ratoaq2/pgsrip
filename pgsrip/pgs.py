@@ -113,11 +113,11 @@ class PgsImage:
             delta = cols * rows * dimension - len(image_array)
             image_array.extend((cls.get_color(palettes[0], binary) * dimension) * delta)
 
-        image = np.array(image_array, dtype=np.uint8).reshape((rows, cols) if binary else (rows, cols, dimension))
+        img = np.array(image_array, dtype=np.uint8).reshape((rows, cols) if binary else (rows, cols, dimension))
         if binary:
-            return image
+            return img
 
-        image = cv2.cvtColor(image, cv2.COLOR_YCR_CB2BGR)
+        image = cv2.cvtColor(img, cv2.COLOR_YCR_CB2BGR)
         a_channel = np.array(alpha_array, dtype=np.uint8).reshape(rows, cols)
         b_channel, g_channel, r_channel = cv2.split(image)
         image = cv2.merge((b_channel, g_channel, r_channel, a_channel))

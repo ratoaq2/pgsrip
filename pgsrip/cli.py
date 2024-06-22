@@ -28,7 +28,7 @@ class DebugProgressBar(typing.Generic[T]):
         self.iterable = iterable
         self.progressbar = click.progressbar(iterable, **kwargs)
 
-    def __iter__(self) -> typing.Iterator[T]:
+    def __iter__(self):
         if not self.debug:
             return self.progressbar.__iter__()
 
