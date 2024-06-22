@@ -53,7 +53,7 @@ pytesseract = "^0.3.10"
 numpy = "^1.24.2"
 opencv-python = "^4.7.0"
 trakit = "^0.2.1"
-setuptools = "^67.0.0"
+setuptools = ">=67,<71"
 
 [tool.poetry.group.dev.dependencies]
 pytest = ">=7.2,<9.0"
