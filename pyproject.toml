@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pgsrip"
-version = "0.1.11-dev"
+version = "0.1.11"
 description = "Rip your PGS subtitles"
 authors = [
     "Rato",
@@ -45,14 +45,14 @@ pgsrip = "pgsrip.cli:pgsrip"
 
 [tool.poetry.dependencies]
 python = "^3.9.0"
-babelfish = "^0.6.0"
-cleanit = "^0.4.7"
+babelfish = "^0.6.1"
+cleanit = "^0.4.8"
 click = "^8.1.3"
 pysrt = "^1.1.2"
 pytesseract = "^0.3.10"
 numpy = "^2.0.0"
 opencv-python = "^4.7.0"
-trakit = "^0.2.1"
+trakit = "^0.2.2"
 setuptools = "^70.1.0"
 
 [tool.poetry.group.dev.dependencies]
