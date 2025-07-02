@@ -145,6 +145,7 @@ class Pgs:
         self.data_reader = data_reader
         self.temp_folder = temp_folder
         self._items: typing.Optional[typing.List[PgsSubtitleItem]] = None
+        self.track_type: typing.Optional[str] = None  # Will be set by MkvPgs
 
     @property
     def language(self):
@@ -152,7 +153,8 @@ class Pgs:
 
     @property
     def srt_path(self):
-        return self.media_path.translate(number=0, extension='srt')
+        # Include track type in filename if available
+        return self.media_path.translate(number=0, extension='srt', subtitle_type=self.track_type)
 
     @property
     def items(self):

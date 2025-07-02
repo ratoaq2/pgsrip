@@ -13,7 +13,7 @@ import pytesseract as tess
 
 from pgsrip import Pgs, __version__, api
 from pgsrip.media import Media
-from pgsrip.options import Options
+from pgsrip.options import Options, SubtitleTypeFilter
 
 logger = logging.getLogger('pgsrip')
 
@@ -86,14 +86,26 @@ AGE = AgeParamType()
 @click.option('-e', '--encoding', help='Save subtitles using the following encoding.')
 @click.option('-a', '--age', type=AGE, help='Filter videos newer than AGE, e.g. 12h, 1w2d.')
 @click.option('-A', '--srt-age', type=AGE, help='Filter videos which srt subtitles are newer than AGE, e.g. 12h, 1w2d.')
+@click.option('--full-only', 'subtitle_type_filter', flag_value='full-only',
+              help='Convert only FULL subtitles as tagged in mkvtoolnix')
+@click.option('--forced-included', 'subtitle_type_filter', flag_value='forced-included',
+              help='Convert FULL and FORCED subtitles as tagged in mkvtoolnix')
+@click.option('--forced-only', 'subtitle_type_filter', flag_value='forced-only',
+              help='Convert only FORCED subtitles as tagged in mkvtoolnix')
+@click.option('--sdh-included', 'subtitle_type_filter', flag_value='sdh-included',
+              help='Convert FULL and SDH subtitles as tagged in mkvtoolnix')
+@click.option('--sdh-only', 'subtitle_type_filter', flag_value='sdh-only',
+              help='Convert only SDH subtitles as tagged in mkvtoolnix')
+@click.option('--all-included', 'subtitle_type_filter', flag_value='all-included',
+              help='Convert FULL, FORCED and SDH subtitles as tagged in mkvtoolnix')
 @click.option('-f', '--force', is_flag=True, default=False,
               help='re-rip and overwrite existing srt subtitles, even if they already exist')
-@click.option('-a', '--all', is_flag=True, default=False,
+@click.option('--all', is_flag=True, default=False,
               help='rip all tracks for a given language, even another track for that language was already ripped')
 @click.option('-w', '--max-workers', type=click.IntRange(1, 50), default=None, help='Maximum number of threads to use.')
 @click.option('--keep-temp-files', is_flag=True, help='Do not delete temporary files created, '
-                                                      'e.g. extracted sup files, generated png files '
-                                                      'and other useful debug files')
+                                                     'e.g. extracted sup files, generated png files '
+                                                     'and other useful debug files')
 @click.option('--debug', is_flag=True, help='Print useful information for debugging and for reporting bugs.')
 @click.option('-v', '--verbose', count=True, help='Display debug messages')
 @click.argument('path', type=click.Path(), required=True, nargs=-1)
@@ -104,6 +116,7 @@ def pgsrip(config: typing.Optional[str],
            encoding: typing.Optional[str],
            age: typing.Optional[timedelta],
            srt_age: typing.Optional[timedelta],
+           subtitle_type_filter: typing.Optional[str],
            force: bool,
            all: bool,
            debug: bool,
@@ -123,6 +136,11 @@ def pgsrip(config: typing.Optional[str],
         click.echo(f"Invalid configuration is defined: {click.style(config, bold=True)}")
         return
 
+    # Convert subtitle type filter string to enum
+    type_filter = SubtitleTypeFilter.ALL
+    if subtitle_type_filter:
+        type_filter = SubtitleTypeFilter(subtitle_type_filter)
+
     options = Options(config_path=config,
                       languages=set(language or []),
                       tags=set(tag or []),
@@ -132,7 +150,8 @@ def pgsrip(config: typing.Optional[str],
                       keep_temp_files=keep_temp_files,
                       max_workers=max_workers,
                       age=age,
-                      srt_age=srt_age)
+                      srt_age=srt_age,
+                      subtitle_type_filter=type_filter)
 
     rules = options.config.select_rules(tags=options.tags, languages=options.languages)
     if not rules:

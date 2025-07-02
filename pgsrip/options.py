@@ -33,6 +33,17 @@ class TesseractPageSegmentationMode(enum.Enum):
     RAW_LINE = 13
 
 
+@enum.unique
+class SubtitleTypeFilter(enum.Enum):
+    ALL = 'all'
+    FULL_ONLY = 'full-only'
+    FORCED_INCLUDED = 'forced-included'
+    FORCED_ONLY = 'forced-only'
+    SDH_INCLUDED = 'sdh-included'
+    SDH_ONLY = 'sdh-only'
+    ALL_INCLUDED = 'all-included'
+
+
 class Options:
 
     def __init__(self,
@@ -49,7 +60,8 @@ class Options:
                  tesseract_oem: typing.Optional[TesseractEngineMode] = None,
                  tesseract_psm: typing.Optional[TesseractPageSegmentationMode] = None,
                  age: typing.Optional[timedelta] = None,
-                 srt_age: typing.Optional[timedelta] = None):
+                 srt_age: typing.Optional[timedelta] = None,
+                 subtitle_type_filter: SubtitleTypeFilter = SubtitleTypeFilter.ALL):
         self.config = Config.from_path(config_path) if config_path else Config()
         self.languages = languages or set()
         self.tags = tags or {'default'}
@@ -64,6 +76,7 @@ class Options:
         self.tesseract_psm = tesseract_psm
         self.age = age
         self.srt_age = srt_age
+        self.subtitle_type_filter = subtitle_type_filter
 
     def __repr__(self):
         return f'<{self.__class__.__name__} [{self}]>'
@@ -81,4 +94,5 @@ class Options:
                 f'tesseract_oem:{self.tesseract_oem}, '
                 f'tesseract_psm:{self.tesseract_psm}, '
                 f'age:{self.age}, '
-                f'srt_age:{self.srt_age}')
+                f'srt_age:{self.srt_age}, '
+                f'subtitle_type_filter:{self.subtitle_type_filter}')

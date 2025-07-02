@@ -13,13 +13,14 @@ logger = logging.getLogger(__name__)
 
 class MediaPath:
 
-    def __init__(self, path: str):
+    def __init__(self, path: str, subtitle_type: typing.Optional[str] = None):
         file_part, extension = os.path.splitext(path)
         base_path, code = os.path.splitext(file_part)
         self.number = 0
         self.language = Language.fromcleanit(code[1:] if code else 'und')
         self.extension = extension[1:] if extension else None
         self.base_path = base_path if self.language else file_part
+        self.subtitle_type = subtitle_type
 
     def __repr__(self):
         return f'<{self.__class__.__name__} [{str(self)}]>'
@@ -28,6 +29,7 @@ class MediaPath:
         return f'{self.base_path}' \
                f'{f"-{self.number}" if self.number else ""}' \
                f'{f".{str(self.language)}" if self.language else ""}' \
+               f'{f".{self.subtitle_type}" if self.subtitle_type else ""}' \
                f'{f".{self.extension}" if self.extension else ""}'
 
     @property
@@ -50,7 +52,8 @@ class MediaPath:
     def translate(self,
                   language: typing.Optional[Language] = None,
                   extension: typing.Optional[str] = None,
-                  number: typing.Optional[int] = None):
+                  number: typing.Optional[int] = None,
+                  subtitle_type: typing.Optional[str] = None):
         media_path = copy(self)
         if number is not None:
             media_path.number = number
@@ -58,4 +61,6 @@ class MediaPath:
             media_path.language = language
         if extension is not None:
             media_path.extension = extension
+        if subtitle_type is not None:
+            media_path.subtitle_type = subtitle_type
         return media_path
