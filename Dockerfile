@@ -1,4 +1,4 @@
-FROM python:3.11-slim-bookworm as tesseract-image
+FROM python:3.13-slim as tesseract-image
 
 ENV TESSDATA_VERSION=main
 
@@ -14,7 +14,7 @@ RUN git clone --progress --depth 1 --branch ${TESSDATA_VERSION} https://github.c
     && rm -rf .git
 
 
-FROM python:3.11-slim-bookworm as builder
+FROM python:3.13-slim as builder
 
 ENV PYTHONFAULTHANDLER=1 \
     PYTHONUNBUFFERED=1 \
@@ -23,20 +23,24 @@ ENV PYTHONFAULTHANDLER=1 \
     PIP_NO_CACHE_DIR=off \
     PIP_DISABLE_PIP_VERSION_CHECK=on \
     PIP_DEFAULT_TIMEOUT=100 \
-    POETRY_VERSION=1.3.1 \
+    POETRY_VERSION=1.8.3 \
     POETRY_VIRTUALENVS_CREATE=0
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl gpg python3-distutils python3-venv \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN pip install "poetry==$POETRY_VERSION"
 
 WORKDIR /app
-COPY poetry.lock pyproject.toml /app/
+COPY poetry.lock pyproject.toml README.md /app/
 RUN poetry install --no-interaction --no-ansi --only main
-COPY README.md /app/
 COPY pgsrip/ /app/pgsrip/
 RUN poetry build --no-interaction --no-ansi
 
 
-FROM python:3.11-slim-bookworm
+FROM python:3.13-slim
 
 ENV PYTHONFAULTHANDLER=1 \
     PYTHONUNBUFFERED=1 \

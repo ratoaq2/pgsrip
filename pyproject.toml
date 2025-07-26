@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pgsrip"
-version = "0.1.11"
+version = "0.1.12-dev"
 description = "Rip your PGS subtitles"
 authors = [
     "Rato",
@@ -32,10 +32,9 @@ classifiers = [
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Multimedia :: Video",
 ]
@@ -44,13 +43,13 @@ classifiers = [
 pgsrip = "pgsrip.cli:pgsrip"
 
 [tool.poetry.dependencies]
-python = "^3.9.0"
+python = ">=3.11,<4.0"
 babelfish = "^0.6.1"
 cleanit = "^0.4.8"
 click = "^8.1.3"
 pysrt = "^1.1.2"
 pytesseract = "^0.3.10"
-numpy = "^2.0.0"
+numpy = "^2.1"
 opencv-python = "^4.7.0"
 trakit = "^0.2.2"
 setuptools = "^70.1.0"
