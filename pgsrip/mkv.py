@@ -43,36 +43,35 @@ class MkvPgs(Pgs):
 class MkvTrack:
 
     def __init__(self, track: dict):
-        self.id = track['id']
-        self.type = track['type']
-        self.codec = track['codec']
-        self.properties = track.get('properties', {})
+        properties = track.get('properties', {})
+        self.id: int = track['id']
+        self.name: typing.Optional[str] = properties.get('track_name')
+        self.type: str = track['type']
+        self.codec: str = track['codec']
+        language_ietf = properties.get('language_ietf')
+        language_alpha = properties.get('language')
+        expected_language = Language.fromcleanit(language_ietf or language_alpha or 'und')
+        options = {'expected_language': expected_language} if expected_language else {}
+        guess = trakit(self.name, options) if self.name else {}
+        self.language: typing.Optional[Language] = guess.get('language') or expected_language
+        self.disabled = None if properties.get('enabled_track') else True
+        self.default = properties.get('default_track') or None
+        self.forced: typing.Optional[bool] = guess.get('forced_track')
+        self.closed_caption: typing.Optional[bool] = guess.get('closed_caption')
+        self.hearing_impaired: typing.Optional[bool] = guess.get('hearing_impaired')
+        self.commentary: typing.Optional[bool] = guess.get('commentary')
+        self.descriptive: typing.Optional[bool] = guess.get('descriptive')
+        self.external: typing.Optional[bool] = guess.get('external')
+        self.version: typing.Optional[str] = guess.get('version')
 
-    @property
-    def enabled(self):
-        return self.properties.get('enabled_track')
-
-    @property
-    def language(self):
-        lang_ietf = self.properties.get('language_ietf')
-        lang_alpha = self.properties.get('language')
-        track_name = self.properties.get('track_name')
-
-        language = Language.fromcleanit(lang_ietf or lang_alpha or 'und')
-        options = {'expected_language': language} if language else {}
-        guess = trakit(track_name, options) if track_name else {}
-
-        return guess.get('language') or language
-
-    @property
-    def forced(self):
-        return self.properties.get('forced_track')
+    def to_dict(self):
+        return {k: v for k, v in self.__dict__.items() if v is not None}
 
     def __repr__(self):
         return f'<{self.__class__.__name__} [{str(self)}]>'
 
     def __str__(self):
-        return f'{self.id}:{self.type}:{self.codec}:{self.language}:{self.enabled}:{self.forced}'
+        return f'{self.to_dict()}'
 
 
 class Mkv(Media):
@@ -85,8 +84,8 @@ class Mkv(Media):
 
     def get_pgs_medias(self, options: Options):
         tracks = [t for t in self.tracks
-                  if t.type == 'subtitles' and t.codec == 'HDMV PGS' and t.enabled]
-        tracks.sort(key=lambda x: x.forced)
+                  if t.type == 'subtitles' and t.codec == 'HDMV PGS' and not t.disabled]
+        tracks.sort(key=lambda x: x.forced or False)
         tracks.sort(key=lambda x: x.id)
         selected_languages: typing.Dict[Language, int] = {}
         for t in tracks:

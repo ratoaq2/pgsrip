@@ -1,0 +1,214 @@
+- track:
+    codec: HDMV PGS
+    id: 0
+    properties:
+      codec_id: S_HDMV/PGS
+      codec_private_length: 0
+      content_encoding_algorithms: '0'
+      default_track: false
+      enabled_track: true
+      forced_track: false
+      language: eng
+      language_ietf: en
+      minimum_timestamp: 12554000000
+      num_index_entries: 1290
+      number: 1
+      uid: 6
+    type: subtitles
+  expected:
+    id: 0
+    type: subtitles
+    codec: HDMV PGS
+    language: en
+- track:
+    codec: HEVC/H.265/MPEG-H
+    id: 0
+    properties:
+      codec_id: V_MPEGH/ISO/HEVC
+      codec_private_length: 188
+      default_duration: 41708333
+      default_track: false
+      display_dimensions: 3840x2160
+      display_unit: 0
+      enabled_track: true
+      forced_track: false
+      language: eng
+      language_ietf: en
+      minimum_timestamp: 0
+      num_index_entries: 7194
+      number: 1
+      packetizer: mpegh_p2_video
+      pixel_dimensions: 3840x2160
+      uid: 1
+    type: video
+  expected:
+    id: 0
+    type: video
+    codec: HEVC/H.265/MPEG-H
+    language: en
+
+- track:
+    codec: TrueHD Atmos
+    id: 1
+    properties:
+      audio_channels: 8
+      audio_sampling_frequency: 48000
+      codec_id: A_TRUEHD
+      codec_private_length: 0
+      default_track: true
+      enabled_track: true
+      forced_track: false
+      language: eng
+      language_ietf: en
+      minimum_timestamp: 0
+      num_index_entries: 0
+      number: 2
+      uid: 2
+    type: audio
+  expected:
+    id: 1
+    type: audio
+    codec: TrueHD Atmos
+    default: true
+    language: en
+- track:
+    codec: AC-3 Dolby Surround EX
+    id: 2
+    properties:
+      audio_channels: 6
+      audio_sampling_frequency: 48000
+      codec_id: A_AC3
+      codec_private_length: 0
+      default_duration: 32000000
+      default_track: false
+      enabled_track: true
+      forced_track: false
+      language: eng
+      language_ietf: en
+      minimum_timestamp: 0
+      num_index_entries: 0
+      number: 3
+      uid: 3
+    type: audio
+  expected:
+    id: 2
+    type: audio
+    codec: AC-3 Dolby Surround EX
+    language: en
+
+- track:
+    codec: AC-3
+    id: 3
+    properties:
+      audio_channels: 6
+      audio_sampling_frequency: 48000
+      codec_id: A_AC3
+      codec_private_length: 0
+      default_duration: 32000000
+      default_track: false
+      enabled_track: true
+      forced_track: false
+      language: ger
+      language_ietf: de
+      minimum_timestamp: 2002000000
+      num_index_entries: 0
+      number: 4
+      uid: 4
+    type: audio
+  expected:
+    id: 3
+    type: audio
+    codec: AC-3
+    language: de
+
+- track:
+    codec: DTS
+    id: 4
+    properties:
+      audio_bits_per_sample: 24
+      audio_channels: 2
+      audio_sampling_frequency: 48000
+      codec_id: A_DTS
+      codec_private_length: 0
+      default_duration: 10666667
+      default_track: false
+      enabled_track: true
+      forced_track: false
+      language: por
+      language_ietf: pt-BR
+      minimum_timestamp: 2002000000
+      num_index_entries: 0
+      number: 5
+      uid: 5
+    type: audio
+  expected:
+    id: 4
+    type: audio
+    codec: DTS
+    language: pt-BR
+
+- track:
+    codec: HDMV PGS
+    id: 5
+    properties:
+      codec_id: S_HDMV/PGS
+      codec_private_length: 0
+      content_encoding_algorithms: '0'
+      default_track: false
+      enabled_track: true
+      forced_track: false
+      language: eng
+      language_ietf: en
+      num_index_entries: 1290
+      number: 6
+      uid: 6
+    type: subtitles
+  expected:
+    id: 5
+    type: subtitles
+    codec: HDMV PGS
+    language: en
+
+- track:
+    codec: HDMV PGS
+    id: 6
+    properties:
+      codec_id: S_HDMV/PGS
+      codec_private_length: 0
+      content_encoding_algorithms: '0'
+      default_track: false
+      enabled_track: true
+      forced_track: false
+      language: ger
+      language_ietf: de
+      num_index_entries: 1102
+      number: 7
+      uid: 11
+    type: subtitles
+  expected:
+    id: 6
+    type: subtitles
+    codec: HDMV PGS
+    language: de
+
+- track:
+    codec: HDMV PGS
+    id: 7
+    properties:
+      codec_id: S_HDMV/PGS
+      codec_private_length: 0
+      content_encoding_algorithms: '0'
+      default_track: false
+      enabled_track: true
+      forced_track: false
+      language: por
+      language_ietf: pt-BR
+      num_index_entries: 1102
+      number: 8
+      uid: 14
+    type: subtitles
+  expected:
+    id: 7
+    type: subtitles
+    codec: HDMV PGS
+    language: pt-BR
