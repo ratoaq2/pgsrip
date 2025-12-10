@@ -10,8 +10,8 @@ RUN apt-get update \
 WORKDIR /data
 
 RUN git clone --progress --depth 1 --branch ${TESSDATA_VERSION} https://github.com/tesseract-ocr/tessdata_best.git \
-    && mv tessdata_best tessdata \
-    && rm -rf .git
+    && rm -rf tessdata_best/.git \
+    && mv tessdata_best tessdata
 
 
 FROM python:3.13-slim as builder
