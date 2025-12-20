@@ -1,4 +1,4 @@
-FROM python:3.13-slim as tesseract-image
+FROM python:3.13-slim AS tesseract-image
 
 ENV TESSDATA_VERSION=main
 
@@ -14,7 +14,7 @@ RUN git clone --progress --depth 1 --branch ${TESSDATA_VERSION} https://github.c
     && mv tessdata_best tessdata
 
 
-FROM python:3.13-slim as builder
+FROM python:3.13-slim AS builder
 
 ENV PYTHONFAULTHANDLER=1 \
     PYTHONUNBUFFERED=1 \
@@ -27,7 +27,7 @@ ENV PYTHONFAULTHANDLER=1 \
     POETRY_VIRTUALENVS_CREATE=0
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl gpg python3-distutils python3-venv \
+    && apt-get install -y --no-install-recommends curl gpg \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -55,9 +55,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends curl gpg \
     && curl -sSL https://notesalexp.org/debian/alexp_key.asc | gpg --dearmor > /etc/apt/trusted.gpg.d/alex-p-ubuntu-tesseract-ocr5.gpg \
     && curl -sSL -o /usr/share/keyrings/gpg-pub-moritzbunkus.gpg https://mkvtoolnix.download/gpg-pub-moritzbunkus.gpg \
-    && echo "deb https://notesalexp.org/tesseract-ocr5/bookworm/ bookworm main" >> /etc/apt/sources.list \
-    && echo "deb [signed-by=/usr/share/keyrings/gpg-pub-moritzbunkus.gpg] https://mkvtoolnix.download/debian/ bookworm main" >> /etc/apt/sources.list.d/mkvtoolnix.download.list \
-    && echo "deb-src [signed-by=/usr/share/keyrings/gpg-pub-moritzbunkus.gpg] https://mkvtoolnix.download/debian/ bookworm main" >> /etc/apt/sources.list.d/mkvtoolnix.download.list \
+    && echo "deb https://notesalexp.org/tesseract-ocr5/trixie/ trixie main" >> /etc/apt/sources.list \
+    && echo "deb [signed-by=/usr/share/keyrings/gpg-pub-moritzbunkus.gpg] https://mkvtoolnix.download/debian/ trixie main" >> /etc/apt/sources.list.d/mkvtoolnix.download.list \
+    && echo "deb-src [signed-by=/usr/share/keyrings/gpg-pub-moritzbunkus.gpg] https://mkvtoolnix.download/debian/ trixie main" >> /etc/apt/sources.list.d/mkvtoolnix.download.list \
     && apt-get update \
     && apt-get install -y --no-install-recommends ffmpeg libsm6 libxext6 tesseract-ocr mkvtoolnix \
     && apt-get clean \
