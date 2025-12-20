@@ -59,7 +59,7 @@ RUN apt-get update \
     && echo "deb [signed-by=/usr/share/keyrings/gpg-pub-moritzbunkus.gpg] https://mkvtoolnix.download/debian/ trixie main" >> /etc/apt/sources.list.d/mkvtoolnix.download.list \
     && echo "deb-src [signed-by=/usr/share/keyrings/gpg-pub-moritzbunkus.gpg] https://mkvtoolnix.download/debian/ trixie main" >> /etc/apt/sources.list.d/mkvtoolnix.download.list \
     && apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg libsm6 libxext6 tesseract-ocr mkvtoolnix \
+    && apt-get install -y --no-install-recommends ffmpeg tesseract-ocr mkvtoolnix \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
