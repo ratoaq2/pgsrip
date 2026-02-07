@@ -26,16 +26,10 @@ ENV PYTHONFAULTHANDLER=1 \
     POETRY_VERSION=1.8.3 \
     POETRY_VIRTUALENVS_CREATE=0
 
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl gpg \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN pip install "poetry==$POETRY_VERSION"
+RUN python -m pip install --no-cache-dir "poetry==${POETRY_VERSION}"
 
 WORKDIR /app
 COPY poetry.lock pyproject.toml README.md /app/
-RUN poetry install --no-interaction --no-ansi --only main
 COPY pgsrip/ /app/pgsrip/
 RUN poetry build --no-interaction --no-ansi
 
