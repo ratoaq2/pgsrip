@@ -1,6 +1,7 @@
 import enum
 import typing
 from datetime import timedelta
+from urllib.parse import SplitResult as URLSplitResult
 
 from babelfish import Language
 
@@ -49,7 +50,12 @@ class Options:
                  tesseract_oem: typing.Optional[TesseractEngineMode] = None,
                  tesseract_psm: typing.Optional[TesseractPageSegmentationMode] = None,
                  age: typing.Optional[timedelta] = None,
-                 srt_age: typing.Optional[timedelta] = None):
+                 srt_age: typing.Optional[timedelta] = None,
+                 llm_endpoint: typing.Optional[URLSplitResult] = None,
+                 llm_model: typing.Optional[str] = None,
+                 llm_api_key: typing.Optional[str] = None,
+                 llm_prompt: typing.Optional[str] = None,
+                 llm_temp: typing.Optional[float] = None):
         self.config = Config.from_path(config_path) if config_path else Config()
         self.languages = languages or set()
         self.tags = tags or {'default'}
@@ -64,6 +70,11 @@ class Options:
         self.tesseract_psm = tesseract_psm
         self.age = age
         self.srt_age = srt_age
+        self.llm_endpoint = llm_endpoint
+        self.llm_model = llm_model
+        self.llm_api_key = llm_api_key
+        self.llm_prompt = llm_prompt
+        self.llm_temp = llm_temp
 
     def __repr__(self):
         return f'<{self.__class__.__name__} [{self}]>'
@@ -81,4 +92,8 @@ class Options:
                 f'tesseract_oem:{self.tesseract_oem}, '
                 f'tesseract_psm:{self.tesseract_psm}, '
                 f'age:{self.age}, '
-                f'srt_age:{self.srt_age}')
+                f'srt_age:{self.srt_age}, '
+                f'llm_endpoint:{self.llm_endpoint}, '
+                f'llm_model:{self.llm_model}, '
+                f'llm_api_key:{"***" if self.llm_api_key else None}',
+                f'llm_prompt:{self.llm_prompt}')

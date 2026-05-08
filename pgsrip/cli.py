@@ -4,6 +4,7 @@ import re
 import typing
 from datetime import timedelta
 from types import TracebackType
+from urllib.parse import urlsplit
 
 from babelfish import Error as BabelfishError, Language
 
@@ -73,16 +74,31 @@ class AgeParamType(click.ParamType):
         return timedelta(**{k: int(v) for k, v in match.groupdict('0').items()})
 
 
+class URLParamType(click.ParamType):
+    name = 'url'
+
+    def convert(self, value, param, ctx):
+        try:
+            result = urlsplit(value)
+            if not all([result.scheme, result.netloc]):
+                self.fail(f'{value} is not a valid URL', param, ctx)
+            return result
+        except Exception:
+            self.fail(f'{value} is not a valid URL', param, ctx)
+
+
 LANGUAGE = LanguageParamType()
 AGE = AgeParamType()
+URL = URLParamType()
 
 
 @click.command()
 @click.option('-c', '--config', type=click.Path(), help='cleanit configuration path to be used')
 @click.option('-l', '--language', type=LANGUAGE, multiple=True, help='Language as IETF code, '
               'e.g. en, pt-BR (can be used multiple times).')
-@click.option('-t', '--tag', required=False, multiple=True, help='Rule tags to be used, '
-              'e.g. ocr, tidy, no-sdh, no-style, no-lyrics, no-spam (can be used multiple times). ')
+@click.option('-t', '--tag', required=False, multiple=True, help='Rule tags to be used for OCR postprocessing, '
+              'e.g. "ocr", "tidy", "no-sdh", "no-style", "no-lyrics", "no-spam" (can be used multiple times). '
+              'If unspecified, "default" will be used. Pass "none" to disable.')
 @click.option('-e', '--encoding', help='Save subtitles using the following encoding.')
 @click.option('-a', '--age', type=AGE, help='Filter videos newer than AGE, e.g. 12h, 1w2d.')
 @click.option('-A', '--srt-age', type=AGE, help='Filter videos which srt subtitles are newer than AGE, e.g. 12h, 1w2d.')
@@ -94,6 +110,11 @@ AGE = AgeParamType()
 @click.option('--keep-temp-files', is_flag=True, help='Do not delete temporary files created, '
                                                       'e.g. extracted sup files, generated png files '
                                                       'and other useful debug files')
+@click.option('--llm-endpoint', type=URL, help='OpenAI-compatible LLM API endpoint URL')
+@click.option('--llm-model', help='LLM model name to use for OCR')
+@click.option('--llm-api-key', help='LLM endpoint API key')
+@click.option('--llm-prompt', help='LLM prompt')
+@click.option('--llm-temp', help='LLM temperature')
 @click.option('--debug', is_flag=True, help='Print useful information for debugging and for reporting bugs.')
 @click.option('-v', '--verbose', count=True, help='Display debug messages')
 @click.argument('path', type=click.Path(), required=True, nargs=-1)
@@ -106,9 +127,14 @@ def pgsrip(config: typing.Optional[str],
            srt_age: typing.Optional[timedelta],
            force: bool,
            all: bool,
-           debug: bool,
            max_workers: typing.Optional[int],
            keep_temp_files: bool,
+           llm_endpoint: typing.Optional[str],
+           llm_model: typing.Optional[str],
+           llm_api_key: typing.Optional[str],
+           llm_prompt: typing.Optional[str],
+           llm_temp: typing.Optional[float],
+           debug: bool,
            verbose: int,
            path: typing.Tuple[str]):
     if debug:
@@ -116,7 +142,11 @@ def pgsrip(config: typing.Optional[str],
         handler.setFormatter(logging.Formatter(logging.BASIC_FORMAT))
         logger.addHandler(handler)
         logger.setLevel(logging.DEBUG)
-        logger.info(f'Tesseract version: {tess.get_tesseract_version()}')
+        try:
+            tess_version = tess.get_tesseract_version()
+        except tess.TesseractNotFoundError:
+            tess_version = 'unavailable'
+        logger.info(f'Tesseract version: {tess_version}')
         logger.info(f'Tesseract data: {os.getenv("TESSDATA_PREFIX")}')
 
     if config and (not os.path.isfile(config) or os.path.isdir(config)):
@@ -125,17 +155,22 @@ def pgsrip(config: typing.Optional[str],
 
     options = Options(config_path=config,
                       languages=set(language or []),
-                      tags=set(tag or []),
+                      tags=tag,
                       encoding=encoding,
                       overwrite=force,
                       one_per_lang=not all,
                       keep_temp_files=keep_temp_files,
                       max_workers=max_workers,
                       age=age,
-                      srt_age=srt_age)
+                      srt_age=srt_age,
+                      llm_model=llm_model,
+                      llm_endpoint=llm_endpoint,
+                      llm_api_key=llm_api_key,
+                      llm_prompt=llm_prompt,
+                      llm_temp=llm_temp)
 
     rules = options.config.select_rules(tags=options.tags, languages=options.languages)
-    if not rules:
+    if not rules and tag != ('none',):
         values = tuple(options.tags) + tuple(str(lang) for lang in options.languages)
         click.echo(f"No rules defined for {click.style(', '.join(values), bold=True)}")
         return

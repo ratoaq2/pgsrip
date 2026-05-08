@@ -11,9 +11,10 @@ Version](https://img.shields.io/pypi/v/pgsrip.svg)](https://pypi.python.org/pypi
     <https://github.com/ratoaq2/pgsrip>
 
 **PGSRip** is a command line tool that allows you to extract and convert
-PGS subtitles into SRT format. This tool requires MKVToolNix and
-tesseract-ocr and tessdata (<https://github.com/tesseract-ocr/tessdata>
-or <https://github.com/tesseract-ocr/tessdata_best>)
+PGS subtitles into SRT format. This tool requires MKVToolNix and a OCR
+mechanism, which may be tesseract-ocr and tessdata (<https://github.com/tesseract-ocr/tessdata>
+or <https://github.com/tesseract-ocr/tessdata_best>), or any
+OpenAI-compatible LLM endpoint such as <https://github.com/ggml-org/llama.cpp>.
 
 ## Installation
 
@@ -57,9 +58,16 @@ If you prefer to build the docker image Build Docker:
 
 ### CLI
 
-Rip from a .mkv:
+Rip from a .mkv using Tesseract:
 
     $ pgsrip mymedia.mkv
+    3 PGS subtitles collected from 1 file
+    Ripping subtitles  [####################################]  100%  mymedia.mkv [5:de]
+    3 PGS subtitles ripped from 1 file
+
+Rip from a .mkv using llama-server:
+
+    $ pgsrip --llm-endpoint http://127.0.0.1:8080/v1 mymedia.mkv
     3 PGS subtitles collected from 1 file
     Ripping subtitles  [####################################]  100%  mymedia.mkv [5:de]
     3 PGS subtitles ripped from 1 file

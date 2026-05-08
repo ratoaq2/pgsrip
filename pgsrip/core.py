@@ -5,7 +5,7 @@ import typing
 from pgsrip.media import Media, Pgs
 from pgsrip.mkv import Mkv
 from pgsrip.options import Options
-from pgsrip.ripper import PgsToSrtRipper
+from pgsrip.ripper import PgsToSrtRipper, LlmPgsToSrtRipper
 from pgsrip.sup import Sup
 
 
@@ -65,9 +65,14 @@ def rip_pgs(pgs: Pgs, options: Options):
             if not p.matches(options):
                 return False
 
+            if options.llm_endpoint:
+                ripper = LlmPgsToSrtRipper(p, options)
+            else:
+                ripper = PgsToSrtRipper(p, options)
+
             rules = options.config.select_rules(tags=options.tags, languages={p.language})
-            srt = PgsToSrtRipper(p, options).rip(lambda t: rules.apply(t, '')[0])
-            srt.save(encoding=options.encoding)
+            ripper.rip(rules.clean).save(encoding=options.encoding)
+
             return True
     except Exception as e:
         logger.warning('Error while trying to rip %s: <%s> [%s]',

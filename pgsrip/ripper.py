@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import http.client
 import json
 import logging
 import os
@@ -234,4 +236,130 @@ class PgsToSrtRipper:
 
         subs.clean_indexes()
 
+        return subs
+
+
+class LlmPgsToSrtRipper:
+
+    def __init__(self, pgs: Pgs, options: Options):
+        self.pgs = pgs
+        self.llm_endpoint = options.llm_endpoint
+        self.llm_model = options.llm_model or 'unspecified'
+        self.llm_api_key = options.llm_api_key
+        self.llm_prompt = options.llm_prompt or 'Text transcription'
+        if pgs.language:
+            self.llm_prompt = f'{self.llm_prompt.rstrip(". ")}. Language: {pgs.language}'
+        self.llm_temp = options.llm_temp
+        self.keep_temp_files = options.keep_temp_files
+
+    def prepare_payload(self, image) -> dict:
+        _, buffer = cv2.imencode('.png', image)
+        image_base64 = base64.b64encode(buffer.tobytes()).decode('utf-8')
+
+        payload = {
+            'model': self.llm_model,
+            'messages': [
+                {
+                    'role': 'user',
+                    'content': [
+                        {
+                            'type': 'image_url',
+                            'image_url': {
+                                'url': f'data:image/png;base64,{image_base64}'
+                            }
+                        },
+                        {
+                            'type': 'text',
+                            'text': self.llm_prompt
+                        }
+                    ]
+                }
+            ],
+            'max_tokens': 4096,
+            'chat_template_kwargs': {
+                # Under no circumstances makes sense to enable thinking for basic OCRing
+                'enable_thinking': False
+            }
+        }
+        if self.llm_temp is not None:
+            payload['temperature'] = self.llm_temp
+
+        return payload
+
+    def call_llm_api(self, payload: dict) -> dict:
+        body = json.dumps(payload)
+
+        parsed = self.llm_endpoint
+        host = parsed.hostname
+        port = parsed.port or (443 if parsed.scheme == 'https' else 80)
+        path = (parsed.path or '').rstrip('/') + '/chat/completions'
+        if parsed.query:
+            path = f'{path}?{parsed.query}'
+
+        if parsed.scheme == 'https':
+            conn = http.client.HTTPSConnection(host, port, timeout=60)
+        else:
+            conn = http.client.HTTPConnection(host, port, timeout=60)
+
+        headers = {
+            'Content-Type': 'application/json',
+            'Content-Length': str(len(body))
+        }
+        if self.llm_api_key:
+            headers['Authorization'] = f'Bearer {self.llm_api_key}'
+
+        try:
+            conn.request('POST', path, body=body, headers=headers)
+            response = conn.getresponse()
+            response_data = response.read().decode('utf-8')
+
+            if response.status != 200:
+                logger.error('LLM API error %d: %s', response.status, response_data)
+                return {}
+
+            result = json.loads(response_data)
+            return result
+
+        except Exception as e:
+            logger.error('LLM API call failed: %s', e)
+            return {}
+        finally:
+            conn.close()
+
+    def rip(self, post_process: typing.Callable[[str], str]):
+        subs = SubRipFile(path=str(self.pgs.media_path.translate(extension='srt')))
+        debug_file = None
+
+        if self.keep_temp_files:
+            debug_file = os.path.join(self.pgs.temp_folder,
+                                      f'{os.path.basename(subs.path)}-llm-debug.txt')
+            logger.debug('Writing LLM results to %s', debug_file)
+
+        for item in self.pgs.items:
+            payload = self.prepare_payload(item.image.data)
+            response = self.call_llm_api(payload)
+
+            try:
+                text = response['choices'][0]['message']['content'].strip()
+            except KeyError:
+                logger.error('Unexpected LLM response: %s', response)
+                continue
+
+            if post_process and text:
+                text = post_process(text)
+
+            if text:
+                sub_item = SubRipItem(0, item.start, item.end, text)
+                subs.append(sub_item)
+
+            if self.keep_temp_files and debug_file:
+                with open(debug_file, mode='a', encoding='utf-8') as f:
+                    f.write(f'--- {item} ---\n')
+                    f.write('PAYLOAD:\n')
+                    json.dump(payload, f, indent=2)
+                    f.write('\n\nRESPONSE:\n')
+                    json.dump(response, f, indent=2)
+                    f.write(f'\n\nEXTRACTED TEXT:\n{text}\n\n')
+
+        subs.clean_indexes()
         return subs
