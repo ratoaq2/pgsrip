@@ -146,3 +146,20 @@ media = Mkv('/subtitle/path/mymedia.mkv')
 options = Options(languages={Language('eng')}, overwrite=True, one_per_lang=False)
 pgsrip.rip(media, options)
 ```
+
+## Reporting a bug
+
+### Debug log
+
+`--debug` prints debug messages to the console. `--log-file` writes the same
+messages to a file, so you can attach it to a bug report:
+
+    $ pgsrip --log-file pgsrip.log mymedia.mkv
+    1 PGS subtitle collected from 1 file
+    Ripping subtitles  [####################################]  100%  mymedia.mkv [4:en]
+    1 PGS subtitle ripped from 1 file
+    Debug log written to pgsrip.log
+
+The log starts with the pgsrip, Python and tesseract versions. It contains the
+paths of the files that were ripped. Remove or replace them if you do not want
+to share the names of your media files.

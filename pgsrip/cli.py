@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import sys
 import typing
 from datetime import timedelta
 from types import TracebackType
@@ -97,6 +98,31 @@ def echo_paths(paths: list[str], label: str, color: str, limit: int | None) -> N
         click.echo(f'... and {remaining} more, use {click.style("-vv", bold=True)} to see them all')
 
 
+def configure_logging(debug: bool, log_file: str | None) -> None:
+    """Send debug messages to the console, to a log file, or to both."""
+    if not debug and not log_file:
+        return
+
+    logger.setLevel(logging.DEBUG)
+    if debug:
+        handler = logging.StreamHandler()
+        handler.setFormatter(logging.Formatter(logging.BASIC_FORMAT))
+        logger.addHandler(handler)
+
+    if log_file:
+        file_handler = logging.FileHandler(log_file, mode='w', encoding='utf8')
+        file_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s %(message)s'))
+        logger.addHandler(file_handler)
+
+    logger.info('pgsrip %s', __version__)
+    logger.info('Python %s on %s', ' '.join(sys.version.split()), sys.platform)
+    try:
+        logger.info('Tesseract version: %s', tess.get_tesseract_version())
+    except Exception as e:
+        logger.warning('Tesseract not available: <%s> [%s]', type(e).__name__, e)
+    logger.info('Tesseract data: %s', os.getenv('TESSDATA_PREFIX'))
+
+
 def download_tessdata(pgs_medias: list[Pgs], options: Options) -> None:
     """Download the tesseract data every collected subtitle needs, before any ripping starts."""
     if not pgs_medias:
@@ -171,6 +197,11 @@ def download_tessdata(pgs_medias: list[Pgs], options: Options) -> None:
     'and other useful debug files',
 )
 @click.option('--debug', is_flag=True, help='Print useful information for debugging and for reporting bugs.')
+@click.option(
+    '--log-file',
+    type=click.Path(dir_okay=False, writable=True),
+    help='Write a full debug log to this file, to attach it to a bug report.',
+)
 @click.option('-v', '--verbose', count=True, help='Display debug messages')
 @click.argument('path', type=click.Path(), required=True, nargs=-1)
 @click.version_option(__version__)
@@ -184,6 +215,7 @@ def pgsrip(
     force: bool,
     all: bool,
     debug: bool,
+    log_file: str | None,
     max_workers: int | None,
     tessdata_dir: str | None,
     tessdata_repository: str | None,
@@ -192,13 +224,11 @@ def pgsrip(
     verbose: int,
     path: tuple[str],
 ) -> None:
-    if debug:
-        handler = logging.StreamHandler()
-        handler.setFormatter(logging.Formatter(logging.BASIC_FORMAT))
-        logger.addHandler(handler)
-        logger.setLevel(logging.DEBUG)
-        logger.info(f'Tesseract version: {tess.get_tesseract_version()}')
-        logger.info(f'Tesseract data: {os.getenv("TESSDATA_PREFIX")}')
+    try:
+        configure_logging(debug, log_file)
+    except OSError as e:
+        click.echo(click.style(f'Cannot write the log file: {e}', fg='red'))
+        return
 
     if config and (not os.path.isfile(config) or os.path.isdir(config)):
         click.echo(f'Invalid configuration is defined: {click.style(config, bold=True)}')
@@ -293,3 +323,6 @@ def pgsrip(
         f'{click.style(str(len(collected_medias)), bold=True, fg="blue")} '
         f'file{"s" if len(collected_medias) > 1 else ""}'
     )
+
+    if log_file:
+        click.echo(f'Debug log written to {click.style(log_file, bold=True)}')
