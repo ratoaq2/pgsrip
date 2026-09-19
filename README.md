@@ -149,6 +149,25 @@ pgsrip.rip(media, options)
 
 ## Reporting a bug
 
+### Environment
+
+`pgsrip doctor` shows what is installed. Add its output to the bug report:
+
+    $ pgsrip doctor
+    pgsrip                       0.1.13
+    python                       3.13.1 (/usr/bin/python3)
+    platform                     Linux-6.8.0-generic-x86_64
+    mkvmerge                     mkvmerge v90.0 (/usr/bin/mkvmerge)
+    mkvextract                   mkvextract v90.0 (/usr/bin/mkvextract)
+    tesseract                    5.5.1 (/usr/bin/tesseract)
+    tesseract languages          eng, osd, por
+    ...
+
+    Everything that pgsrip needs is installed.
+
+The command exits with code 1 if something is missing, and prints how to
+install it.
+
 ### Debug log
 
 `--debug` prints debug messages to the console. `--log-file` writes the same

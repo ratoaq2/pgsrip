@@ -3,18 +3,17 @@ from __future__ import annotations
 import logging
 import os
 import re
-import sys
 import typing
 from datetime import timedelta
 from types import TracebackType
 
 import click
-import pytesseract as tess
 from babelfish import Error as BabelfishError
 from babelfish import Language
 
 from pgsrip import Pgs, __version__, api
 from pgsrip.core import get_reason
+from pgsrip.diagnostics import format_checks, run_checks
 from pgsrip.media import Media
 from pgsrip.options import Options
 from pgsrip.tessdata import REPOSITORIES, Tessdata, TessdataError, get_required_codes
@@ -82,6 +81,9 @@ class AgeParamType(click.ParamType[timedelta, str]):
 LANGUAGE = LanguageParamType()
 AGE = AgeParamType()
 
+# arguments that the group handles itself, everything else belongs to the default command
+GROUP_ARGUMENTS = frozenset({'--help', '-h', '--version'})
+
 # how many ignored paths are listed before the list is cut short
 MAX_REPORTED_PATHS = 10
 
@@ -114,13 +116,14 @@ def configure_logging(debug: bool, log_file: str | None) -> None:
         file_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s %(message)s'))
         logger.addHandler(file_handler)
 
-    logger.info('pgsrip %s', __version__)
-    logger.info('Python %s on %s', ' '.join(sys.version.split()), sys.platform)
-    try:
-        logger.info('Tesseract version: %s', tess.get_tesseract_version())
-    except Exception as e:
-        logger.warning('Tesseract not available: <%s> [%s]', type(e).__name__, e)
-    logger.info('Tesseract data: %s', os.getenv('TESSDATA_PREFIX'))
+
+def log_environment(options: Options) -> None:
+    """Record the installed versions at the top of the debug log."""
+    if not logger.isEnabledFor(logging.DEBUG):
+        return
+
+    for line in format_checks(run_checks(options)).splitlines():
+        logger.info(line)
 
 
 def download_tessdata(pgs_medias: list[Pgs], options: Options) -> None:
@@ -139,7 +142,27 @@ def download_tessdata(pgs_medias: list[Pgs], options: Options) -> None:
         click.echo(click.style(str(e), fg='red'))
 
 
-@click.command()
+class DefaultGroup(click.Group):
+    """A group that runs a default command, so that `pgsrip MEDIA` keeps working."""
+
+    def __init__(self, *args: typing.Any, default: str = '', **kwargs: typing.Any):
+        super().__init__(*args, **kwargs)
+        self.default = default
+
+    def parse_args(self, ctx: click.Context, args: list[str]) -> list[str]:
+        if args and args[0] not in self.commands and args[0] not in GROUP_ARGUMENTS:
+            args = [self.default, *args]
+
+        return super().parse_args(ctx, args)
+
+
+@click.group(cls=DefaultGroup, default='rip')
+@click.version_option(__version__)
+def pgsrip() -> None:
+    """Rip your PGS subtitles."""
+
+
+@pgsrip.command()
 @click.option('-c', '--config', type=click.Path(), help='cleanit configuration path to be used')
 @click.option(
     '-l',
@@ -204,8 +227,7 @@ def download_tessdata(pgs_medias: list[Pgs], options: Options) -> None:
 )
 @click.option('-v', '--verbose', count=True, help='Display debug messages')
 @click.argument('path', type=click.Path(), required=True, nargs=-1)
-@click.version_option(__version__)
-def pgsrip(
+def rip(
     config: str | None,
     language: tuple[Language] | None,
     tag: tuple[str] | None,
@@ -224,6 +246,7 @@ def pgsrip(
     verbose: int,
     path: tuple[str],
 ) -> None:
+    """Rip the PGS subtitles of each media PATH into SRT."""
     try:
         configure_logging(debug, log_file)
     except OSError as e:
@@ -249,6 +272,8 @@ def pgsrip(
         age=age,
         srt_age=srt_age,
     )
+
+    log_environment(options)
 
     rules = options.config.select_rules(tags=options.tags, languages=options.languages)
     if not rules:
@@ -326,3 +351,35 @@ def pgsrip(
 
     if log_file:
         click.echo(f'Debug log written to {click.style(log_file, bold=True)}')
+
+
+@pgsrip.command()
+@click.option(
+    '--tessdata-dir',
+    type=click.Path(),
+    help='Directory where tesseract data is stored. Defaults to TESSDATA_PREFIX or a user cache directory.',
+)
+@click.option(
+    '--tessdata-repository',
+    type=click.Choice(sorted(REPOSITORIES)),
+    default=None,
+    help='Repository to download missing tesseract data from.',
+)
+def doctor(tessdata_dir: str | None, tessdata_repository: str | None) -> None:
+    """Check that everything pgsrip needs is installed. Add the output to a bug report."""
+    checks = run_checks(Options(tessdata_dir=tessdata_dir, tessdata_repository=tessdata_repository))
+    click.echo(format_checks(checks))
+
+    failed = [check for check in checks if not check.ok]
+    if not failed:
+        click.echo()
+        click.echo(click.style('Everything that pgsrip needs is installed.', fg='green'))
+        return
+
+    click.echo()
+    for check in failed:
+        click.echo(f'{click.style(check.name, fg="red", bold=True)}: {check.value}')
+        if check.hint:
+            click.echo(f'  {check.hint}')
+
+    raise SystemExit(1)
