@@ -11,11 +11,12 @@ import click
 from babelfish import Error as BabelfishError
 from babelfish import Language
 
-from pgsrip import Pgs, __version__, api
+from pgsrip import Pgs, __url__, __version__, api
 from pgsrip.core import get_reason
 from pgsrip.diagnostics import format_checks, run_checks
 from pgsrip.media import Media
 from pgsrip.options import Options
+from pgsrip.scrub import Redaction, output_path, scrub_data
 from pgsrip.tessdata import REPOSITORIES, Tessdata, TessdataError, get_required_codes
 
 if typing.TYPE_CHECKING:
@@ -78,8 +79,31 @@ class AgeParamType(click.ParamType[timedelta, str]):
         return timedelta(**{k: int(v) for k, v in match.groupdict('0').items()})
 
 
+class RangeParamType(click.ParamType[frozenset[int], str]):
+    name = 'range'
+
+    def convert(self, value: str, param: click.Parameter | None, ctx: click.Context | None) -> frozenset[int]:
+        match = re.match(r'^(?P<start>\d+)(?:-(?P<end>\d+))?$', value.strip())
+        if not match:
+            self.fail(f'{click.style(value, bold=True)} is not a valid display set range, e.g. 412 or 400-420')
+
+        start = int(match.group('start'))
+        end = int(match.group('end') or start)
+        if end < start:
+            self.fail(f'{click.style(value, bold=True)} ends before it starts')
+
+        return frozenset(range(start, end + 1))
+
+
 LANGUAGE = LanguageParamType()
 AGE = AgeParamType()
+RANGE = RangeParamType()
+
+
+def merge_ranges(values: tuple[frozenset[int], ...]) -> set[int]:
+    """Collect every display set of every given range."""
+    return {index for value in values for index in value}
+
 
 # arguments that the group handles itself, everything else belongs to the default command
 GROUP_ARGUMENTS = frozenset({'--help', '-h', '--version'})
@@ -383,3 +407,139 @@ def doctor(tessdata_dir: str | None, tessdata_repository: str | None) -> None:
             click.echo(f'  {check.hint}')
 
     raise SystemExit(1)
+
+
+@pgsrip.command()
+@click.option(
+    '-o',
+    '--output',
+    type=click.Path(),
+    help='Path or directory to write the scrubbed .sup files to. Defaults to the current directory.',
+)
+@click.option(
+    '--redact',
+    type=click.Choice([redaction.value for redaction in Redaction]),
+    default=Redaction.ALL.value,
+    show_default=True,
+    help='all: replace every subtitle image with an empty one. '
+    'synthetic: replace them with placeholder text of the same size. '
+    'none: keep the original images, which are the content of your media.',
+)
+@click.option(
+    '--keep-images',
+    type=RANGE,
+    multiple=True,
+    help='Display sets that keep their original images, e.g. 412 or 400-420 (can be used multiple times).',
+)
+@click.option(
+    '--only',
+    type=RANGE,
+    multiple=True,
+    help='Write only these display sets, e.g. 0-99 (can be used multiple times).',
+)
+@click.option(
+    '-l',
+    '--language',
+    type=LANGUAGE,
+    multiple=True,
+    help='Language as IETF code, e.g. en, pt-BR (can be used multiple times).',
+)
+@click.option('--all', 'every_track', is_flag=True, default=False, help='scrub all tracks for a given language')
+@click.option(
+    '--keep-name',
+    is_flag=True,
+    default=False,
+    help='Name the output after the media file, instead of after a hash of its name.',
+)
+@click.option('--debug', is_flag=True, help='Print useful information for debugging and for reporting bugs.')
+@click.option(
+    '--log-file',
+    type=click.Path(dir_okay=False, writable=True),
+    help='Write a full debug log to this file, to attach it to a bug report.',
+)
+@click.argument('path', type=click.Path(), required=True, nargs=-1)
+def scrub(
+    output: str | None,
+    redact: str,
+    keep_images: tuple[frozenset[int], ...],
+    only: tuple[frozenset[int], ...],
+    language: tuple[Language] | None,
+    every_track: bool,
+    keep_name: bool,
+    debug: bool,
+    log_file: str | None,
+    path: tuple[str],
+) -> None:
+    """Copy the PGS subtitles of each media PATH without the subtitle images.
+
+    The result is a .sup file that pgsrip reads like any other one. It keeps the timing, the
+    layout and the palettes, which is what almost every bug is about, and it is small enough to
+    attach to a bug report.
+    """
+    try:
+        configure_logging(debug, log_file)
+    except OSError as e:
+        click.echo(click.style(f'Cannot write the log file: {e}', fg='red'))
+        return
+
+    redaction = Redaction(redact)
+    options = Options(languages=set(language or []), one_per_lang=not every_track, overwrite=True)
+    log_environment(options)
+
+    collected_medias: list[Media] = []
+    discarded_paths: list[str] = []
+    for p in path:
+        collected, _, discarded = api.scan_path(p, options)
+        collected_medias.extend(collected)
+        discarded_paths.extend(discarded)
+
+    echo_paths(discarded_paths, 'ignored', 'red', limit=None if debug else MAX_REPORTED_PATHS)
+    if not collected_medias:
+        click.echo(click.style('No media to scrub', fg='red'))
+        return
+
+    written = scrub_medias(collected_medias, options, redaction, keep_images, only, output, keep_name)
+    if not written:
+        return
+
+    if redaction == Redaction.NONE:
+        click.echo(click.style('The scrubbed files hold the original subtitle images.', fg='yellow'))
+    else:
+        click.echo('The scrubbed files hold no subtitle image, only timing, layout and palettes.')
+
+    click.echo(f'Attach them to a new issue: {click.style(f"{__url__}/issues", bold=True)}')
+
+
+def scrub_medias(
+    medias: list[Media],
+    options: Options,
+    redaction: Redaction,
+    keep_images: tuple[frozenset[int], ...],
+    only: tuple[frozenset[int], ...],
+    output: str | None,
+    keep_name: bool,
+) -> list[str]:
+    """Write a scrubbed .sup file for every PGS subtitle of every media, and return their paths."""
+    kept = merge_ranges(keep_images)
+    selected = merge_ranges(only) or None
+    used: set[str] = set()
+    written: list[str] = []
+    for media in medias:
+        for pgs in media.get_pgs_medias(options):
+            with pgs:
+                try:
+                    data, stats = scrub_data(pgs.data_reader(), pgs.media_path, redaction, kept, selected)
+                except Exception as e:
+                    logger.debug('Cannot scrub %s', pgs, exc_info=True)
+                    click.echo(click.style(f'Cannot scrub {pgs}: <{type(e).__name__}> [{e}]', fg='red'))
+                    continue
+
+                language = str(pgs.media_path.language) or 'und'
+                target = output_path(media.media_path, language, output, keep_name, used)
+                with open(target, 'wb') as f:
+                    f.write(data)
+
+                written.append(target)
+                click.echo(f'{click.style(target, bold=True, fg="green")} written: {stats}')
+
+    return written

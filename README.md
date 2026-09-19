@@ -168,6 +168,37 @@ pgsrip.rip(media, options)
 The command exits with code 1 if something is missing, and prints how to
 install it.
 
+### Subtitle sample
+
+A PGS subtitle holds two different things: the segments that say when and where
+a subtitle is shown, and the images that hold the text. Only the images hold the
+content of your media, and most bugs are in the first part.
+
+`pgsrip scrub` writes a copy of your PGS subtitles without the images:
+
+    $ pgsrip scrub mymedia.mkv
+    pgsrip-a25b6c81.en.sup written: 1043/1043 display sets, 1043/1043 images redacted, 412088 bytes
+    The scrubbed files hold no subtitle image, only timing, layout and palettes.
+    Attach them to a new issue: https://github.com/ratoaq2/pgsrip/issues
+
+The result is a real `.sup` file. pgsrip reads it through the very same code, so
+it reproduces the bug, but there is no text to read on it and it is much smaller
+than the original. The file name is a hash of the name of your media file. Use
+`--keep-name` to keep the original name.
+
+If the bug is about the OCR itself, an empty image reproduces nothing. There are
+two other options:
+
+    $ pgsrip scrub --redact synthetic mymedia.mkv
+    $ pgsrip scrub --keep-images 412 mymedia.mkv
+
+`--redact synthetic` draws placeholder text in each subtitle image, with the
+same size and the same palette as the original. `--keep-images` keeps the
+original image of the given display sets only, e.g. `412` or `400-420`. A few
+subtitle lines are usually enough, and they stay small.
+
+`--only 0-99` writes only the given display sets, to cut a long subtitle short.
+
 ### Debug log
 
 `--debug` prints debug messages to the console. `--log-file` writes the same
