@@ -15,6 +15,7 @@ from babelfish import Language
 from pgsrip import Pgs, __version__, api
 from pgsrip.media import Media
 from pgsrip.options import Options
+from pgsrip.tessdata import REPOSITORIES, Tessdata, TessdataError, get_required_codes
 
 if typing.TYPE_CHECKING:
     from click._termui_impl import ProgressBar
@@ -80,6 +81,22 @@ LANGUAGE = LanguageParamType()
 AGE = AgeParamType()
 
 
+def download_tessdata(pgs_medias: list[Pgs], options: Options) -> None:
+    """Download the tesseract data every collected subtitle needs, before any ripping starts."""
+    if not pgs_medias:
+        return
+
+    def report(code: str) -> None:
+        click.echo(f'Downloading tesseract data for {click.style(code, bold=True)}...')
+
+    psm_value = options.tesseract_psm.value if options.tesseract_psm else None
+    codes = get_required_codes([pgs.language for pgs in pgs_medias], psm_value)
+    try:
+        Tessdata.from_options(options).ensure(codes, reporter=report)
+    except TessdataError as e:
+        click.echo(click.style(str(e), fg='red'))
+
+
 @click.command()
 @click.option('-c', '--config', type=click.Path(), help='cleanit configuration path to be used')
 @click.option(
@@ -114,6 +131,23 @@ AGE = AgeParamType()
 )
 @click.option('-w', '--max-workers', type=click.IntRange(1, 50), default=None, help='Maximum number of threads to use.')
 @click.option(
+    '--tessdata-dir',
+    type=click.Path(),
+    help='Directory where tesseract data is stored. Defaults to TESSDATA_PREFIX or a user cache directory.',
+)
+@click.option(
+    '--tessdata-repository',
+    type=click.Choice(sorted(REPOSITORIES)),
+    default=None,
+    help='Repository to download missing tesseract data from.',
+)
+@click.option(
+    '--no-tessdata-download',
+    is_flag=True,
+    default=False,
+    help='Do not download missing tesseract data, only use what is already installed.',
+)
+@click.option(
     '--keep-temp-files',
     is_flag=True,
     help='Do not delete temporary files created, '
@@ -135,6 +169,9 @@ def pgsrip(
     all: bool,
     debug: bool,
     max_workers: int | None,
+    tessdata_dir: str | None,
+    tessdata_repository: str | None,
+    no_tessdata_download: bool,
     keep_temp_files: bool,
     verbose: int,
     path: tuple[str],
@@ -160,6 +197,9 @@ def pgsrip(
         one_per_lang=not all,
         keep_temp_files=keep_temp_files,
         max_workers=max_workers,
+        tessdata_dir=tessdata_dir,
+        tessdata_repository=tessdata_repository,
+        download_tessdata=not no_tessdata_download,
         age=age,
         srt_age=srt_age,
     )
@@ -216,6 +256,8 @@ def pgsrip(
             f'path{"s" if len(discarded_paths) > 1 else ""} ignored'
         )
     click.echo(report)
+
+    download_tessdata(collected_pgs_medias, options)
 
     pgs_progressbar = DebugProgressBar(
         debug or verbose > 1,

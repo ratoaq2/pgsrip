@@ -46,6 +46,9 @@ class Options:
         tesseract_width: int | None = None,
         tesseract_oem: TesseractEngineMode | None = None,
         tesseract_psm: TesseractPageSegmentationMode | None = None,
+        tessdata_dir: str | None = None,
+        tessdata_repository: str | None = None,
+        download_tessdata: bool = True,
         age: timedelta | None = None,
         srt_age: timedelta | None = None,
     ):
@@ -61,6 +64,9 @@ class Options:
         self.tesseract_width = tesseract_width
         self.tesseract_oem = tesseract_oem
         self.tesseract_psm = tesseract_psm
+        self.tessdata_dir = tessdata_dir
+        self.tessdata_repository = tessdata_repository
+        self.download_tessdata = download_tessdata
         self.age = age
         self.srt_age = srt_age
 
@@ -80,6 +86,9 @@ class Options:
             f'tesseract_width:{self.tesseract_width}, '
             f'tesseract_oem:{self.tesseract_oem}, '
             f'tesseract_psm:{self.tesseract_psm}, '
+            f'tessdata_dir:{self.tessdata_dir}, '
+            f'tessdata_repository:{self.tessdata_repository}, '
+            f'download_tessdata:{self.download_tessdata}, '
             f'age:{self.age}, '
             f'srt_age:{self.srt_age}'
         )

@@ -13,6 +13,7 @@ from pysrt import SubRipFile, SubRipItem
 
 from pgsrip.media import Pgs, PgsSubtitleItem
 from pgsrip.options import Options, TesseractEngineMode, TesseractPageSegmentationMode
+from pgsrip.tessdata import Tessdata, get_config_arg, get_required_codes, get_tesseract_code, tessdata_env
 from pgsrip.tsv import TsvData, TsvDataItem
 
 logger = logging.getLogger(__name__)
@@ -125,6 +126,9 @@ class PgsToSrtRipper:
         max_height = max([item.height for item in self.pgs.items]) // 2
         self.gap = (max_height // 2 + 30, max_height // 2 + 100)
         self.keep_temp_files = options.keep_temp_files
+        self.language_code = get_tesseract_code(self.pgs.language)
+        tessdata = Tessdata.from_options(options)
+        self.tessdata_dir = tessdata.ensure(get_required_codes([self.pgs.language], self.psm.value))
 
     def process(
         self,
@@ -140,11 +144,11 @@ class PgsToSrtRipper:
 
         config: dict[str, typing.Any] = {
             'output_type': tess.Output.DICT,
-            'config': f'--psm {psm.value} --oem {oem.value}',
+            'config': f'{get_config_arg(self.tessdata_dir)} --psm {psm.value} --oem {oem.value}'.strip(),
         }
 
-        if self.pgs.language:
-            config.update({'lang': self.pgs.language.alpha3})
+        if self.language_code:
+            config.update({'lang': self.language_code})
 
         if self.omp_thread_limit:
             os.environ['OMP_THREAD_LIMIT'] = str(self.omp_thread_limit)
@@ -156,7 +160,8 @@ class PgsToSrtRipper:
             logger.debug('Writing temporary png file %s', png_file)
             cv2.imwrite(png_file, full_image.data)
 
-        data = TsvData(tess.image_to_data(full_image.data, **config), confidence=confidence)
+        with tessdata_env(self.tessdata_dir):
+            data = TsvData(tess.image_to_data(full_image.data, **config), confidence=confidence)
 
         if self.keep_temp_files:
             results_file = os.path.join(
