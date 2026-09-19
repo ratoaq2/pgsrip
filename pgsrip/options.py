@@ -1,9 +1,7 @@
 import enum
-import typing
 from datetime import timedelta
 
 from babelfish import Language
-
 from cleanit import Config
 
 
@@ -34,22 +32,26 @@ class TesseractPageSegmentationMode(enum.Enum):
 
 
 class Options:
-
-    def __init__(self,
-                 config_path: typing.Optional[str] = None,
-                 languages: typing.Optional[typing.Set[Language]] = None,
-                 tags: typing.Optional[typing.Set[str]] = None,
-                 encoding: typing.Optional[str] = None,
-                 overwrite=False,
-                 one_per_lang=True,
-                 keep_temp_files=False,
-                 max_workers: typing.Optional[int] = None,
-                 confidence: typing.Optional[int] = None,
-                 tesseract_width: typing.Optional[int] = None,
-                 tesseract_oem: typing.Optional[TesseractEngineMode] = None,
-                 tesseract_psm: typing.Optional[TesseractPageSegmentationMode] = None,
-                 age: typing.Optional[timedelta] = None,
-                 srt_age: typing.Optional[timedelta] = None):
+    def __init__(
+        self,
+        config_path: str | None = None,
+        languages: set[Language] | None = None,
+        tags: set[str] | None = None,
+        encoding: str | None = None,
+        overwrite: bool = False,
+        one_per_lang: bool = True,
+        keep_temp_files: bool = False,
+        max_workers: int | None = None,
+        confidence: int | None = None,
+        tesseract_width: int | None = None,
+        tesseract_oem: TesseractEngineMode | None = None,
+        tesseract_psm: TesseractPageSegmentationMode | None = None,
+        tessdata_dir: str | None = None,
+        tessdata_repository: str | None = None,
+        download_tessdata: bool = True,
+        age: timedelta | None = None,
+        srt_age: timedelta | None = None,
+    ):
         self.config = Config.from_path(config_path) if config_path else Config()
         self.languages = languages or set()
         self.tags = tags or {'default'}
@@ -62,23 +64,31 @@ class Options:
         self.tesseract_width = tesseract_width
         self.tesseract_oem = tesseract_oem
         self.tesseract_psm = tesseract_psm
+        self.tessdata_dir = tessdata_dir
+        self.tessdata_repository = tessdata_repository
+        self.download_tessdata = download_tessdata
         self.age = age
         self.srt_age = srt_age
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f'<{self.__class__.__name__} [{self}]>'
 
-    def __str__(self):
-        return (f'languages:{self.languages}, '
-                f'tags:{self.tags}, '
-                f'encoding:{self.encoding}, '
-                f'overwrite:{self.overwrite}, '
-                f'one_per_lang:{self.one_per_lang}, '
-                f'keep_temp_files:{self.keep_temp_files}, '
-                f'max_workers:{self.max_workers}, '
-                f'confidence:{self.confidence}, '
-                f'tesseract_width:{self.tesseract_width}, '
-                f'tesseract_oem:{self.tesseract_oem}, '
-                f'tesseract_psm:{self.tesseract_psm}, '
-                f'age:{self.age}, '
-                f'srt_age:{self.srt_age}')
+    def __str__(self) -> str:
+        return (
+            f'languages:{self.languages}, '
+            f'tags:{self.tags}, '
+            f'encoding:{self.encoding}, '
+            f'overwrite:{self.overwrite}, '
+            f'one_per_lang:{self.one_per_lang}, '
+            f'keep_temp_files:{self.keep_temp_files}, '
+            f'max_workers:{self.max_workers}, '
+            f'confidence:{self.confidence}, '
+            f'tesseract_width:{self.tesseract_width}, '
+            f'tesseract_oem:{self.tesseract_oem}, '
+            f'tesseract_psm:{self.tesseract_psm}, '
+            f'tessdata_dir:{self.tessdata_dir}, '
+            f'tessdata_repository:{self.tessdata_repository}, '
+            f'download_tessdata:{self.download_tessdata}, '
+            f'age:{self.age}, '
+            f'srt_age:{self.srt_age}'
+        )

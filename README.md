@@ -44,6 +44,11 @@ PPA is used to install latest tesseract 5.x. Skip PPA repository if you decide t
 
 tessdata:
 
+Nothing to do: pgsrip downloads the language data it needs on the first rip
+and reuses it afterwards. See [Tesseract language data](#tesseract-language-data).
+
+To install every language upfront instead:
+
     $ git clone https://github.com/tesseract-ocr/tessdata_best.git
     export TESSDATA_PREFIX=~/tessdata_best
 
@@ -52,6 +57,36 @@ If you prefer to build the docker image Build Docker:
     $ git clone https://github.com/ratoaq2/pgsrip.git
     cd pgsrip
     docker build . -t pgsrip
+
+## Tesseract language data
+
+Each subtitle language needs its own tesseract `.traineddata` file. pgsrip
+looks for the languages of the subtitles it collected and downloads the ones
+tesseract does not have yet, before it starts to rip:
+
+    $ pgsrip mymedia.mks
+    1 PGS subtitle collected from 1 file
+    Downloading tesseract data for por...
+    Ripping subtitles  [####################################]  100%  mymedia.mks [3:pt-BR]
+    1 PGS subtitle ripped from 1 file
+
+The data is downloaded only once and is used by every later rip. It is stored
+in the first writable directory of:
+
+  - `--tessdata-dir` or the `PGSRIP_TESSDATA_DIR` environment variable
+  - the `TESSDATA_PREFIX` environment variable
+  - `%LOCALAPPDATA%\pgsrip\tessdata` (Windows),
+    `~/Library/Caches/pgsrip/tessdata` (macOS) or
+    `~/.cache/pgsrip/tessdata` (Linux)
+
+Languages that tesseract already has are never downloaded, and a subtitle is
+always ripped with the data that tesseract finds first. To turn the download
+off and use only the installed languages, use `--no-tessdata-download`.
+
+Data comes from <https://github.com/tesseract-ocr/tessdata_best>. Use
+`--tessdata-repository fast` (or `PGSRIP_TESSDATA_REPO=fast`) for the smaller
+and quicker models of <https://github.com/tesseract-ocr/tessdata_fast>, or set
+`PGSRIP_TESSDATA_URL` to the base URL of a mirror.
 
 ## Usage
 

@@ -5,7 +5,6 @@ import typing
 from subprocess import check_output
 
 from babelfish import Language
-
 from trakit.api import trakit
 
 from pgsrip.media import Media, Pgs
@@ -16,9 +15,8 @@ logger = logging.getLogger(__name__)
 
 
 class MkvPgs(Pgs):
-
     @classmethod
-    def read_data(cls, media_path: MediaPath, track_id: int, temp_folder: str):
+    def read_data(cls, media_path: MediaPath, track_id: int, temp_folder: str) -> bytes:
         lang_ext = f'.{str(media_path.language)}' if media_path.language else ''
         sup_file = os.path.join(temp_folder, f'{track_id}{lang_ext}.sup')
         cmd = ['mkvextract', str(media_path), 'tracks', f'{track_id}:{sup_file}']
@@ -28,24 +26,26 @@ class MkvPgs(Pgs):
 
     def __init__(self, media_path: MediaPath, track_id: int, language: Language, number: int, options: Options):
         temp_folder = media_path.create_temp_folder()
-        super().__init__(media_path=media_path.translate(language=language, number=number),
-                         options=options,
-                         data_reader=lambda: self.read_data(
-                             media_path=media_path, track_id=track_id, temp_folder=temp_folder),
-                         temp_folder=temp_folder)
+        super().__init__(
+            media_path=media_path.translate(language=language, number=number),
+            options=options,
+            data_reader=lambda: self.read_data(media_path=media_path, track_id=track_id, temp_folder=temp_folder),
+            temp_folder=temp_folder,
+        )
         self.track_id = track_id
 
-    def __str__(self):
-        return (f'{self.media_path.translate(language=Language("und"), number=0)} '
-                f'[{self.track_id}:{self.media_path.language}]')
+    def __str__(self) -> str:
+        return (
+            f'{self.media_path.translate(language=Language("und"), number=0)} '
+            f'[{self.track_id}:{self.media_path.language}]'
+        )
 
 
 class MkvTrack:
-
-    def __init__(self, track: dict):
+    def __init__(self, track: dict[str, typing.Any]):
         properties = track.get('properties', {})
         self.id: int = track['id']
-        self.name: typing.Optional[str] = properties.get('track_name')
+        self.name: str | None = properties.get('track_name')
         self.type: str = track['type']
         self.codec: str = track['codec']
         language_ietf = properties.get('language_ietf')
@@ -53,41 +53,39 @@ class MkvTrack:
         expected_language = Language.fromcleanit(language_ietf or language_alpha or 'und')
         options = {'expected_language': expected_language} if expected_language else {}
         guess = trakit(self.name, options) if self.name else {}
-        self.language: typing.Optional[Language] = guess.get('language') or expected_language
+        self.language: Language | None = guess.get('language') or expected_language
         self.disabled = None if properties.get('enabled_track') else True
         self.default = properties.get('default_track') or None
-        self.forced: typing.Optional[bool] = guess.get('forced_track')
-        self.closed_caption: typing.Optional[bool] = guess.get('closed_caption')
-        self.hearing_impaired: typing.Optional[bool] = guess.get('hearing_impaired')
-        self.commentary: typing.Optional[bool] = guess.get('commentary')
-        self.descriptive: typing.Optional[bool] = guess.get('descriptive')
-        self.external: typing.Optional[bool] = guess.get('external')
-        self.version: typing.Optional[str] = guess.get('version')
+        self.forced: bool | None = guess.get('forced_track')
+        self.closed_caption: bool | None = guess.get('closed_caption')
+        self.hearing_impaired: bool | None = guess.get('hearing_impaired')
+        self.commentary: bool | None = guess.get('commentary')
+        self.descriptive: bool | None = guess.get('descriptive')
+        self.external: bool | None = guess.get('external')
+        self.version: str | None = guess.get('version')
 
-    def to_dict(self):
+    def to_dict(self) -> dict[str, typing.Any]:
         return {k: v for k, v in self.__dict__.items() if v is not None}
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f'<{self.__class__.__name__} [{str(self)}]>'
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f'{self.to_dict()}'
 
 
 class Mkv(Media):
-
     def __init__(self, path: str):
         metadata = json.loads(check_output(['mkvmerge', '-i', '-F', 'json', path]))
         tracks = [MkvTrack(t) for t in metadata.get('tracks', [])]
         super().__init__(MediaPath(path), languages={t.language for t in tracks})
         self.tracks = tracks
 
-    def get_pgs_medias(self, options: Options):
-        tracks = [t for t in self.tracks
-                  if t.type == 'subtitles' and t.codec == 'HDMV PGS' and not t.disabled]
+    def get_pgs_medias(self, options: Options) -> typing.Iterable[Pgs]:
+        tracks = [t for t in self.tracks if t.type == 'subtitles' and t.codec == 'HDMV PGS' and not t.disabled]
         tracks.sort(key=lambda x: x.forced or False)
         tracks.sort(key=lambda x: x.id)
-        selected_languages: typing.Dict[Language, int] = {}
+        selected_languages: dict[Language, int] = {}
         for t in tracks:
             language = t.language
             if options.languages and language not in options.languages:

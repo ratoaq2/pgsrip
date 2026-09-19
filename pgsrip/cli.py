@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import os
 import re
@@ -5,15 +7,18 @@ import typing
 from datetime import timedelta
 from types import TracebackType
 
-from babelfish import Error as BabelfishError, Language
-
 import click
-
 import pytesseract as tess
+from babelfish import Error as BabelfishError
+from babelfish import Language
 
 from pgsrip import Pgs, __version__, api
 from pgsrip.media import Media
 from pgsrip.options import Options
+from pgsrip.tessdata import REPOSITORIES, Tessdata, TessdataError, get_required_codes
+
+if typing.TYPE_CHECKING:
+    from click._termui_impl import ProgressBar
 
 logger = logging.getLogger('pgsrip')
 
@@ -22,53 +27,52 @@ T = typing.TypeVar('T')
 
 
 class DebugProgressBar(typing.Generic[T]):
-
-    def __init__(self, debug: bool, iterable: typing.Iterable[T], **kwargs):
+    def __init__(self, debug: bool, iterable: typing.Iterable[T], **kwargs: typing.Any):
         self.debug = debug
         self.iterable = iterable
-        self.progressbar = click.progressbar(iterable, **kwargs)
+        self.progressbar: ProgressBar[T] = click.progressbar(iterable, **kwargs)
 
-    def __iter__(self):
+    def __iter__(self) -> typing.Iterator[T]:
         if not self.debug:
-            return self.progressbar.__iter__()
+            yield from self.progressbar.__iter__()
+            return
 
         yield from self.iterable
 
-    def __enter__(self):
+    def __enter__(self) -> ProgressBar[T] | DebugProgressBar[T]:
         if not self.debug:
             return self.progressbar.__enter__()
 
         return self
 
-    def __exit__(self,
-                 exc_type: typing.Optional[typing.Type[BaseException]],
-                 exc: typing.Optional[BaseException],
-                 traceback: typing.Optional[TracebackType]):
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc: BaseException | None, traceback: TracebackType | None
+    ) -> None:
         if not self.debug:
             return self.progressbar.__exit__(exc_type, exc, traceback)
 
-    def update(self, n_steps: int, current_item: typing.Optional[T] = None) -> None:
+    def update(self, n_steps: int, current_item: T | None = None) -> None:
         if not self.debug:
             return self.progressbar.update(n_steps, current_item)
 
 
-class LanguageParamType(click.ParamType):
+class LanguageParamType(click.ParamType[Language, str]):
     name = 'language'
 
-    def convert(self, value, param, ctx):
+    def convert(self, value: str, param: click.Parameter | None, ctx: click.Context | None) -> Language:
         try:
             return Language.fromietf(value)
         except (BabelfishError, ValueError):
-            self.fail(f"{click.style(f'{value}', bold=True)} is not a valid language")
+            self.fail(f'{click.style(f"{value}", bold=True)} is not a valid language')
 
 
-class AgeParamType(click.ParamType):
+class AgeParamType(click.ParamType[timedelta, str]):
     name = 'age'
 
-    def convert(self, value, param, ctx):
+    def convert(self, value: str, param: click.Parameter | None, ctx: click.Context | None) -> timedelta:
         match = re.match(r'^(?:(?P<weeks>\d+?)w)?(?:(?P<days>\d+?)d)?(?:(?P<hours>\d+?)h)?$', value)
         if not match:
-            self.fail('%s is not a valid age' % value)
+            self.fail(f'{value} is not a valid age')
 
         return timedelta(**{k: int(v) for k, v in match.groupdict('0').items()})
 
@@ -77,40 +81,101 @@ LANGUAGE = LanguageParamType()
 AGE = AgeParamType()
 
 
+def download_tessdata(pgs_medias: list[Pgs], options: Options) -> None:
+    """Download the tesseract data every collected subtitle needs, before any ripping starts."""
+    if not pgs_medias:
+        return
+
+    def report(code: str) -> None:
+        click.echo(f'Downloading tesseract data for {click.style(code, bold=True)}...')
+
+    psm_value = options.tesseract_psm.value if options.tesseract_psm else None
+    codes = get_required_codes([pgs.language for pgs in pgs_medias], psm_value)
+    try:
+        Tessdata.from_options(options).ensure(codes, reporter=report)
+    except TessdataError as e:
+        click.echo(click.style(str(e), fg='red'))
+
+
 @click.command()
 @click.option('-c', '--config', type=click.Path(), help='cleanit configuration path to be used')
-@click.option('-l', '--language', type=LANGUAGE, multiple=True, help='Language as IETF code, '
-              'e.g. en, pt-BR (can be used multiple times).')
-@click.option('-t', '--tag', required=False, multiple=True, help='Rule tags to be used, '
-              'e.g. ocr, tidy, no-sdh, no-style, no-lyrics, no-spam (can be used multiple times). ')
+@click.option(
+    '-l',
+    '--language',
+    type=LANGUAGE,
+    multiple=True,
+    help='Language as IETF code, e.g. en, pt-BR (can be used multiple times).',
+)
+@click.option(
+    '-t',
+    '--tag',
+    required=False,
+    multiple=True,
+    help='Rule tags to be used, e.g. ocr, tidy, no-sdh, no-style, no-lyrics, no-spam (can be used multiple times). ',
+)
 @click.option('-e', '--encoding', help='Save subtitles using the following encoding.')
 @click.option('-a', '--age', type=AGE, help='Filter videos newer than AGE, e.g. 12h, 1w2d.')
 @click.option('-A', '--srt-age', type=AGE, help='Filter videos which srt subtitles are newer than AGE, e.g. 12h, 1w2d.')
-@click.option('-f', '--force', is_flag=True, default=False,
-              help='re-rip and overwrite existing srt subtitles, even if they already exist')
-@click.option('--all', is_flag=True, default=False,
-              help='rip all tracks for a given language, even another track for that language was already ripped')
+@click.option(
+    '-f',
+    '--force',
+    is_flag=True,
+    default=False,
+    help='re-rip and overwrite existing srt subtitles, even if they already exist',
+)
+@click.option(
+    '--all',
+    is_flag=True,
+    default=False,
+    help='rip all tracks for a given language, even another track for that language was already ripped',
+)
 @click.option('-w', '--max-workers', type=click.IntRange(1, 50), default=None, help='Maximum number of threads to use.')
-@click.option('--keep-temp-files', is_flag=True, help='Do not delete temporary files created, '
-                                                      'e.g. extracted sup files, generated png files '
-                                                      'and other useful debug files')
+@click.option(
+    '--tessdata-dir',
+    type=click.Path(),
+    help='Directory where tesseract data is stored. Defaults to TESSDATA_PREFIX or a user cache directory.',
+)
+@click.option(
+    '--tessdata-repository',
+    type=click.Choice(sorted(REPOSITORIES)),
+    default=None,
+    help='Repository to download missing tesseract data from.',
+)
+@click.option(
+    '--no-tessdata-download',
+    is_flag=True,
+    default=False,
+    help='Do not download missing tesseract data, only use what is already installed.',
+)
+@click.option(
+    '--keep-temp-files',
+    is_flag=True,
+    help='Do not delete temporary files created, '
+    'e.g. extracted sup files, generated png files '
+    'and other useful debug files',
+)
 @click.option('--debug', is_flag=True, help='Print useful information for debugging and for reporting bugs.')
 @click.option('-v', '--verbose', count=True, help='Display debug messages')
 @click.argument('path', type=click.Path(), required=True, nargs=-1)
 @click.version_option(__version__)
-def pgsrip(config: typing.Optional[str],
-           language: typing.Optional[typing.Tuple[Language]],
-           tag: typing.Optional[typing.Tuple[str]],
-           encoding: typing.Optional[str],
-           age: typing.Optional[timedelta],
-           srt_age: typing.Optional[timedelta],
-           force: bool,
-           all: bool,
-           debug: bool,
-           max_workers: typing.Optional[int],
-           keep_temp_files: bool,
-           verbose: int,
-           path: typing.Tuple[str]):
+def pgsrip(
+    config: str | None,
+    language: tuple[Language] | None,
+    tag: tuple[str] | None,
+    encoding: str | None,
+    age: timedelta | None,
+    srt_age: timedelta | None,
+    force: bool,
+    all: bool,
+    debug: bool,
+    max_workers: int | None,
+    tessdata_dir: str | None,
+    tessdata_repository: str | None,
+    no_tessdata_download: bool,
+    keep_temp_files: bool,
+    verbose: int,
+    path: tuple[str],
+) -> None:
     if debug:
         handler = logging.StreamHandler()
         handler.setFormatter(logging.Formatter(logging.BASIC_FORMAT))
@@ -120,29 +185,34 @@ def pgsrip(config: typing.Optional[str],
         logger.info(f'Tesseract data: {os.getenv("TESSDATA_PREFIX")}')
 
     if config and (not os.path.isfile(config) or os.path.isdir(config)):
-        click.echo(f"Invalid configuration is defined: {click.style(config, bold=True)}")
+        click.echo(f'Invalid configuration is defined: {click.style(config, bold=True)}')
         return
 
-    options = Options(config_path=config,
-                      languages=set(language or []),
-                      tags=set(tag or []),
-                      encoding=encoding,
-                      overwrite=force,
-                      one_per_lang=not all,
-                      keep_temp_files=keep_temp_files,
-                      max_workers=max_workers,
-                      age=age,
-                      srt_age=srt_age)
+    options = Options(
+        config_path=config,
+        languages=set(language or []),
+        tags=set(tag or []),
+        encoding=encoding,
+        overwrite=force,
+        one_per_lang=not all,
+        keep_temp_files=keep_temp_files,
+        max_workers=max_workers,
+        tessdata_dir=tessdata_dir,
+        tessdata_repository=tessdata_repository,
+        download_tessdata=not no_tessdata_download,
+        age=age,
+        srt_age=srt_age,
+    )
 
     rules = options.config.select_rules(tags=options.tags, languages=options.languages)
     if not rules:
         values = tuple(options.tags) + tuple(str(lang) for lang in options.languages)
-        click.echo(f"No rules defined for {click.style(', '.join(values), bold=True)}")
+        click.echo(f'No rules defined for {click.style(", ".join(values), bold=True)}')
         return
 
-    collected_medias: typing.List[Media] = []
-    filtered_out_paths: typing.List[str] = []
-    discarded_paths: typing.List[str] = []
+    collected_medias: list[Media] = []
+    filtered_out_paths: list[str] = []
+    discarded_paths: list[str] = []
     for p in path:
         c, f, d = api.scan_path(p, options)
         collected_medias.extend(c)
@@ -152,38 +222,50 @@ def pgsrip(config: typing.Optional[str],
     if debug or verbose > 1:
         if verbose > 2:
             for p in filtered_out_paths:
-                click.echo(f"{click.style(p, fg='yellow', bold=True)} filtered out")
+                click.echo(f'{click.style(p, fg="yellow", bold=True)} filtered out')
         for p in discarded_paths:
-            click.echo(f"{click.style(p, fg='red', bold=True)} discarded")
+            click.echo(f'{click.style(p, fg="red", bold=True)} discarded')
 
-    collected_pgs_medias: typing.List[Pgs] = []
-    medias_progressbar = DebugProgressBar(debug or verbose > 1,
-                                          collected_medias,
-                                          label='Collecting pgs subtitles',
-                                          item_show_func=lambda item: str(item or ''))
+    collected_pgs_medias: list[Pgs] = []
+    medias_progressbar = DebugProgressBar(
+        debug or verbose > 1,
+        collected_medias,
+        label='Collecting pgs subtitles',
+        item_show_func=lambda item: str(item or ''),
+    )
 
     with medias_progressbar as bar:
         for m in bar:
             collected_pgs_medias.extend(list(m.get_pgs_medias(options)))
 
     # report collected medias
-    report = (f"{click.style(str(len(collected_pgs_medias)), bold=True, fg='green')} "
-              f"PGS subtitle{'s' if len(collected_pgs_medias) > 1 else ''} collected "
-              f"from {click.style(str(len(collected_medias)), bold=True, fg='green')} "
-              f"file{'s' if len(collected_medias) > 1 else ''}")
+    report = (
+        f'{click.style(str(len(collected_pgs_medias)), bold=True, fg="green")} '
+        f'PGS subtitle{"s" if len(collected_pgs_medias) > 1 else ""} collected '
+        f'from {click.style(str(len(collected_medias)), bold=True, fg="green")} '
+        f'file{"s" if len(collected_medias) > 1 else ""}'
+    )
     if filtered_out_paths:
-        report += (f" / {click.style(str(len(filtered_out_paths)), bold=True, fg='yellow')} "
-                   f"file{'s' if len(filtered_out_paths) > 1 else ''} filtered out")
+        report += (
+            f' / {click.style(str(len(filtered_out_paths)), bold=True, fg="yellow")} '
+            f'file{"s" if len(filtered_out_paths) > 1 else ""} filtered out'
+        )
     if discarded_paths:
-        report += (f" / {click.style(str(len(discarded_paths)), bold=True, fg='red')} "
-                   f"path{'s' if len(discarded_paths) > 1 else ''} ignored")
+        report += (
+            f' / {click.style(str(len(discarded_paths)), bold=True, fg="red")} '
+            f'path{"s" if len(discarded_paths) > 1 else ""} ignored'
+        )
     click.echo(report)
 
-    pgs_progressbar = DebugProgressBar(debug or verbose > 1,
-                                       collected_pgs_medias,
-                                       label='Ripping subtitles',
-                                       update_min_steps=0,
-                                       item_show_func=lambda s: click.style(str(s or ''), bold=True))
+    download_tessdata(collected_pgs_medias, options)
+
+    pgs_progressbar = DebugProgressBar(
+        debug or verbose > 1,
+        collected_pgs_medias,
+        label='Ripping subtitles',
+        update_min_steps=0,
+        item_show_func=lambda s: click.style(str(s or ''), bold=True),
+    )
 
     ripped_count = 0
     with pgs_progressbar as bar:
@@ -192,7 +274,9 @@ def pgsrip(config: typing.Optional[str],
             ripped_count += api.rip_pgs(pgs, options)
 
     # report ripped subtitles
-    click.echo(f"{click.style(str(ripped_count), bold=True, fg='green')} "
-               f"PGS subtitle{'s' if ripped_count > 1 else ''} ripped from "
-               f"{click.style(str(len(collected_medias)), bold=True, fg='blue')} "
-               f"file{'s' if len(collected_medias) > 1 else ''}")
+    click.echo(
+        f'{click.style(str(ripped_count), bold=True, fg="green")} '
+        f'PGS subtitle{"s" if ripped_count > 1 else ""} ripped from '
+        f'{click.style(str(len(collected_medias)), bold=True, fg="blue")} '
+        f'file{"s" if len(collected_medias) > 1 else ""}'
+    )

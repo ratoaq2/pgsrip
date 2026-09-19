@@ -1,5 +1,5 @@
 import logging
-from typing import Iterable
+from collections.abc import Iterable
 
 from pgsrip.media import Media, Pgs
 from pgsrip.media_path import MediaPath
@@ -9,7 +9,6 @@ logger = logging.getLogger(__name__)
 
 
 class Sup(Media):
-
     def __init__(self, path: str):
         media_path = MediaPath(path)
         super().__init__(media_path, languages={media_path.language})
