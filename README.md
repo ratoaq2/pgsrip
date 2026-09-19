@@ -149,6 +149,11 @@ pgsrip.rip(media, options)
 
 ## Reporting a bug
 
+A good bug report holds three things: the output of `pgsrip doctor`, the debug
+log, and a scrubbed subtitle sample. The
+[bug report form](https://github.com/ratoaq2/pgsrip/issues/new/choose) asks for
+each of them.
+
 When a subtitle cannot be ripped, pgsrip prints the error and the commands that
 collect what a bug report needs:
 

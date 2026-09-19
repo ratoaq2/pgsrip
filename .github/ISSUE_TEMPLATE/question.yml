@@ -1,0 +1,30 @@
+name: Question
+description: Ask how to use pgsrip
+labels: [question]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If pgsrip does not find or does not rip your subtitles, run `pgsrip doctor`
+        first. It shows what is installed and what is missing.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: Question
+    validations:
+      required: true
+
+  - type: input
+    id: command
+    attributes:
+      label: Command
+      description: The command that you ran, if there is one.
+      placeholder: pgsrip -l en "mymedia.mkv"
+
+  - type: textarea
+    id: output
+    attributes:
+      label: Output
+      description: What pgsrip printed.
+      render: shell
