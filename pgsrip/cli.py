@@ -105,6 +105,35 @@ def merge_ranges(values: tuple[frozenset[int], ...]) -> set[int]:
     return {index for value in values for index in value}
 
 
+def quote(path: str) -> str:
+    """Quote a path so that it can be pasted back into a shell."""
+    return f'"{path}"' if ' ' in path else path
+
+
+def echo_failures(failures: list[tuple[Pgs, Exception]], log_file: str | None) -> None:
+    """Report the subtitles that could not be ripped, and how to report them."""
+    if not failures:
+        return
+
+    click.echo()
+    click.echo(
+        f'{click.style(str(len(failures)), bold=True, fg="red")} '
+        f'PGS subtitle{"s" if len(failures) > 1 else ""} could not be ripped:'
+    )
+    for pgs, error in failures[:MAX_REPORTED_PATHS]:
+        click.echo(f'  {pgs}: <{type(error).__name__}> [{error}]')
+
+    sources = sorted({str(pgs.source_path) for pgs, _ in failures})
+    click.echo('To report this, run:')
+    for source in sources[:MAX_REPORTED_PATHS]:
+        click.echo(f'  {click.style(f"pgsrip scrub {quote(source)}", bold=True)}')
+    if not log_file:
+        click.echo(f'  {click.style(f"pgsrip --log-file pgsrip.log {quote(sources[0])}", bold=True)}')
+
+    click.echo('The scrubbed subtitle holds no image, only what is needed to reproduce the error.')
+    click.echo(f'Attach it to a new issue: {click.style(f"{__url__}/issues", bold=True)}')
+
+
 # arguments that the group handles itself, everything else belongs to the default command
 GROUP_ARGUMENTS = frozenset({'--help', '-h', '--version'})
 
@@ -360,10 +389,11 @@ def rip(
     )
 
     ripped_count = 0
+    failures: list[tuple[Pgs, Exception]] = []
     with pgs_progressbar as bar:
         for pgs in bar:
             bar.update(0, pgs)
-            ripped_count += api.rip_pgs(pgs, options)
+            ripped_count += api.rip_pgs(pgs, options, on_error=lambda p, e: failures.append((p, e)))
 
     # report ripped subtitles
     click.echo(
@@ -375,6 +405,8 @@ def rip(
 
     if log_file:
         click.echo(f'Debug log written to {click.style(log_file, bold=True)}')
+
+    echo_failures(failures, log_file)
 
 
 @pgsrip.command()

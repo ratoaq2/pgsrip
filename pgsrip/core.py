@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import typing
 from subprocess import CalledProcessError
 
 from pgsrip.media import Media, Pgs
@@ -11,6 +12,9 @@ from pgsrip.ripper import PgsToSrtRipper
 from pgsrip.sup import Sup
 
 logger = logging.getLogger(__name__)
+
+# called with the subtitle that could not be ripped and the error that stopped it
+ErrorHandler = typing.Callable[[Pgs, Exception], None]
 
 MEDIAS: dict[str, type[Sup] | type[Mkv]] = {'.sup': Sup, '.mkv': Mkv, '.mks': Mkv}
 EXTENSIONS = tuple(MEDIAS.keys())
@@ -89,15 +93,16 @@ def scan_path(
         discard('path is not a file nor a directory')
 
 
-def rip(media: Media, options: Options) -> int:
+def rip(media: Media, options: Options, on_error: ErrorHandler | None = None) -> int:
     counter = 0
     for pgs in media.get_pgs_medias(options):
-        counter += rip_pgs(pgs, options)
+        counter += rip_pgs(pgs, options, on_error)
 
     return counter
 
 
-def rip_pgs(pgs: Pgs, options: Options) -> bool:
+def rip_pgs(pgs: Pgs, options: Options, on_error: ErrorHandler | None = None) -> bool:
+    """Rip a single PGS subtitle, reporting the error to on_error when it cannot be ripped."""
     # noinspection PyBroadException
     try:
         with pgs as p:
@@ -116,5 +121,7 @@ def rip_pgs(pgs: Pgs, options: Options) -> bool:
             e,
             exc_info=logger.isEnabledFor(logging.DEBUG),
         )
+        if on_error:
+            on_error(pgs, e)
 
     return False

@@ -149,6 +149,21 @@ pgsrip.rip(media, options)
 
 ## Reporting a bug
 
+When a subtitle cannot be ripped, pgsrip prints the error and the commands that
+collect what a bug report needs:
+
+    $ pgsrip mymedia.mkv
+    1 PGS subtitle collected from 1 file
+    0 PGS subtitle ripped from 1 file
+
+    1 PGS subtitle could not be ripped:
+      mymedia.en.mkv: <ValueError> [max() iterable argument is empty]
+    To report this, run:
+      pgsrip scrub mymedia.mkv
+      pgsrip --log-file pgsrip.log mymedia.mkv
+    The scrubbed subtitle holds no image, only what is needed to reproduce the error.
+    Attach it to a new issue: https://github.com/ratoaq2/pgsrip/issues
+
 ### Environment
 
 `pgsrip doctor` shows what is installed. Add its output to the bug report:

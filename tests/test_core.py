@@ -5,8 +5,10 @@ from subprocess import CalledProcessError
 import pytest
 from babelfish import Language
 
-from pgsrip.api import scan_path
+from pgsrip.api import rip_pgs, scan_path
 from pgsrip.core import get_reason
+from pgsrip.media import Pgs
+from pgsrip.media_path import MediaPath
 from pgsrip.options import Options
 
 
@@ -110,3 +112,22 @@ def test_scan_path_walks_directories_without_discarding_other_files(tmp_path, mk
     assert len(collected) == 1
     assert not filtered_out
     assert not discarded
+
+
+def test_rip_pgs_reports_the_error_it_failed_with(tmp_path):
+    temp_folder = tmp_path / 'temp'
+    temp_folder.mkdir()
+    media_path = MediaPath(str(tmp_path / 'mymedia.en.sup'))
+    pgs = Pgs(media_path, Options(), lambda: b'', str(temp_folder))
+    errors = []
+
+    assert rip_pgs(pgs, Options(), on_error=lambda p, e: errors.append((p, e))) is False
+    assert [(p, type(e)) for p, e in errors] == [(pgs, ValueError)]
+
+
+def test_rip_pgs_points_at_the_media_the_subtitle_came_from(tmp_path):
+    media_path = MediaPath(str(tmp_path / 'mymedia.en.sup'))
+
+    pgs = Pgs(media_path, Options(), lambda: b'', str(tmp_path))
+
+    assert str(pgs.source_path) == str(media_path)

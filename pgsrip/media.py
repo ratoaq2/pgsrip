@@ -144,6 +144,8 @@ class Pgs:
         self, media_path: MediaPath, options: Options, data_reader: typing.Callable[[], bytes], temp_folder: str
     ):
         self.media_path = media_path
+        # the file to point a bug report at, which is not the media path of an extracted track
+        self.source_path = media_path
         self.options = options
         self.data_reader = data_reader
         self.temp_folder = temp_folder
