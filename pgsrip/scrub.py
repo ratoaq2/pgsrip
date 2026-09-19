@@ -270,7 +270,7 @@ def scrub_data(
 
 def default_name(media_path: MediaPath, keep_name: bool) -> str:
     """Name the scrubbed file after the media, or after a hash of its name."""
-    name = os.path.splitext(os.path.basename(str(media_path)))[0]
+    name = os.path.basename(media_path.base_path)
     if keep_name:
         return name
 

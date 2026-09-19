@@ -1,9 +1,11 @@
+import os
+
 import numpy as np
 import pytest
 
 from pgsrip.media_path import MediaPath
 from pgsrip.pgs import ObjectDefinitionSegment, PgsImage, PgsReader, SegmentType
-from pgsrip.scrub import Redaction, encode_runs, scrub_data, to_runs
+from pgsrip.scrub import Redaction, encode_runs, output_path, scrub_data, to_runs
 
 WIDTH = 64
 HEIGHT = 8
@@ -199,3 +201,33 @@ def test_scrub_keeps_an_object_split_over_two_segments(media_path):
     result = decode(scrubbed, media_path)[0]
     assert len(result.ods_segments) == 2
     assert images([result])[0].shape == (HEIGHT, WIDTH)
+
+
+@pytest.mark.parametrize(
+    'path, keep_name, expected',
+    [
+        ('mymedia.en.sup', True, 'mymedia.en.sup'),
+        ('mymedia.mkv', True, 'mymedia.en.sup'),
+        (os.path.join('medias', 'mymedia.en.sup'), True, 'mymedia.en.sup'),
+        ('mymedia.en.sup', False, 'pgsrip-b47da897.en.sup'),
+    ],
+)
+def test_output_path_does_not_repeat_the_language(path, keep_name, expected):
+    assert output_path(MediaPath(path), 'en', None, keep_name, set()) == expected
+
+
+def test_output_path_never_reuses_a_path():
+    used = set()
+    media_path = MediaPath('mymedia.mkv')
+
+    paths = [output_path(media_path, 'en', None, True, used) for _ in range(3)]
+
+    assert paths == ['mymedia.en.sup', 'mymedia.en.1.sup', 'mymedia.en.2.sup']
+
+
+def test_output_path_uses_the_given_directory(tmp_path):
+    assert output_path(MediaPath('mymedia.mkv'), 'en', str(tmp_path), True, set()) == str(tmp_path / 'mymedia.en.sup')
+
+
+def test_output_path_uses_the_given_file_name():
+    assert output_path(MediaPath('mymedia.mkv'), 'en', 'report.sup', True, set()) == 'report.en.sup'
