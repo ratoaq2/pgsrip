@@ -232,14 +232,19 @@ class Media(ABC):
 
         return timedelta()
 
-    def matches(self, options: Options) -> bool:
+    def filter_reason(self, options: Options) -> str | None:
+        """Return why this media does not match the options, or None when it does."""
         if options.age and self.age > options.age:
-            return False
+            return f'file is older than {options.age}'
 
         if options.languages and not self.languages.intersection(options.languages):
-            return False
+            available = ', '.join(sorted(str(lang) for lang in self.languages if lang)) or 'none'
+            return f'no track for the selected languages (available: {available})'
 
-        return True
+        return None
+
+    def matches(self, options: Options) -> bool:
+        return self.filter_reason(options) is None
 
     @abstractmethod
     def get_pgs_medias(self, options: Options) -> typing.Iterable[Pgs]:

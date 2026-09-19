@@ -120,6 +120,15 @@ Rip from a folder path:
     Ripping subtitles  [####################################]  100%  ~/medias/mymedia.mkv [4:en]
     11 PGS subtitles ripped from 9 files
 
+When a path is not ripped, pgsrip prints the reason:
+
+    $ pgsrip -l fr ~/medias/
+    ~/medias/mymedia.mkv ignored: mkvmerge not found, install MKVToolNix and make sure that it is in the PATH
+    0 PGS subtitle collected from 0 file / 1 path ignored
+
+Use `-vvv` to also see the files that the `--language` and `--age` filters
+removed.
+
 Using docker:
 
     $ docker run -it --rm -v /medias:/medias -u $(id -u username):$(id -g username) ratoaq2/pgsrip -l en -l de -l pt-BR -l pt /medias

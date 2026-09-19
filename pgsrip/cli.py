@@ -13,6 +13,7 @@ from babelfish import Error as BabelfishError
 from babelfish import Language
 
 from pgsrip import Pgs, __version__, api
+from pgsrip.core import get_reason
 from pgsrip.media import Media
 from pgsrip.options import Options
 from pgsrip.tessdata import REPOSITORIES, Tessdata, TessdataError, get_required_codes
@@ -79,6 +80,21 @@ class AgeParamType(click.ParamType[timedelta, str]):
 
 LANGUAGE = LanguageParamType()
 AGE = AgeParamType()
+
+# how many ignored paths are listed before the list is cut short
+MAX_REPORTED_PATHS = 10
+
+
+def echo_paths(paths: list[str], label: str, color: str, limit: int | None) -> None:
+    """Print each path with the reason why it was not ripped."""
+    for path in paths[:limit] if limit else paths:
+        reason = get_reason(path)
+        message = f'{click.style(str(path), fg=color, bold=True)} {label}'
+        click.echo(f'{message}: {reason}' if reason else message)
+
+    remaining = len(paths) - limit if limit else 0
+    if remaining > 0:
+        click.echo(f'... and {remaining} more, use {click.style("-vv", bold=True)} to see them all')
 
 
 def download_tessdata(pgs_medias: list[Pgs], options: Options) -> None:
@@ -219,12 +235,9 @@ def pgsrip(
         filtered_out_paths.extend(f)
         discarded_paths.extend(d)
 
-    if debug or verbose > 1:
-        if verbose > 2:
-            for p in filtered_out_paths:
-                click.echo(f'{click.style(p, fg="yellow", bold=True)} filtered out')
-        for p in discarded_paths:
-            click.echo(f'{click.style(p, fg="red", bold=True)} discarded')
+    if verbose > 2:
+        echo_paths(filtered_out_paths, 'filtered out', 'yellow', limit=None)
+    echo_paths(discarded_paths, 'ignored', 'red', limit=None if debug or verbose > 1 else MAX_REPORTED_PATHS)
 
     collected_pgs_medias: list[Pgs] = []
     medias_progressbar = DebugProgressBar(
