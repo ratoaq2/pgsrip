@@ -1,13 +1,13 @@
-[tool.poetry]
+[project]
 name = "pgsrip"
 version = "0.1.13-dev"
 description = "Rip your PGS subtitles"
 authors = [
-    "Rato",
+    { name = "Rato" },
 ]
 license = "MIT"
 readme = "README.md"
-repository = "https://github.com/ratoaq2/pgsrip"
+requires-python = ">=3.11"
 keywords = [
     "video",
     "mkv",
@@ -27,7 +27,6 @@ keywords = [
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python",
     "Programming Language :: Python :: 3",
@@ -35,32 +34,76 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Multimedia :: Video",
 ]
+dependencies = [
+    "babelfish>=0.6.1",
+    "cleanit>=0.4.9",
+    "click>=8.2.1",
+    "pysrt>=1.1.2",
+    "pytesseract>=0.3.10",
+    "numpy>=2.2",
+    "opencv-python>=4.12.0",
+    "trakit>=0.2.3",
+    "setuptools>=70.1.0",
+]
 
-[tool.poetry.scripts]
+[project.urls]
+Repository = "https://github.com/ratoaq2/pgsrip"
+
+[project.scripts]
 pgsrip = "pgsrip.cli:pgsrip"
 
-[tool.poetry.dependencies]
-python = ">=3.11,<4.0"
-babelfish = "^0.6.1"
-cleanit = "^0.4.9"
-click = "^8.2.1"
-pysrt = "^1.1.2"
-pytesseract = "^0.3.10"
-numpy = "^2.2"
-opencv-python = "^4.12.0"
-trakit = "^0.2.3"
-setuptools = "^70.1.0"
-
-[tool.poetry.group.dev.dependencies]
-pytest = "^8.4.1"
-pytest-cov = "^6.2.1"
-flake8 = "^7.3.0"
-flake8-import-order = "^0.19.2"
-mypy = "^1.17.0"
+[dependency-groups]
+dev = [
+    "pytest>=8.4.1",
+    "pytest-cov>=6.2.1",
+    "mypy>=1.17.0",
+    "ruff",
+    "pre-commit",
+]
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pgsrip"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"pgsrip/__init__.py" = ["F401", "E402"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["pgsrip"]
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.mypy]
+strict = true
+
+[[tool.mypy.overrides]]
+module = [
+    "babelfish.*",
+    "cleanit.*",
+    "cv2.*",
+    "pysrt.*",
+    "pytesseract.*",
+    "trakit.*",
+]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["pgsrip"]

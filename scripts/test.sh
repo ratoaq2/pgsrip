@@ -2,6 +2,7 @@
 
 set -ex
 
-flake8
-mypy --check-untyped-defs pgsrip
-pytest --cov-report term --cov-report html --cov pgsrip -vv tests
+uv run ruff check .
+uv run ruff format --check .
+uv run mypy pgsrip
+uv run pytest --cov-report term --cov-report html --cov pgsrip -vv tests
