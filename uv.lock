@@ -156,7 +156,7 @@ wheels = [
 
 [[package]]
 name = "cleanit"
-version = "0.5.0"
+version = "0.5.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "appdirs" },
@@ -167,9 +167,9 @@ dependencies = [
     { name = "pysrt" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4a/c0/9f9dd29cac9d8eeed43e554d2b427b3aba0aa8577769b6b64c6dca20e060/cleanit-0.5.0.tar.gz", hash = "sha256:c3acb030ec31313955860154c89047faac581fd6833329baacf91ba2e5128ba7", size = 33084, upload-time = "2026-09-18T16:33:07.271Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/be/dc/736a354f800d0ecc41f7580b1c09d483287f81c5e77839dcd3cd3d8fba92/cleanit-0.5.1.tar.gz", hash = "sha256:ed9c6a7bf6395a5e6204e137c1d587c971dfc32315e52851341f102784b01672", size = 33969, upload-time = "2026-09-20T06:38:01.979Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/69/83/ea505c82711b927d6415170b1241d7440e424aabb68af5804a498faf36db/cleanit-0.5.0-py3-none-any.whl", hash = "sha256:d94b5ec2d0432429b487c6f78444a429a75ab0d327de8d7eff7016ac47feada1", size = 32080, upload-time = "2026-09-18T16:33:06.265Z" },
+    { url = "https://files.pythonhosted.org/packages/2f/7f/4c10216046fab1998f110e2e8b4bbe07694604e8334e859df86ac56f1334/cleanit-0.5.1-py3-none-any.whl", hash = "sha256:dda2665fa9a0d151f81c3c814a285af82b9249418d5fb3b831b5df4b8ba1b70a", size = 32753, upload-time = "2026-09-20T06:38:00.616Z" },
 ]
 
 [[package]]
@@ -792,7 +792,7 @@ dev = [
 [package.metadata]
 requires-dist = [
     { name = "babelfish", specifier = ">=0.6.1" },
-    { name = "cleanit", specifier = ">=0.4.9" },
+    { name = "cleanit", specifier = ">=0.5.1" },
     { name = "click", specifier = ">=8.2.1" },
     { name = "numpy", specifier = ">=2.2" },
     { name = "opencv-python", specifier = ">=4.12.0" },
