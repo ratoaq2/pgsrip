@@ -765,7 +765,7 @@ wheels = [
 
 [[package]]
 name = "pgsrip"
-version = "0.1.13.dev0"
+version = "0.1.13"
 source = { editable = "." }
 dependencies = [
     { name = "babelfish" },
