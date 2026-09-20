@@ -32,6 +32,7 @@ class MkvPgs(Pgs):
             data_reader=lambda: self.read_data(media_path=media_path, track_id=track_id, temp_folder=temp_folder),
             temp_folder=temp_folder,
         )
+        self.source_path = media_path
         self.track_id = track_id
 
     def __str__(self) -> str:

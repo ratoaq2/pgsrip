@@ -144,6 +144,8 @@ class Pgs:
         self, media_path: MediaPath, options: Options, data_reader: typing.Callable[[], bytes], temp_folder: str
     ):
         self.media_path = media_path
+        # the file to point a bug report at, which is not the media path of an extracted track
+        self.source_path = media_path
         self.options = options
         self.data_reader = data_reader
         self.temp_folder = temp_folder
@@ -232,14 +234,19 @@ class Media(ABC):
 
         return timedelta()
 
-    def matches(self, options: Options) -> bool:
+    def filter_reason(self, options: Options) -> str | None:
+        """Return why this media does not match the options, or None when it does."""
         if options.age and self.age > options.age:
-            return False
+            return f'file is older than {options.age}'
 
         if options.languages and not self.languages.intersection(options.languages):
-            return False
+            available = ', '.join(sorted(str(lang) for lang in self.languages if lang)) or 'none'
+            return f'no track for the selected languages (available: {available})'
 
-        return True
+        return None
+
+    def matches(self, options: Options) -> bool:
+        return self.filter_reason(options) is None
 
     @abstractmethod
     def get_pgs_medias(self, options: Options) -> typing.Iterable[Pgs]:

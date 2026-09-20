@@ -1,0 +1,72 @@
+name: Bug report
+description: Report a subtitle that pgsrip cannot rip, or that it rips incorrectly
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not attach your media file. pgsrip can make a small copy of the subtitle
+        that holds no image and no text:
+
+        ```
+        pgsrip scrub "your-media.mkv"
+        ```
+
+        The result is a `.sup` file with only the timing, the layout and the palettes
+        of the subtitle. It reproduces almost every bug. Read
+        [Reporting a bug](https://github.com/ratoaq2/pgsrip#reporting-a-bug) for the
+        options that keep more, when the bug is about the text itself.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you expect, and what did you get?
+    validations:
+      required: true
+
+  - type: input
+    id: command
+    attributes:
+      label: Command
+      description: The full command that you ran.
+      placeholder: pgsrip -l en "mymedia.mkv"
+    validations:
+      required: true
+
+  - type: textarea
+    id: error
+    attributes:
+      label: Error message
+      description: |
+        The full output, including the traceback. Run the command again with
+        `--log-file pgsrip.log` and attach the log file if it is long.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: The output of `pgsrip doctor`.
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: sample
+    attributes:
+      label: Subtitle sample
+      description: |
+        Attach the `.sup` file that `pgsrip scrub` wrote. Drag it into this field.
+        Say here which command you used to create it.
+      placeholder: pgsrip scrub "mymedia.mkv"
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Confirmation
+      options:
+        - label: The files that I attach hold no copyrighted content.
+          required: true

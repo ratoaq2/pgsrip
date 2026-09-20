@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Reporting a bug
+    url: https://github.com/ratoaq2/pgsrip#reporting-a-bug
+    about: How to collect the environment, the log and a subtitle sample that holds no content.

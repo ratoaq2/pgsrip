@@ -16,9 +16,9 @@ def scan_path(path: str, options: Options | None = None) -> tuple[list[Media], l
     return collected, filtered_out, discarded
 
 
-def rip(media: Media, options: Options | None = None) -> int:
-    return core.rip(media, options or Options())
+def rip(media: Media, options: Options | None = None, on_error: core.ErrorHandler | None = None) -> int:
+    return core.rip(media, options or Options(), on_error)
 
 
-def rip_pgs(pgs: Pgs, options: Options | None = None) -> bool:
-    return core.rip_pgs(pgs, options or Options())
+def rip_pgs(pgs: Pgs, options: Options | None = None, on_error: core.ErrorHandler | None = None) -> bool:
+    return core.rip_pgs(pgs, options or Options(), on_error)

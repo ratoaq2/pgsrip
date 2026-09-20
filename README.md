@@ -120,6 +120,15 @@ Rip from a folder path:
     Ripping subtitles  [####################################]  100%  ~/medias/mymedia.mkv [4:en]
     11 PGS subtitles ripped from 9 files
 
+When a path is not ripped, pgsrip prints the reason:
+
+    $ pgsrip -l fr ~/medias/
+    ~/medias/mymedia.mkv ignored: mkvmerge not found, install MKVToolNix and make sure that it is in the PATH
+    0 PGS subtitle collected from 0 file / 1 path ignored
+
+Use `-vvv` to also see the files that the `--language` and `--age` filters
+removed.
+
 Using docker:
 
     $ docker run -it --rm -v /medias:/medias -u $(id -u username):$(id -g username) ratoaq2/pgsrip -l en -l de -l pt-BR -l pt /medias
@@ -137,3 +146,90 @@ media = Mkv('/subtitle/path/mymedia.mkv')
 options = Options(languages={Language('eng')}, overwrite=True, one_per_lang=False)
 pgsrip.rip(media, options)
 ```
+
+## Reporting a bug
+
+A good bug report holds three things: the output of `pgsrip doctor`, the debug
+log, and a scrubbed subtitle sample. The
+[bug report form](https://github.com/ratoaq2/pgsrip/issues/new/choose) asks for
+each of them.
+
+When a subtitle cannot be ripped, pgsrip prints the error and the commands that
+collect what a bug report needs:
+
+    $ pgsrip mymedia.mkv
+    1 PGS subtitle collected from 1 file
+    0 PGS subtitle ripped from 1 file
+
+    1 PGS subtitle could not be ripped:
+      mymedia.en.mkv: <ValueError> [max() iterable argument is empty]
+    To report this, run:
+      pgsrip scrub mymedia.mkv
+      pgsrip --log-file pgsrip.log mymedia.mkv
+    The scrubbed subtitle holds no image, only what is needed to reproduce the error.
+    Attach it to a new issue: https://github.com/ratoaq2/pgsrip/issues
+
+### Environment
+
+`pgsrip doctor` shows what is installed. Add its output to the bug report:
+
+    $ pgsrip doctor
+    pgsrip                       0.1.13
+    python                       3.13.1 (/usr/bin/python3)
+    platform                     Linux-6.8.0-generic-x86_64
+    mkvmerge                     mkvmerge v90.0 (/usr/bin/mkvmerge)
+    mkvextract                   mkvextract v90.0 (/usr/bin/mkvextract)
+    tesseract                    5.5.1 (/usr/bin/tesseract)
+    tesseract languages          eng, osd, por
+    ...
+
+    Everything that pgsrip needs is installed.
+
+The command exits with code 1 if something is missing, and prints how to
+install it.
+
+### Subtitle sample
+
+A PGS subtitle holds two different things: the segments that say when and where
+a subtitle is shown, and the images that hold the text. Only the images hold the
+content of your media, and most bugs are in the first part.
+
+`pgsrip scrub` writes a copy of your PGS subtitles without the images:
+
+    $ pgsrip scrub mymedia.mkv
+    pgsrip-a25b6c81.en.sup written: 1043/1043 display sets, 1043/1043 images redacted, 412088 bytes
+    The scrubbed files hold no subtitle image, only timing, layout and palettes.
+    Attach them to a new issue: https://github.com/ratoaq2/pgsrip/issues
+
+The result is a real `.sup` file. pgsrip reads it through the very same code, so
+it reproduces the bug, but there is no text to read on it and it is much smaller
+than the original. The file name is a hash of the name of your media file. Use
+`--keep-name` to keep the original name.
+
+If the bug is about the OCR itself, an empty image reproduces nothing. There are
+two other options:
+
+    $ pgsrip scrub --redact synthetic mymedia.mkv
+    $ pgsrip scrub --keep-images 412 mymedia.mkv
+
+`--redact synthetic` draws placeholder text in each subtitle image, with the
+same size and the same palette as the original. `--keep-images` keeps the
+original image of the given display sets only, e.g. `412` or `400-420`. A few
+subtitle lines are usually enough, and they stay small.
+
+`--only 0-99` writes only the given display sets, to cut a long subtitle short.
+
+### Debug log
+
+`--debug` prints debug messages to the console. `--log-file` writes the same
+messages to a file, so you can attach it to a bug report:
+
+    $ pgsrip --log-file pgsrip.log mymedia.mkv
+    1 PGS subtitle collected from 1 file
+    Ripping subtitles  [####################################]  100%  mymedia.mkv [4:en]
+    1 PGS subtitle ripped from 1 file
+    Debug log written to pgsrip.log
+
+The log starts with the pgsrip, Python and tesseract versions. It contains the
+paths of the files that were ripped. Remove or replace them if you do not want
+to share the names of your media files.
