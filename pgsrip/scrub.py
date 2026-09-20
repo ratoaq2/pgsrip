@@ -14,6 +14,7 @@ import hashlib
 import logging
 import os
 import typing
+from copy import copy
 
 import cv2
 import numpy as np
@@ -277,8 +278,13 @@ def default_name(media_path: MediaPath, keep_name: bool) -> str:
     return f'pgsrip-{hashlib.sha256(name.encode("utf8")).hexdigest()[:8]}'
 
 
-def output_path(media_path: MediaPath, language: str, output: str | None, keep_name: bool, used: set[str]) -> str:
-    """Build the path of the scrubbed file, without ever reusing one."""
+def output_path(media_path: MediaPath, output: str | None, keep_name: bool, used: set[str]) -> str:
+    """Build the path of the scrubbed file, without ever reusing one.
+
+    media_path is expected to already carry the subtitle's language/flags/track_id, e.g. a Pgs.media_path,
+    so the scrubbed file follows the same <base>.<language>[.<flag>]*[.track<id>].<ext> grammar as a
+    ripped .srt.
+    """
     if output and output.lower().endswith(SUP_EXTENSION):
         base = output[: -len(SUP_EXTENSION)]
     elif output and (os.path.isdir(output) or output.endswith(('/', os.sep))):
@@ -288,11 +294,16 @@ def output_path(media_path: MediaPath, language: str, output: str | None, keep_n
     else:
         base = default_name(media_path, keep_name)
 
-    path = f'{base}.{language}{SUP_EXTENSION}'
-    index = 1
+    target = copy(media_path)
+    target.base_path = base
+    target.extension = SUP_EXTENSION[1:]
+
+    path = str(target)
+    track_id = target.track_id
     while path in used:
-        path = f'{base}.{language}.{index}{SUP_EXTENSION}'
-        index += 1
+        track_id = 0 if track_id is None else track_id + 1
+        target.track_id = track_id
+        path = str(target)
 
     used.add(path)
 

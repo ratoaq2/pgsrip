@@ -18,6 +18,7 @@ from pgsrip.media import Media
 from pgsrip.options import Options
 from pgsrip.scrub import Redaction, output_path, scrub_data
 from pgsrip.tessdata import REPOSITORIES, Tessdata, TessdataError, get_required_codes
+from pgsrip.track_flags import FLAG_CHOICES
 
 if typing.TYPE_CHECKING:
     from click._termui_impl import ProgressBar
@@ -247,6 +248,27 @@ def pgsrip() -> None:
     default=False,
     help='rip all tracks for a given language, even another track for that language was already ripped',
 )
+@click.option(
+    '--with',
+    'with_flags',
+    type=click.Choice(FLAG_CHOICES),
+    multiple=True,
+    help='Only rip tracks carrying at least one of these flags, e.g. forced, sdh, full (can be used multiple times).',
+)
+@click.option(
+    '--without',
+    'without_flags',
+    type=click.Choice(FLAG_CHOICES),
+    multiple=True,
+    help='Never rip tracks carrying any of these flags; wins over --with (can be used multiple times).',
+)
+@click.option(
+    '--one-per-language',
+    is_flag=True,
+    default=False,
+    help='Keep only one track per language, ignoring flags, e.g. skip a track that is only SDH '
+    'if a plain track for that language was already selected.',
+)
 @click.option('-w', '--max-workers', type=click.IntRange(1, 50), default=None, help='Maximum number of threads to use.')
 @click.option(
     '--tessdata-dir',
@@ -289,6 +311,9 @@ def rip(
     srt_age: timedelta | None,
     force: bool,
     all: bool,
+    with_flags: tuple[str, ...],
+    without_flags: tuple[str, ...],
+    one_per_language: bool,
     debug: bool,
     log_file: str | None,
     max_workers: int | None,
@@ -317,6 +342,9 @@ def rip(
         encoding=encoding,
         overwrite=force,
         one_per_lang=not all,
+        one_per_language=one_per_language,
+        include_flags=frozenset(with_flags),
+        exclude_flags=frozenset(without_flags),
         keep_temp_files=keep_temp_files,
         max_workers=max_workers,
         tessdata_dir=tessdata_dir,
@@ -566,8 +594,7 @@ def scrub_medias(
                     click.echo(click.style(f'Cannot scrub {pgs}: <{type(e).__name__}> [{e}]', fg='red'))
                     continue
 
-                language = str(pgs.media_path.language) or 'und'
-                target = output_path(media.media_path, language, output, keep_name, used)
+                target = output_path(pgs.media_path, output, keep_name, used)
                 with open(target, 'wb') as f:
                     f.write(data)
 

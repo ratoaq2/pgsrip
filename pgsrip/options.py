@@ -40,6 +40,9 @@ class Options:
         encoding: str | None = None,
         overwrite: bool = False,
         one_per_lang: bool = True,
+        one_per_language: bool = False,
+        include_flags: frozenset[str] = frozenset(),
+        exclude_flags: frozenset[str] = frozenset(),
         keep_temp_files: bool = False,
         max_workers: int | None = None,
         confidence: int | None = None,
@@ -58,6 +61,9 @@ class Options:
         self.encoding = encoding
         self.overwrite = overwrite
         self.one_per_lang = one_per_lang
+        self.one_per_language = one_per_language
+        self.include_flags = include_flags
+        self.exclude_flags = exclude_flags
         self.keep_temp_files = keep_temp_files
         self.max_workers = max_workers
         self.confidence = confidence
@@ -80,6 +86,9 @@ class Options:
             f'encoding:{self.encoding}, '
             f'overwrite:{self.overwrite}, '
             f'one_per_lang:{self.one_per_lang}, '
+            f'one_per_language:{self.one_per_language}, '
+            f'include_flags:{self.include_flags}, '
+            f'exclude_flags:{self.exclude_flags}, '
             f'keep_temp_files:{self.keep_temp_files}, '
             f'max_workers:{self.max_workers}, '
             f'confidence:{self.confidence}, '
