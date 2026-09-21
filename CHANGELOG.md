@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
+
+**release date:** 2026-09-21
 
   - Name subtitle tracks after their flags instead of an unstable counter,
     e.g. `movie.en.sdh.srt`, `movie.pt-BR.forced.srt` instead of
