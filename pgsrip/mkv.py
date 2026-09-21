@@ -133,12 +133,13 @@ class Mkv(Media):
 
         candidates.sort(key=lambda x: x.id)
 
-        # group on the full candidate set (not the eventually-selected one) so a track's `.track<id>`
+        # group on the full candidate set (not the eventually-selected one) so a track's `.track<n>`
         # suffix is stable across runs regardless of `one_per_lang`/`--with`/`--without` filtering.
         groups: dict[tuple[Language | None, TrackFlags], list[MkvTrack]] = {}
         for t in candidates:
             groups.setdefault((t.language, t.flags), []).append(t)
-        collisions = {t.id for members in groups.values() if len(members) > 1 for t in members}
+        # the first (lowest-id) track of a group stays unlabeled; later ones get a 2, 3, ... ordinal
+        suffixes = {t.id: i + 1 for members in groups.values() for i, t in enumerate(members) if i > 0}
 
         selected: set[tuple[Language | None, TrackFlags | None]] = set()
         for t in candidates:
@@ -151,7 +152,7 @@ class Mkv(Media):
                 continue
 
             assert t.language is not None
-            track_id = t.id if t.id in collisions else None
+            track_id = suffixes.get(t.id)
             pgs = MkvPgs(self.media_path, t.id, t.language, t.flags, options=options, track_id=track_id)
             if pgs.matches(options):
                 logger.debug('Selecting track %s:%s in %s', t.id, t.language, self)

@@ -148,7 +148,7 @@ def test_get_pgs_medias_disambiguates_only_a_real_language_and_flags_collision(t
     medias = list(Mkv(path).get_pgs_medias(Options(one_per_lang=False)))
 
     assert sorted(os.path.basename(str(m.srt_path)) for m in medias) == sorted(
-        ['movie.en.track0.srt', 'movie.en.sdh.srt', 'movie.en.track2.srt', 'movie.de.srt']
+        ['movie.en.srt', 'movie.en.sdh.srt', 'movie.en.track2.srt', 'movie.de.srt']
     )
 
 
@@ -177,7 +177,7 @@ def test_get_pgs_medias_track_id_is_stable_regardless_of_one_per_lang(tmp_path, 
 
     medias = list(Mkv(path).get_pgs_medias(Options(one_per_lang=True)))
 
-    assert [os.path.basename(str(m.srt_path)) for m in medias] == ['movie.en.track0.srt']
+    assert [os.path.basename(str(m.srt_path)) for m in medias] == ['movie.en.srt']
 
 
 def test_get_pgs_medias_excludes_flagged_tracks(tmp_path, mkvmerge):
@@ -247,7 +247,7 @@ def test_get_pgs_medias_track_id_is_stable_regardless_of_with_without_filtering(
 
     medias = list(Mkv(path).get_pgs_medias(Options(one_per_lang=False, exclude_flags=frozenset({'commentary'}))))
 
-    assert sorted(os.path.basename(str(m.srt_path)) for m in medias) == ['movie.en.track0.srt', 'movie.en.track2.srt']
+    assert sorted(os.path.basename(str(m.srt_path)) for m in medias) == ['movie.en.srt', 'movie.en.track2.srt']
 
 
 def test_get_pgs_medias_one_per_language_ignores_flags(tmp_path, mkvmerge):

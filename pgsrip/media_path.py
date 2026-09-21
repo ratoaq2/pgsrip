@@ -13,7 +13,8 @@ from pgsrip.track_flags import TrackFlags
 
 logger = logging.getLogger(__name__)
 
-#: trailing `.track<id>` token: the mkv track id, emitted only to break a naming collision.
+#: trailing `.track<n>` token: a 1-based ordinal (2, 3, ...) among colliding tracks, breaking a naming
+#: collision; the first (lowest-id) track of a group stays unlabeled.
 TRACK_ID_PATTERN = re.compile(r'^track(\d+)$')
 
 

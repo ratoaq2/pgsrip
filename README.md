@@ -160,10 +160,11 @@ ripped side by side. `--one-per-language` restores the old behaviour of
 keeping only one track per language, ignoring flags. `--all` disables
 deduplication entirely, ripping every selected track.
 
-When two selected tracks of the same media would otherwise get the exact
-same name, pgsrip tells them apart with `.track<id>`, the track's id in the
-container, e.g. `movie.en.track2.srt`. This is stable across runs: it does
-not depend on which other tracks or `.srt` files happen to exist.
+When two or more selected tracks of the same media would otherwise get the
+exact same name, pgsrip tells them apart with `.track<n>`: the first track
+keeps the plain name, and each later one is numbered in order, e.g.
+`movie.en.srt` and `movie.en.track2.srt`. This is stable across runs: it
+does not depend on which other tracks or `.srt` files happen to exist.
 
 **Migrating from an older pgsrip**: `movie-1.en.srt` is no longer produced.
 Existing files named that way are not renamed or removed, so re-ripping with
@@ -268,3 +269,10 @@ messages to a file, so you can attach it to a bug report:
 The log starts with the pgsrip, Python and tesseract versions. It contains the
 paths of the files that were ripped. Remove or replace them if you do not want
 to share the names of your media files.
+
+## Tests
+
+`tests/test_rip_e2e.py` rips fabricated media end to end through the CLI and
+checks the `.srt` files it writes. MKVToolNix is faked by default; tesseract is
+always faked. `--media-backend real`/`both` runs the same scenarios against a
+real `mkvmerge`. See [docs/rip-e2e.md](docs/rip-e2e.md).

@@ -32,5 +32,6 @@ Read only when touching the matching code; skip `docs/` otherwise.
 
 - `ripper.py` → `docs/ocr_batching.md` (call-minimization constraint)
 - `pgs.py` / `media.py`'s `auto_fix` → `docs/corrupted_data.md` (degrade-gracefully constraint)
+- `tests/fabricate.py` / `tests/test_rip_e2e.py` → `docs/rip-e2e.md` (fabrication API, backend model)
 - Restructuring files/modules → update `docs/architecture.md` after
 - Any doc whose claims your change invalidates → update it, same commit
