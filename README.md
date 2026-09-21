@@ -136,6 +136,40 @@ Using docker:
     Ripping subtitles  [####################################]  100%  /medias/mymedia.mkv [4:en]
     11 PGS subtitles ripped from 9 files
 
+### Subtitle names
+
+Ripped subtitles are named `<video>.<language>[.<flag>]*.srt`, in that order,
+e.g.:
+
+    movie.en.srt              a plain English track
+    movie.en.sdh.srt          a hearing-impaired English track
+    movie.pt-BR.forced.srt    a forced Brazilian Portuguese track
+
+The flags, in canonical order, are `forced`, `sdh`, `cc`, `commentary`,
+`descriptive`. `--with FLAG` only rips tracks that carry at least one of the
+given flags, or `full` for a track with none of them; `--without FLAG` never
+rips a track that carries any of the given flags and wins over `--with`. Both
+can be used multiple times:
+
+    $ pgsrip --with forced --with full mymedia.mkv
+    $ pgsrip --without commentary mymedia.mkv
+
+By default pgsrip keeps one track per distinct `(language, flags)`
+combination, so a plain English track and an SDH English track are both
+ripped side by side. `--one-per-language` restores the old behaviour of
+keeping only one track per language, ignoring flags. `--all` disables
+deduplication entirely, ripping every selected track.
+
+When two or more selected tracks of the same media would otherwise get the
+exact same name, pgsrip tells them apart with `.track<n>`: the first track
+keeps the plain name, and each later one is numbered in order, e.g.
+`movie.en.srt` and `movie.en.track2.srt`. This is stable across runs: it
+does not depend on which other tracks or `.srt` files happen to exist.
+
+**Migrating from an older pgsrip**: `movie-1.en.srt` is no longer produced.
+Existing files named that way are not renamed or removed, so re-ripping with
+a newer pgsrip creates new, differently-named files alongside them.
+
 ### API
 
 ``` python
@@ -204,7 +238,9 @@ content of your media, and most bugs are in the first part.
 The result is a real `.sup` file. pgsrip reads it through the very same code, so
 it reproduces the bug, but there is no text to read on it and it is much smaller
 than the original. The file name is a hash of the name of your media file. Use
-`--keep-name` to keep the original name.
+`--keep-name` to keep the original name. It follows the same
+[naming convention](#subtitle-names) as a ripped `.srt`, so a hearing-impaired
+track scrubs to e.g. `pgsrip-a25b6c81.en.sdh.sup`.
 
 If the bug is about the OCR itself, an empty image reproduces nothing. There are
 two other options:
@@ -233,3 +269,10 @@ messages to a file, so you can attach it to a bug report:
 The log starts with the pgsrip, Python and tesseract versions. It contains the
 paths of the files that were ripped. Remove or replace them if you do not want
 to share the names of your media files.
+
+## Tests
+
+`tests/test_rip_e2e.py` rips fabricated media end to end through the CLI and
+checks the `.srt` files it writes. MKVToolNix is faked by default; tesseract is
+always faked. `--media-backend real`/`both` runs the same scenarios against a
+real `mkvmerge`. See [docs/rip-e2e.md](docs/rip-e2e.md).

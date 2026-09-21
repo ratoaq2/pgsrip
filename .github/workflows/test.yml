@@ -36,3 +36,26 @@ jobs:
 
       - name: Run tests
         run: uv run pytest --cov-report term --cov pgsrip -vv tests
+
+  e2e-real-media:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the repo
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.1.0
+        with:
+          enable-cache: true
+          python-version: "3.13"
+
+      - name: Install MKVToolNix
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mkvtoolnix
+
+      - name: Install dependencies
+        run: uv sync --locked
+
+      - name: Run the end-to-end rip tests against a real mkvmerge
+        run: uv run pytest tests/test_rip_e2e.py --media-backend real -vv

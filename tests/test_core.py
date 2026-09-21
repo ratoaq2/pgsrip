@@ -9,6 +9,7 @@ from pgsrip.api import rip_pgs, scan_path
 from pgsrip.core import get_reason
 from pgsrip.media import Pgs
 from pgsrip.media_path import MediaPath
+from pgsrip.mkv import Mkv
 from pgsrip.options import Options
 
 
@@ -25,12 +26,12 @@ def mkvmerge(monkeypatch):
     return use
 
 
-def pgs_track(track_id=0, language='eng'):
+def pgs_track(track_id=0, language='eng', **properties):
     return {
         'id': track_id,
         'type': 'subtitles',
         'codec': 'HDMV PGS',
-        'properties': {'language': language, 'enabled_track': True},
+        'properties': {'language': language, 'enabled_track': True, **properties},
     }
 
 
@@ -131,3 +132,133 @@ def test_rip_pgs_points_at_the_media_the_subtitle_came_from(tmp_path):
     pgs = Pgs(media_path, Options(), lambda: b'', str(tmp_path))
 
     assert str(pgs.source_path) == str(media_path)
+
+
+def test_get_pgs_medias_disambiguates_only_a_real_language_and_flags_collision(tmp_path, mkvmerge):
+    mkvmerge(
+        tracks=[
+            pgs_track(track_id=0, language='eng'),
+            pgs_track(track_id=1, language='eng', flag_hearing_impaired=True),
+            pgs_track(track_id=2, language='eng'),
+            pgs_track(track_id=3, language='deu'),
+        ]
+    )
+    path = create_file(tmp_path, 'movie.mkv')
+
+    medias = list(Mkv(path).get_pgs_medias(Options(one_per_lang=False)))
+
+    assert sorted(os.path.basename(str(m.srt_path)) for m in medias) == sorted(
+        ['movie.en.srt', 'movie.en.sdh.srt', 'movie.en.track2.srt', 'movie.de.srt']
+    )
+
+
+def test_get_pgs_medias_keeps_different_flag_combinations_for_the_same_language_by_default(tmp_path, mkvmerge):
+    mkvmerge(
+        tracks=[
+            pgs_track(track_id=0, language='eng'),
+            pgs_track(track_id=1, language='eng', flag_hearing_impaired=True),
+        ]
+    )
+    path = create_file(tmp_path, 'movie.mkv')
+
+    medias = list(Mkv(path).get_pgs_medias(Options()))
+
+    assert sorted(os.path.basename(str(m.srt_path)) for m in medias) == ['movie.en.sdh.srt', 'movie.en.srt']
+
+
+def test_get_pgs_medias_track_id_is_stable_regardless_of_one_per_lang(tmp_path, mkvmerge):
+    mkvmerge(
+        tracks=[
+            pgs_track(track_id=0, language='eng'),
+            pgs_track(track_id=2, language='eng'),
+        ]
+    )
+    path = create_file(tmp_path, 'movie.mkv')
+
+    medias = list(Mkv(path).get_pgs_medias(Options(one_per_lang=True)))
+
+    assert [os.path.basename(str(m.srt_path)) for m in medias] == ['movie.en.srt']
+
+
+def test_get_pgs_medias_excludes_flagged_tracks(tmp_path, mkvmerge):
+    mkvmerge(
+        tracks=[
+            pgs_track(track_id=0, language='eng'),
+            pgs_track(track_id=1, language='eng', flag_commentary=True),
+        ]
+    )
+    path = create_file(tmp_path, 'movie.mkv')
+
+    medias = list(Mkv(path).get_pgs_medias(Options(one_per_lang=False, exclude_flags=frozenset({'commentary'}))))
+
+    assert [os.path.basename(str(m.srt_path)) for m in medias] == ['movie.en.srt']
+
+
+def test_get_pgs_medias_includes_forced_or_full_tracks(tmp_path, mkvmerge):
+    mkvmerge(
+        tracks=[
+            pgs_track(track_id=0, language='eng', forced_track=True),
+            pgs_track(track_id=1, language='eng', flag_hearing_impaired=True),
+            pgs_track(track_id=2, language='eng'),
+        ]
+    )
+    path = create_file(tmp_path, 'movie.mkv')
+
+    medias = list(Mkv(path).get_pgs_medias(Options(one_per_lang=False, include_flags=frozenset({'forced', 'full'}))))
+
+    assert sorted(os.path.basename(str(m.srt_path)) for m in medias) == ['movie.en.forced.srt', 'movie.en.srt']
+
+
+def test_get_pgs_medias_includes_sdh_for_the_selected_language_only(tmp_path, mkvmerge):
+    mkvmerge(
+        tracks=[
+            pgs_track(track_id=0, language='eng', flag_hearing_impaired=True),
+            pgs_track(track_id=1, language='eng'),
+            pgs_track(track_id=2, language='deu', flag_hearing_impaired=True),
+        ]
+    )
+    path = create_file(tmp_path, 'movie.mkv')
+
+    medias = list(Mkv(path).get_pgs_medias(Options(languages={Language('eng')}, include_flags=frozenset({'sdh'}))))
+
+    assert [os.path.basename(str(m.srt_path)) for m in medias] == ['movie.en.sdh.srt']
+
+
+def test_get_pgs_medias_exclude_wins_over_include(tmp_path, mkvmerge):
+    mkvmerge(tracks=[pgs_track(track_id=0, language='eng', forced_track=True, flag_commentary=True)])
+    path = create_file(tmp_path, 'movie.mkv')
+
+    medias = list(
+        Mkv(path).get_pgs_medias(Options(include_flags=frozenset({'forced'}), exclude_flags=frozenset({'commentary'})))
+    )
+
+    assert not medias
+
+
+def test_get_pgs_medias_track_id_is_stable_regardless_of_with_without_filtering(tmp_path, mkvmerge):
+    mkvmerge(
+        tracks=[
+            pgs_track(track_id=0, language='eng'),
+            pgs_track(track_id=2, language='eng'),
+            pgs_track(track_id=5, language='eng', flag_commentary=True),
+        ]
+    )
+    path = create_file(tmp_path, 'movie.mkv')
+
+    medias = list(Mkv(path).get_pgs_medias(Options(one_per_lang=False, exclude_flags=frozenset({'commentary'}))))
+
+    assert sorted(os.path.basename(str(m.srt_path)) for m in medias) == ['movie.en.srt', 'movie.en.track2.srt']
+
+
+def test_get_pgs_medias_one_per_language_ignores_flags(tmp_path, mkvmerge):
+    mkvmerge(
+        tracks=[
+            pgs_track(track_id=0, language='eng'),
+            pgs_track(track_id=1, language='eng', flag_hearing_impaired=True),
+        ]
+    )
+    path = create_file(tmp_path, 'movie.mkv')
+
+    medias = list(Mkv(path).get_pgs_medias(Options(one_per_language=True)))
+
+    assert [os.path.basename(str(m.srt_path)) for m in medias] == ['movie.en.srt']

@@ -1,0 +1,282 @@
+# Scenario matrix for tests/test_rip_e2e.py. See docs/rip-e2e.md.
+#
+# `media`/`medias`: fabricated as MediaSpec/TrackSpec (tests/fabricate.py). `args`: extra `pgsrip rip`
+# CLI args. `expected`: {filename: [[start, end, text], ...]}, compared with `pysrt.open`. `backends`:
+# restrict a scenario to one media backend (default: both).
+
+- name: a single english track is ripped next to the media
+  media:
+    name: movie.mkv
+    tracks:
+      - language: en
+        texts: ['Hello, world!', 'How are you?', 'Goodbye.']
+  expected:
+    movie.en.srt:
+      - ['00:00:01,000', '00:00:03,000', 'Hello, world!']
+      - ['00:00:04,000', '00:00:06,000', 'How are you?']
+      - ['00:00:07,000', '00:00:09,000', 'Goodbye.']
+
+- name: plain sdh forced and commentary tracks each get their own file
+  media:
+    name: movie.mkv
+    tracks:
+      - {language: en, cues: 1, texts: ['Plain']}
+      - {language: en, cues: 1, texts: ['SDH'], hearing_impaired: true}
+      - {language: en, cues: 1, texts: ['Forced'], forced: true}
+      - {language: en, cues: 1, texts: ['Commentary'], commentary: true}
+  expected:
+    movie.en.srt: [['00:00:01,000', '00:00:03,000', 'Plain']]
+    movie.en.sdh.srt: [['00:00:01,000', '00:00:03,000', 'SDH']]
+    movie.en.forced.srt: [['00:00:01,000', '00:00:03,000', 'Forced']]
+    movie.en.commentary.srt: [['00:00:01,000', '00:00:03,000', 'Commentary']]
+
+- name: a track that is both forced and hearing impaired keeps canonical token order
+  media:
+    name: movie.mkv
+    tracks:
+      - {language: en, cues: 1, texts: ['Both'], forced: true, hearing_impaired: true}
+  expected:
+    movie.en.forced.sdh.srt: [['00:00:01,000', '00:00:03,000', 'Both']]
+
+- name: track names are guessed by trakit when the container carries no flags
+  media:
+    name: movie.mkv
+    tracks:
+      - {language: en, name: 'English SDH', cues: 1, texts: ['Named SDH']}
+      - {language: en, name: 'Forced', cues: 1, texts: ['Named forced']}
+  expected:
+    movie.en.sdh.srt: [['00:00:01,000', '00:00:03,000', 'Named SDH']]
+    movie.en.forced.srt: [['00:00:01,000', '00:00:03,000', 'Named forced']]
+
+- name: a true container flag beats a full name guess
+  media:
+    name: movie.mkv
+    tracks:
+      - {language: en, name: 'Full', hearing_impaired: true, cues: 1, texts: ['Full but sdh']}
+  expected:
+    movie.en.sdh.srt: [['00:00:01,000', '00:00:03,000', 'Full but sdh']]
+
+- name: an explicit false container flag falls back to the name guess
+  media:
+    name: movie.mkv
+    tracks:
+      - {language: en, name: 'Forced', forced: false, cues: 1, texts: ['Forced by name']}
+  expected:
+    movie.en.forced.srt: [['00:00:01,000', '00:00:03,000', 'Forced by name']]
+
+- name: two identical tracks collide and keep their mkv track id with --all
+  media:
+    name: movie.mkv
+    tracks:
+      - {language: en, cues: 1, texts: ['From the first track']}
+      - {language: en, cues: 1, texts: ['From the second track']}
+  args: ['--all']
+  expected:
+    movie.en.srt: [['00:00:01,000', '00:00:03,000', 'From the first track']]
+    movie.en.track2.srt: [['00:00:01,000', '00:00:03,000', 'From the second track']]
+
+- name: two identical tracks are deduped to the first track by default, which stays unlabeled
+  media:
+    name: movie.mkv
+    tracks:
+      - {language: en, cues: 1, texts: ['From the first track']}
+      - {language: en, cues: 1, texts: ['From the second track']}
+  expected:
+    movie.en.srt: [['00:00:01,000', '00:00:03,000', 'From the first track']]
+
+- name: IETF tags are rendered and es-419 is parsed
+  media:
+    name: movie.mkv
+    tracks:
+      - {language: pt-BR, cues: 1, texts: ['Brazilian Portuguese']}
+      - {language: pt-PT, cues: 1, texts: ['European Portuguese']}
+      - {language: es-419, cues: 1, texts: ['Latin American Spanish']}
+      - {language: zh-Hans, cues: 1, texts: ['Simplified Chinese']}
+  args: ['--all']
+  expected:
+    movie.pt-BR.srt: [['00:00:01,000', '00:00:03,000', 'Brazilian Portuguese']]
+    movie.pt-PT.srt: [['00:00:01,000', '00:00:03,000', 'European Portuguese']]
+    movie.es-419.srt: [['00:00:01,000', '00:00:03,000', 'Latin American Spanish']]
+    movie.zh-Hans.srt: [['00:00:01,000', '00:00:03,000', 'Simplified Chinese']]
+
+- name: an unparseable language_ietf falls back to the 639-2/B alpha3 code
+  backends: [fake]
+  media:
+    name: movie.mkv
+    tracks:
+      - {language_ietf: zz-nonsense, language_alpha3: ger, cues: 1, texts: ['Deutsch']}
+  expected:
+    movie.de.srt: [['00:00:01,000', '00:00:03,000', 'Deutsch']]
+
+- name: only the PGS track is collected among video audio and text subtitle tracks
+  backends: [fake]
+  medias:
+    - name: movie.mkv
+      tracks:
+        - {type: video, codec: 'HEVC/H.265/MPEG-H', cues: 0}
+        - {type: audio, codec: 'AC-3', cues: 0}
+        - {type: subtitles, codec: 'S_TEXT/UTF8', cues: 0}
+        - {language: en, cues: 1, texts: ['Only the PGS track']}
+  expected:
+    movie.en.srt: [['00:00:01,000', '00:00:03,000', 'Only the PGS track']]
+
+- name: a disabled track is never ripped
+  media:
+    name: movie.mkv
+    tracks:
+      - {language: en, enabled: false, cues: 1, texts: ['Disabled']}
+  output: ['0 PGS subtitle collected']
+  expected: {}
+
+- name: --with includes only the flagged tracks
+  media:
+    name: movie.mkv
+    tracks:
+      - {language: en, cues: 1, texts: ['Plain']}
+      - {language: en, cues: 1, texts: ['SDH'], hearing_impaired: true}
+      - {language: en, cues: 1, texts: ['Forced'], forced: true}
+      - {language: en, cues: 1, texts: ['Commentary'], commentary: true}
+  args: ['--with', 'sdh', '--with', 'forced', '--all']
+  expected:
+    movie.en.sdh.srt: [['00:00:01,000', '00:00:03,000', 'SDH']]
+    movie.en.forced.srt: [['00:00:01,000', '00:00:03,000', 'Forced']]
+
+- name: --without excludes tracks while colliding ids keep their track suffix
+  media:
+    name: movie.mkv
+    tracks:
+      - {language: en, cues: 1, texts: ['From the first track']}
+      - {language: en, cues: 1, texts: ['From the second track']}
+      - {language: en, cues: 1, texts: ['Commentary'], commentary: true}
+  args: ['--without', 'commentary', '--all']
+  expected:
+    movie.en.srt: [['00:00:01,000', '00:00:03,000', 'From the first track']]
+    movie.en.track2.srt: [['00:00:01,000', '00:00:03,000', 'From the second track']]
+
+- name: --without wins over --with on the same track
+  media:
+    name: movie.mkv
+    tracks:
+      - {language: en, cues: 1, texts: ['Both'], forced: true, commentary: true}
+  args: ['--with', 'forced', '--without', 'commentary']
+  expected: {}
+
+- name: --one-per-language collapses plain and sdh to one file
+  media:
+    name: movie.mkv
+    tracks:
+      - {language: en, cues: 1, texts: ['Plain']}
+      - {language: en, cues: 1, texts: ['SDH'], hearing_impaired: true}
+  args: ['--one-per-language']
+  expected:
+    movie.en.srt: [['00:00:01,000', '00:00:03,000', 'Plain']]
+
+- name: -l filters out other languages
+  media:
+    name: movie.mkv
+    tracks:
+      - {language: en, cues: 1, texts: ['English']}
+      - {language: de, cues: 1, texts: ['Deutsch']}
+  args: ['-l', 'en']
+  expected:
+    movie.en.srt: [['00:00:01,000', '00:00:03,000', 'English']]
+
+- name: cleanit strips a speaker label and drops a spam line entirely
+  media:
+    name: movie.mkv
+    tracks:
+      - {language: en, cues: 2, texts: ['MAN:  Hello', 'Subtitles by www.example.com']}
+  expected:
+    movie.en.srt: [['00:00:01,000', '00:00:03,000', 'Hello']]
+
+- name: a low-confidence cue is recovered once the retry ladder drops confidence to 0
+  media:
+    name: movie.mkv
+    tracks:
+      - language: en
+        texts: ['First cue', 'Second cue', 'Third cue']
+        confidences: [96, 20, 96]
+  ocr_passes: 2
+  expected:
+    movie.en.srt:
+      - ['00:00:01,000', '00:00:03,000', 'First cue']
+      - ['00:00:04,000', '00:00:06,000', 'Second cue']
+      - ['00:00:07,000', '00:00:09,000', 'Third cue']
+
+- name: a cue below even confidence 0 is dropped and the rest of the track survives
+  media:
+    name: movie.mkv
+    tracks:
+      - language: en
+        texts: ['First cue', 'Unreadable cue', 'Third cue']
+        confidences: [96, -1, 96]
+  expected:
+    movie.en.srt:
+      - ['00:00:01,000', '00:00:03,000', 'First cue']
+      - ['00:00:07,000', '00:00:09,000', 'Third cue']
+
+- name: a corrupt track is reported as a failure while a sibling track still rips
+  backends: [fake]
+  media:
+    name: movie.mkv
+    tracks:
+      - {language: en, cues: 0}
+      - {language: de, cues: 1, texts: ['Hallo']}
+  failures: ['<ValueError>']
+  expected:
+    movie.de.srt: [['00:00:01,000', '00:00:03,000', 'Hallo']]
+
+- name: an existing srt is left untouched without -f
+  media:
+    name: movie.mkv
+    tracks:
+      - {language: en, cues: 1, texts: ['New content']}
+  existing:
+    movie.en.srt: |
+      1
+      00:00:01,000 --> 00:00:03,000
+      Old content
+
+  expected:
+    movie.en.srt: [['00:00:01,000', '00:00:03,000', 'Old content']]
+
+- name: an existing srt is overwritten with -f
+  media:
+    name: movie.mkv
+    tracks:
+      - {language: en, cues: 1, texts: ['New content']}
+  existing:
+    movie.en.srt: |
+      1
+      00:00:01,000 --> 00:00:03,000
+      Old content
+
+  args: ['-f']
+  expected:
+    movie.en.srt: [['00:00:01,000', '00:00:03,000', 'New content']]
+
+- name: a directory scan handles a .mkv and a .mks side by side
+  medias:
+    - {name: movie.mkv, tracks: [{language: en, cues: 1, texts: ['From the mkv']}]}
+    - {name: show.mks, tracks: [{language: en, cues: 1, texts: ['From the mks']}]}
+  expected:
+    movie.en.srt: [['00:00:01,000', '00:00:03,000', 'From the mkv']]
+    show.en.srt: [['00:00:01,000', '00:00:03,000', 'From the mks']]
+
+- name: a dotted base name survives MediaPath round-tripping
+  media:
+    name: show.s01e01.mkv
+    tracks:
+      - {language: en, cues: 1, texts: ['Dotted name']}
+  expected:
+    show.s01e01.en.srt: [['00:00:01,000', '00:00:03,000', 'Dotted name']]
+
+- name: the encoding option is honoured
+  media:
+    name: movie.mkv
+    tracks:
+      - {language: en, cues: 1, texts: ['Café']}
+  args: ['-e', 'cp1252']
+  encoding: cp1252
+  expected:
+    movie.en.srt: [['00:00:01,000', '00:00:03,000', 'Café']]

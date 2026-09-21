@@ -2,10 +2,12 @@ import os
 
 import numpy as np
 import pytest
+from babelfish import Language
 
 from pgsrip.media_path import MediaPath
 from pgsrip.pgs import ObjectDefinitionSegment, PgsImage, PgsReader, SegmentType
 from pgsrip.scrub import Redaction, encode_runs, output_path, scrub_data, to_runs
+from pgsrip.track_flags import TrackFlags
 
 WIDTH = 64
 HEIGHT = 8
@@ -213,21 +215,33 @@ def test_scrub_keeps_an_object_split_over_two_segments(media_path):
     ],
 )
 def test_output_path_does_not_repeat_the_language(path, keep_name, expected):
-    assert output_path(MediaPath(path), 'en', None, keep_name, set()) == expected
+    media_path = MediaPath(path).translate(language=Language('eng'))
+
+    assert output_path(media_path, None, keep_name, set()) == expected
+
+
+def test_output_path_keeps_the_subtitle_flags(tmp_path):
+    media_path = MediaPath('mymedia.mkv').translate(language=Language('eng'), flags=TrackFlags(forced=True))
+
+    assert output_path(media_path, None, True, set()) == 'mymedia.en.forced.sup'
 
 
 def test_output_path_never_reuses_a_path():
     used = set()
-    media_path = MediaPath('mymedia.mkv')
+    media_path = MediaPath('mymedia.mkv').translate(language=Language('eng'))
 
-    paths = [output_path(media_path, 'en', None, True, used) for _ in range(3)]
+    paths = [output_path(media_path, None, True, used) for _ in range(3)]
 
-    assert paths == ['mymedia.en.sup', 'mymedia.en.1.sup', 'mymedia.en.2.sup']
+    assert paths == ['mymedia.en.sup', 'mymedia.en.track0.sup', 'mymedia.en.track1.sup']
 
 
 def test_output_path_uses_the_given_directory(tmp_path):
-    assert output_path(MediaPath('mymedia.mkv'), 'en', str(tmp_path), True, set()) == str(tmp_path / 'mymedia.en.sup')
+    media_path = MediaPath('mymedia.mkv').translate(language=Language('eng'))
+
+    assert output_path(media_path, str(tmp_path), True, set()) == str(tmp_path / 'mymedia.en.sup')
 
 
 def test_output_path_uses_the_given_file_name():
-    assert output_path(MediaPath('mymedia.mkv'), 'en', 'report.sup', True, set()) == 'report.en.sup'
+    media_path = MediaPath('mymedia.mkv').translate(language=Language('eng'))
+
+    assert output_path(media_path, 'report.sup', True, set()) == 'report.en.sup'

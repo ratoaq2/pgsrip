@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+  - Name subtitle tracks after their flags instead of an unstable counter,
+    e.g. `movie.en.sdh.srt`, `movie.pt-BR.forced.srt` instead of
+    `movie-1.en.srt`
+  - Add `--with`/`--without` to select tracks by flag (`forced`, `sdh`, `cc`,
+    `commentary`, `descriptive`, `full`, ...)
+  - Add `--one-per-language` to keep only one track per language, ignoring
+    flags
+  - `pgsrip scrub` names its output the same way as a ripped `.srt`
+  - Fix: a second subtitle track for an already-ripped language could be
+    skipped by mistake, because the overwrite check and the file actually
+    written did not agree on its name
+
 ## 0.1.13
 
 **release date:** 2026-09-20

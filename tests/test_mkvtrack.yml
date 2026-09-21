@@ -212,3 +212,166 @@
     type: subtitles
     codec: HDMV PGS
     language: pt-BR
+
+- track:
+    codec: HDMV PGS
+    id: 8
+    properties:
+      codec_id: S_HDMV/PGS
+      default_track: false
+      enabled_track: true
+      forced_track: false
+      flag_hearing_impaired: true
+      language: eng
+      language_ietf: en
+      track_name: English
+      number: 9
+      uid: 20
+    type: subtitles
+  expected:
+    id: 8
+    type: subtitles
+    codec: HDMV PGS
+    name: English
+    language: en
+    hearing_impaired: true
+
+- track:
+    codec: HDMV PGS
+    id: 9
+    properties:
+      codec_id: S_HDMV/PGS
+      default_track: false
+      enabled_track: true
+      forced_track: false
+      language: eng
+      language_ietf: en
+      track_name: Forced
+      number: 10
+      uid: 21
+    type: subtitles
+  expected:
+    id: 9
+    type: subtitles
+    codec: HDMV PGS
+    name: Forced
+    language: en
+    forced: true
+
+- track:
+    codec: HDMV PGS
+    id: 10
+    properties:
+      codec_id: S_HDMV/PGS
+      default_track: false
+      enabled_track: true
+      forced_track: true
+      language: eng
+      language_ietf: en
+      track_name: English
+      number: 11
+      uid: 22
+    type: subtitles
+  expected:
+    id: 10
+    type: subtitles
+    codec: HDMV PGS
+    name: English
+    language: en
+    forced: true
+
+- track:
+    codec: HDMV PGS
+    id: 11
+    properties:
+      codec_id: S_HDMV/PGS
+      default_track: false
+      enabled_track: true
+      forced_track: false
+      language: spa
+      language_ietf: es-419
+      number: 12
+      uid: 23
+    type: subtitles
+  expected:
+    id: 11
+    type: subtitles
+    codec: HDMV PGS
+    language: es-419
+
+- track:
+    codec: HDMV PGS
+    id: 12
+    properties:
+      codec_id: S_HDMV/PGS
+      default_track: false
+      enabled_track: true
+      forced_track: false
+      language: chi
+      language_ietf: zh-Hans
+      number: 13
+      uid: 24
+    type: subtitles
+  expected:
+    id: 12
+    type: subtitles
+    codec: HDMV PGS
+    language: zh-Hans
+
+- track:
+    codec: HDMV PGS
+    id: 13
+    properties:
+      codec_id: S_HDMV/PGS
+      default_track: false
+      enabled_track: true
+      forced_track: false
+      language: eng
+      language_ietf: en-US
+      number: 14
+      uid: 25
+    type: subtitles
+  expected:
+    id: 13
+    type: subtitles
+    codec: HDMV PGS
+    language: en-US
+
+- track:
+    codec: HDMV PGS
+    id: 14
+    properties:
+      codec_id: S_HDMV/PGS
+      default_track: false
+      enabled_track: true
+      forced_track: false
+      language: ger
+      language_ietf: not-a-real-tag
+      number: 15
+      uid: 26
+    type: subtitles
+  expected:
+    id: 14
+    type: subtitles
+    codec: HDMV PGS
+    language: de
+
+- track:
+    codec: HDMV PGS
+    id: 15
+    properties:
+      codec_id: S_HDMV/PGS
+      default_track: false
+      enabled_track: false
+      forced_track: false
+      language: eng
+      language_ietf: en
+      number: 16
+      uid: 27
+    type: subtitles
+  expected:
+    id: 15
+    type: subtitles
+    codec: HDMV PGS
+    language: en
+    disabled: true
