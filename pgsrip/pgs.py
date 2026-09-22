@@ -48,24 +48,25 @@ class Palette(typing.NamedTuple):
 class PgsReader:
     @classmethod
     def read_segments(cls, data: bytes, media_path: MediaPath) -> typing.Iterator[BaseSegment]:
-        count = 0
-        b = data
-        while b:
-            if b[:2] != b'PG':
-                logger.warning('%s Ignoring invalid PGS segment data: %s', media_path, b)
+        offset = 0
+        length = len(data)
+        while offset < length:
+            if length - offset < 13:
+                logger.warning(
+                    '%s Ignoring invalid PGS segment data with less than 13 bytes at offset %d', media_path, offset
+                )
                 break
 
-            if len(b) < 13:
-                logger.warning('%s Ignoring invalid PGS segment data with less than 13 bytes: %s', media_path, b)
+            if data[offset : offset + 2] != b'PG':
+                logger.warning('%s Ignoring invalid PGS segment data at offset %d', media_path, offset)
                 break
 
-            segment_type = SEGMENT_TYPE[SegmentType(b[10])]
-            size_field = from_hex(b[11:13])
+            segment_type = SEGMENT_TYPE[SegmentType(data[offset + 10])]
+            size_field = from_hex(data[offset + 11 : offset + 13])
             assert size_field is not None
             size = 13 + size_field
-            yield segment_type(b[:size])
-            count += size
-            b = b[size:]
+            yield segment_type(data[offset : offset + size])
+            offset += size
 
     @classmethod
     def decode(cls, data: bytes, media_path: MediaPath) -> typing.Iterator[DisplaySet]:

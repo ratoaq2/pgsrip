@@ -4,7 +4,7 @@ from pysrt import SubRipTime
 
 
 def from_hex(b: bytes) -> int | None:
-    return int(b.hex(), base=16) if len(b) > 0 else None
+    return int.from_bytes(b, 'big') if b else None
 
 
 @typing.overload
