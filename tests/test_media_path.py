@@ -119,3 +119,9 @@ def test_sup_reads_a_source_with_a_three_letter_language(tmp_path):
     path.write_bytes(b'PG')
 
     assert Sup(str(path)).media_path.get_data() == b'PG'
+
+
+def test_media_path_translates_a_three_letter_language_to_the_canonical_name():
+    media_path = MediaPath('/media/movie.fre.sup')
+
+    assert str(media_path.translate(extension='srt')) == '/media/movie.fr.srt'

@@ -270,3 +270,9 @@ def test_output_path_uses_the_given_file_name():
     media_path = MediaPath('mymedia.mkv').translate(language=Language('eng'))
 
     assert output_path(media_path, 'report.sup', True, set()) == 'report.en.sup'
+
+
+def test_output_path_uses_the_canonical_language_of_a_source_with_a_three_letter_language():
+    media_path = MediaPath('/media/movie.fre.sup')
+
+    assert output_path(media_path, None, False, set()) == 'pgsrip-8a6ba32c.fr.sup'
