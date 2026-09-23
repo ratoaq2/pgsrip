@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import typing
+from collections.abc import Iterator
 
 import cv2
 import numpy as np
@@ -17,6 +18,9 @@ from pgsrip.tessdata import Tessdata, get_config_arg, get_required_codes, get_te
 from pgsrip.tsv import TsvData, TsvDataItem
 
 logger = logging.getLogger(__name__)
+
+#: tesseract refuses any image dimension above INT16_MAX; stay under it with room for the border.
+MAX_TESS_DIMENSION = 31 * 1024
 
 
 class ImageArea:
@@ -68,8 +72,10 @@ class ImageArea:
 
 
 class FullImage:
+    border = 100
+
     def __init__(self, areas: list[ImageArea], gap: tuple[int, int]):
-        border = 100
+        border = self.border
         total_height = sum([area.height for area in areas]) + (len(areas) - 1) * gap[0] + 2 * border
         total_width = max([area.width for area in areas]) + 2 * border
         full_image = np.full((total_height, total_width), 255, dtype=np.uint8)
@@ -82,9 +88,16 @@ class FullImage:
             h_start = h_end + gap[0]
 
         self.data = full_image
+        self.items = [item for area in areas for item in area.items]
 
     @classmethod
-    def from_items(cls, items: list[PgsSubtitleItem], gap: tuple[int, int], max_width: int) -> FullImage:
+    def from_items(
+        cls, items: list[PgsSubtitleItem], gap: tuple[int, int], max_width: int, max_height: int
+    ) -> Iterator[FullImage]:
+        """Yield composites no taller than max_height, one at a time to bound peak memory.
+
+        An area taller than max_height on its own still gets a composite of its own.
+        """
         areas: list[ImageArea] = []
         remaining = list(items)
         remaining.sort(key=lambda x: x.height)
@@ -106,7 +119,19 @@ class FullImage:
             if len(current_items) > 0:
                 areas.append(ImageArea(current_items, gap))
 
-        return FullImage(areas, gap)
+        group: list[ImageArea] = []
+        height = 2 * cls.border
+        for area in areas:
+            if group and height + gap[0] + area.height > max_height:
+                yield cls(group, gap)
+                group = []
+                height = 2 * cls.border
+
+            height += (gap[0] if group else 0) + area.height
+            group.append(area)
+
+        if group:
+            yield cls(group, gap)
 
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__} [{self}]>'
@@ -119,7 +144,7 @@ class PgsToSrtRipper:
     def __init__(self, pgs: Pgs, options: Options):
         self.pgs = pgs
         self.confidence = min(max(options.confidence or 65, 0), 100)
-        self.max_tess_width = min(max(options.tesseract_width or 31 * 1024, 10 * 1024), 31 * 1024)
+        self.max_tess_width = min(max(options.tesseract_width or MAX_TESS_DIMENSION, 10 * 1024), MAX_TESS_DIMENSION)
         self.omp_thread_limit = options.max_workers
         self.oem = options.tesseract_oem or TesseractEngineMode.NEURAL
         self.psm = options.tesseract_psm or TesseractPageSegmentationMode.SINGLE_UNIFORM_BLOCK_OF_TEXT
@@ -140,8 +165,6 @@ class PgsToSrtRipper:
         oem: TesseractEngineMode,
         psm: TesseractPageSegmentationMode,
     ) -> list[PgsSubtitleItem]:
-        full_image = FullImage.from_items(items, self.gap, max_width)
-
         config: dict[str, typing.Any] = {
             'output_type': tess.Output.DICT,
             'config': f'{get_config_arg(self.tessdata_dir)} --psm {psm.value} --oem {oem.value}'.strip(),
@@ -152,37 +175,38 @@ class PgsToSrtRipper:
 
         if self.omp_thread_limit:
             os.environ['OMP_THREAD_LIMIT'] = str(self.omp_thread_limit)
-        if self.keep_temp_files:
-            png_file = os.path.join(
-                self.pgs.temp_folder,
-                f'{os.path.basename(subs.path)}-{len(items)}-psm{psm.value}-{oem.name}-{confidence}.png',
-            )
-            logger.debug('Writing temporary png file %s', png_file)
-            cv2.imwrite(png_file, full_image.data)
-
-        with tessdata_env(self.tessdata_dir):
-            data = TsvData(tess.image_to_data(full_image.data, **config), confidence=confidence)
-
-        if self.keep_temp_files:
-            results_file = os.path.join(
-                self.pgs.temp_folder, f'{os.path.basename(subs.path)}-{len(items)}-{confidence}.json'
-            )
-            logger.debug('Writing temporary results file %s', results_file)
-            with open(results_file, mode='w', encoding='utf8') as f:
-                json.dump([i.__dict__ for i in data.items], f, indent=2, ensure_ascii=False)
 
         remaining: list[PgsSubtitleItem] = []
-        for item in items:
-            text = self.accept(data, item, confidence)
-            if text is None:
-                remaining.append(item)
-                continue
+        prefix = f'{os.path.basename(subs.path)}-{len(items)}'
+        for index, full_image in enumerate(FullImage.from_items(items, self.gap, max_width, MAX_TESS_DIMENSION)):
+            if self.keep_temp_files:
+                png_file = os.path.join(
+                    self.pgs.temp_folder, f'{prefix}-{index}-psm{psm.value}-{oem.name}-{confidence}.png'
+                )
+                logger.debug('Writing temporary png file %s', png_file)
+                cv2.imwrite(png_file, full_image.data)
 
-            if post_process:
-                text = post_process(text)
-            if text:
-                sub_item = SubRipItem(0, item.start, item.end, text)
-                subs.append(sub_item)
+            with tessdata_env(self.tessdata_dir):
+                data = TsvData(tess.image_to_data(full_image.data, **config), confidence=confidence)
+
+            if self.keep_temp_files:
+                results_file = os.path.join(self.pgs.temp_folder, f'{prefix}-{index}-{confidence}.json')
+                logger.debug('Writing temporary results file %s', results_file)
+                with open(results_file, mode='w', encoding='utf8') as f:
+                    json.dump([i.__dict__ for i in data.items], f, indent=2, ensure_ascii=False)
+
+            # item.place is relative to the composite the item was drawn in: match it against that one only.
+            for item in full_image.items:
+                text = self.accept(data, item, confidence)
+                if text is None:
+                    remaining.append(item)
+                    continue
+
+                if post_process:
+                    text = post_process(text)
+                if text:
+                    sub_item = SubRipItem(0, item.start, item.end, text)
+                    subs.append(sub_item)
 
         return remaining
 
