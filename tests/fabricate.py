@@ -21,8 +21,6 @@ from pgsrip.pgs import PgsReader
 from pgsrip.scrub import Redaction, scrub_display_sets
 
 if typing.TYPE_CHECKING:
-    from collections.abc import Iterator
-
     from pgsrip.media import PgsSubtitleItem
     from pgsrip.ripper import FullImage
 
@@ -209,7 +207,7 @@ class FakeTesseract:
         self.toolnix = toolnix
         # (subtitle path, confidence) for every `process()` call, in order: the OCR retry ladder.
         self.passes: list[tuple[str, int]] = []
-        # every composite `FullImage.from_items` yielded, in order: one tesseract call each.
+        # every composite `FullImage.from_items` returned, in order: one tesseract call each.
         self.composites: list[FullImage] = []
         self._pgs: typing.Any = None
 
@@ -239,11 +237,11 @@ class FakeTesseract:
 
         return process
 
-    def wrap_from_items(self, original_from_items: typing.Callable[..., Iterator[FullImage]]) -> typing.Any:
-        def from_items(*args: typing.Any) -> Iterator[FullImage]:
-            for composite in original_from_items(*args):
-                self.composites.append(composite)
-                yield composite
+    def wrap_from_items(self, original_from_items: typing.Callable[..., list[FullImage]]) -> typing.Any:
+        def from_items(*args: typing.Any) -> list[FullImage]:
+            composites = original_from_items(*args)
+            self.composites.extend(composites)
+            return composites
 
         return from_items
 

@@ -19,7 +19,7 @@ from pgsrip.cli import pgsrip
 from pgsrip.media import PgsSubtitleItem
 from pgsrip.media_path import MediaPath
 from pgsrip.pgs import PgsReader
-from pgsrip.ripper import MAX_TESS_DIMENSION, FullImage, PgsToSrtRipper
+from pgsrip.ripper import MAX_DEFAULT_WORKERS, MAX_TESS_DIMENSION, FullImage, PgsToSrtRipper, default_workers
 
 from . import from_yaml
 from .fabricate import (
@@ -51,7 +51,7 @@ def isolated_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: typing.Any) 
     temp_dir = tmp_path / 'temp'
     temp_dir.mkdir()
     monkeypatch.setattr(tempfile, 'tempdir', str(temp_dir))
-    monkeypatch.setenv('OMP_THREAD_LIMIT', '1')  # ripper.py:154 sets and never restores it
+    monkeypatch.setenv('OMP_THREAD_LIMIT', '1')  # PgsToSrtRipper.process sets and never restores it
 
 
 @pytest.fixture
@@ -245,7 +245,7 @@ def sample_items() -> list[PgsSubtitleItem]:
 
 def test_every_subtitle_image_is_composed_where_its_place_says(sample_items: list[PgsSubtitleItem]) -> None:
     """The contract the whole fake OCR rests on: `item.place` is where `from_items` actually drew it."""
-    composites = list(FullImage.from_items(sample_items, (42, 112), MAX_TESS_DIMENSION, MAX_TESS_DIMENSION))
+    composites = FullImage.from_items(sample_items, (42, 112), MAX_TESS_DIMENSION, MAX_TESS_DIMENSION)
     assert len(composites) == 1
     for item in sample_items:
         assert item.place is not None
@@ -258,7 +258,7 @@ def test_composites_are_bounded_in_height(sample_items: list[PgsSubtitleItem]) -
     # the sample ink is about 28 x 405 px. 600 px wide fits one item per area; 340 px tall fits two areas
     # plus gap and border.
     max_width, max_height = 600, 340
-    composites = list(FullImage.from_items(sample_items, (42, 112), max_width, max_height))
+    composites = FullImage.from_items(sample_items, (42, 112), max_width, max_height)
 
     assert len(composites) == 2
     assert sorted(item.index for c in composites for item in c.items) == [0, 1, 2]
@@ -273,29 +273,58 @@ def test_composites_are_bounded_in_height(sample_items: list[PgsSubtitleItem]) -
 
 
 def test_an_area_taller_than_the_bound_gets_a_composite_of_its_own(sample_items: list[PgsSubtitleItem]) -> None:
-    composites = list(FullImage.from_items(sample_items, (42, 112), 600, 1))
+    composites = FullImage.from_items(sample_items, (42, 112), 600, 1)
 
     assert [[item.index for item in c.items] for c in composites] == [[0], [1], [2]]
 
 
+@pytest.mark.parametrize('parts', [1, 2, 3, 4])
+def test_composites_split_the_areas_evenly_for_parallel_ocr(sample_items: list[PgsSubtitleItem], parts: int) -> None:
+    # 600 px wide gives one area per item: 3 areas.
+    composites = FullImage.from_items(sample_items, (42, 112), 600, MAX_TESS_DIMENSION, parts)
+
+    assert len(composites) == min(parts, 3)
+    assert sorted(item.index for c in composites for item in c.items) == [0, 1, 2]
+
+
+@pytest.mark.parametrize(
+    ('args', 'max_height', 'composites'),
+    [
+        pytest.param(['-w', '1'], 340, 2, id='the height bound splits a single worker pass'),
+        pytest.param(['-w', '3'], MAX_TESS_DIMENSION, 3, id='parallel workers split the pass'),
+    ],
+)
 def test_a_pass_split_into_several_composites_rips_every_cue_once(
     fabricate_media: typing.Callable[[dict[str, typing.Any]], typing.Any],
     fake_ocr: FakeTesseract,
     monkeypatch: pytest.MonkeyPatch,
+    args: list[str],
+    max_height: int,
+    composites: int,
 ) -> None:
-    # the committed sample has 3 small cues: shrink the bounds instead of fabricating thousands of cues.
+    # the committed sample has 3 small cues: narrow the bounds instead of fabricating thousands of cues.
     from_items = FullImage.from_items
-    monkeypatch.setattr(FullImage, 'from_items', lambda items, gap, _w, _h: from_items(items, gap, 600, 340))
+    monkeypatch.setattr(
+        FullImage, 'from_items', lambda items, gap, _w, _h, parts: from_items(items, gap, 600, max_height, parts)
+    )
     scenario = {'media': {'name': 'movie.mkv', 'tracks': [{'language': 'en', 'texts': ['One', 'Two', 'Three']}]}}
     media_dir = fabricate_media(scenario)
 
-    result = CliRunner().invoke(pgsrip, ['rip', str(media_dir)])
+    result = CliRunner().invoke(pgsrip, ['rip', *args, str(media_dir)])
 
     assert result.exit_code == 0, result.output
     assert len(fake_ocr.passes) == 1
-    assert len(fake_ocr.composites) == 2
+    assert len(fake_ocr.composites) == composites
     assert read_cues(media_dir / 'movie.en.srt') == [
         ('00:00:01,000', '00:00:03,000', 'One'),
         ('00:00:04,000', '00:00:06,000', 'Two'),
         ('00:00:07,000', '00:00:09,000', 'Three'),
     ]
+
+
+def test_the_default_worker_count_is_capped(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(os, 'cpu_count', lambda: 64)
+    monkeypatch.setattr(os, 'process_cpu_count', lambda: 64, raising=False)
+    monkeypatch.setattr(os, 'sched_getaffinity', lambda _pid: set(range(64)), raising=False)
+
+    assert default_workers() == MAX_DEFAULT_WORKERS

@@ -3,8 +3,9 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 import typing
-from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 
 import cv2
 import numpy as np
@@ -21,6 +22,21 @@ logger = logging.getLogger(__name__)
 
 #: tesseract refuses any image dimension above INT16_MAX; stay under it with room for the border.
 MAX_TESS_DIMENSION = 31 * 1024
+#: cap for the default number of parallel tesseract processes: a container with a CPU quota still reports
+#: every host core.
+MAX_DEFAULT_WORKERS = 4
+
+
+def default_workers() -> int:
+    """The CPUs this process may run on, at most MAX_DEFAULT_WORKERS."""
+    if sys.version_info >= (3, 13):
+        count = os.process_cpu_count()
+    elif sys.platform == 'linux':
+        count = len(os.sched_getaffinity(0))
+    else:
+        count = os.cpu_count()
+
+    return min(MAX_DEFAULT_WORKERS, count or 1)
 
 
 class ImageArea:
@@ -91,10 +107,11 @@ class FullImage:
 
     @classmethod
     def from_items(
-        cls, items: list[PgsSubtitleItem], gap: tuple[int, int], max_width: int, max_height: int
-    ) -> Iterator[FullImage]:
-        """Yield composites no taller than max_height, one at a time to bound peak memory.
+        cls, items: list[PgsSubtitleItem], gap: tuple[int, int], max_width: int, max_height: int, parts: int = 1
+    ) -> list[FullImage]:
+        """Split items into at most `parts` composites of about the same height, to OCR them in parallel.
 
+        No composite is taller than max_height, so a long track can give more than `parts` composites.
         An area taller than max_height on its own still gets a composite of its own.
         """
         areas: list[ImageArea] = []
@@ -118,19 +135,29 @@ class FullImage:
             if len(current_items) > 0:
                 areas.append(ImageArea(current_items, gap))
 
+        composites: list[FullImage] = []
+        # cut the stacked areas in `parts` slices of the same height: each area goes to the slice of its middle.
+        share = max(1.0, (sum(area.height for area in areas) + (len(areas) - 1) * gap[0]) / parts)
         group: list[ImageArea] = []
+        group_part = 0
         height = 2 * cls.border
+        top = 0
         for area in areas:
-            if group and height + gap[0] + area.height > max_height:
-                yield cls(group, gap)
+            part = int((top + area.height / 2) // share)
+            top += area.height + gap[0]
+            if group and (part != group_part or height + gap[0] + area.height > max_height):
+                composites.append(cls(group, gap))
                 group = []
                 height = 2 * cls.border
 
             height += (gap[0] if group else 0) + area.height
             group.append(area)
+            group_part = part
 
         if group:
-            yield cls(group, gap)
+            composites.append(cls(group, gap))
+
+        return composites
 
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__} [{self}]>'
@@ -144,7 +171,7 @@ class PgsToSrtRipper:
         self.pgs = pgs
         self.confidence = min(max(options.confidence or 65, 0), 100)
         self.max_tess_width = min(max(options.tesseract_width or MAX_TESS_DIMENSION, 10 * 1024), MAX_TESS_DIMENSION)
-        self.omp_thread_limit = options.max_workers
+        self.workers = options.max_workers or default_workers()
         self.oem = options.tesseract_oem or TesseractEngineMode.NEURAL
         self.psm = options.tesseract_psm or TesseractPageSegmentationMode.SINGLE_UNIFORM_BLOCK_OF_TEXT
         max_height = max([item.height for item in self.pgs.items]) // 2
@@ -172,22 +199,25 @@ class PgsToSrtRipper:
         if self.language_code:
             config.update({'lang': self.language_code})
 
-        if self.omp_thread_limit:
-            os.environ['OMP_THREAD_LIMIT'] = str(self.omp_thread_limit)
+        # one tesseract process per composite, in parallel: one process with OpenMP threads uses about one core.
+        os.environ['OMP_THREAD_LIMIT'] = '1'
 
-        remaining: list[PgsSubtitleItem] = []
+        composites = FullImage.from_items(items, self.gap, max_width, MAX_TESS_DIMENSION, self.workers)
         prefix = f'{os.path.basename(subs.path)}-{len(items)}'
-        for index, full_image in enumerate(FullImage.from_items(items, self.gap, max_width, MAX_TESS_DIMENSION)):
-            if self.keep_temp_files:
+        if self.keep_temp_files:
+            for index, full_image in enumerate(composites):
                 png_file = os.path.join(
                     self.pgs.temp_folder, f'{prefix}-{index}-psm{psm.value}-{oem.name}-{confidence}.png'
                 )
                 logger.debug('Writing temporary png file %s', png_file)
                 cv2.imwrite(png_file, full_image.data)
 
-            with tessdata_env(self.tessdata_dir):
-                data = TsvData(tess.image_to_data(full_image.data, **config), confidence=confidence)
+        with tessdata_env(self.tessdata_dir), ThreadPoolExecutor(self.workers) as pool:
+            results = list(pool.map(lambda image: tess.image_to_data(image.data, **config), composites))
 
+        remaining: list[PgsSubtitleItem] = []
+        for index, (full_image, result) in enumerate(zip(composites, results, strict=True)):
+            data = TsvData(result, confidence=confidence)
             if self.keep_temp_files:
                 results_file = os.path.join(self.pgs.temp_folder, f'{prefix}-{index}-{confidence}.json')
                 logger.debug('Writing temporary results file %s', results_file)

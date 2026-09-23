@@ -269,7 +269,13 @@ def pgsrip() -> None:
     help='Keep only one track per language, ignoring flags, e.g. skip a track that is only SDH '
     'if a plain track for that language was already selected.',
 )
-@click.option('-w', '--max-workers', type=click.IntRange(1, 50), default=None, help='Maximum number of threads to use.')
+@click.option(
+    '-w',
+    '--max-workers',
+    type=click.IntRange(1, 50),
+    default=None,
+    help='Number of tesseract processes to run in parallel. Default: the number of CPUs, at most 4.',
+)
 @click.option(
     '--tessdata-dir',
     type=click.Path(),
