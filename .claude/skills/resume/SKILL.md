@@ -1,6 +1,6 @@
 ---
 name: resume
-description: Continue a pgsrip work item in a new session. Read its plans/ folder, report the status, and do the next step. Use when the user says resume, continue, pick up, or "where were we", or names an issue that already has a plans/ folder.
+description: Continue a work item from its plans/ folder in a new session. Use for resume, continue, or "where were we".
 ---
 
 # Resume

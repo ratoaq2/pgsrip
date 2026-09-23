@@ -27,6 +27,11 @@
       "PowerShell(gh label list *)"
     ]
   },
+  "skillOverrides": {
+    "dataviz": "user-invocable-only",
+    "claude-api": "user-invocable-only",
+    "schedule": "user-invocable-only"
+  },
   "hooks": {
     "SessionStart": [
       {

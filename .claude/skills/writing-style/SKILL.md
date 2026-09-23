@@ -1,6 +1,6 @@
 ---
 name: writing-style
-description: ASD-STE100 Simplified Technical English for all pgsrip text. Use when you write or review docs, markdown, code comments, docstrings, commit messages, PR or issue text, issue replies, release notes, or error messages.
+description: ASD-STE100 rules and examples. Use to write or review docs, comments, commits, PRs, issues, release notes, or error messages.
 ---
 
 # Writing style (ASD-STE100)

@@ -1,6 +1,6 @@
 ---
 name: investigate
-description: Start work on a pgsrip issue or bug. Create the local work folder, reproduce the problem, find the root cause, and write findings.md and a failing regression test. Use when the user asks to investigate, reproduce, debug, or start work on an issue.
+description: Start work on an issue. Reproduce it, find the root cause, write findings and a failing test. Use to investigate, reproduce, or debug.
 ---
 
 # Investigate

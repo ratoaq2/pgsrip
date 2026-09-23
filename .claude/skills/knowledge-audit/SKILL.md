@@ -1,6 +1,7 @@
 ---
 name: knowledge-audit
-description: Do a full check of all pgsrip AI knowledge files (CLAUDE.md, CONTRIBUTING.md, .claude/rules, .claude/skills, docs) against the current code, and fix wrong, duplicated, or misplaced statements. Use before a release, after a large refactor, or when the user asks to audit, clean up, or check the AI docs.
+description: Check all AI knowledge files against the code. Fix wrong, duplicated, or misplaced statements.
+disable-model-invocation: true
 ---
 
 # Knowledge audit
@@ -21,7 +22,10 @@ description: Do a full check of all pgsrip AI knowledge files (CLAUDE.md, CONTRI
    - **Missing**: a module without a line in `docs/architecture.md`, or a rule `paths:` glob that does not
      cover a related file.
    - **Style**: text that does not follow `writing-style`.
-4. Check the HOT cost. `CLAUDE.md` plus `CONTRIBUTING.md` should stay below about 150 lines. Each skill
-   `description` should stay below about 300 characters.
+4. Check the HOT cost with `/context` in a new session:
+   - `CLAUDE.md` should stay below about 900 tokens. It imports no other file.
+   - Each project skill should stay below about 50 tokens in the skill list.
+   - The `skillOverrides` in `.claude/settings.json` should still hide the built-in skills that pgsrip
+     does not use.
 5. Show the user a table: file, problem, and proposed fix. Apply the fixes that the user approves.
 6. Commit as `docs: update AI knowledge files`.

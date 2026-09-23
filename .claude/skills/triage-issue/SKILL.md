@@ -1,6 +1,6 @@
 ---
 name: triage-issue
-description: Triage a pgsrip GitHub issue. Read it, set the scoped labels (type, status, priority, comp), and draft a reply to the reporter. Use when the user asks to triage, label, classify, or reply to an issue, or to review the open issues.
+description: Label a GitHub issue and draft a reply to the reporter. Use to triage, label, classify, or reply to issues.
 ---
 
 # Triage an issue

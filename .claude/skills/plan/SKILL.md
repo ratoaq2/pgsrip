@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Turn an approved pgsrip spec into an ordered implementation plan (steps, files, tests, commits), and stop for user approval. Use when the user asks for an implementation plan for a work item that has a spec.
+description: Turn an approved spec into plan.md (steps, tests, commits), then stop for approval. Use for an implementation plan.
 ---
 
 # Plan

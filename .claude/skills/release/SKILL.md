@@ -1,6 +1,7 @@
 ---
 name: release
-description: Release a new pgsrip version to PyPI through a GitHub release, with clean release notes. Use when the user asks to release, publish, tag, or bump the version.
+description: Release a new pgsrip version to PyPI through a GitHub release, with clean release notes.
+disable-model-invocation: true
 ---
 
 # Release

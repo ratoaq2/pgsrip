@@ -1,6 +1,6 @@
 ---
 name: spec
-description: Write the spec (goal, approach, rejected options, tests) for a large pgsrip work item from its findings, and stop for user approval. Use when the user asks for a spec, a design, a proposal, or to brainstorm a solution.
+description: Write spec.md for a large work item, then stop for approval. Use for a spec, a design, or to brainstorm a solution.
 ---
 
 # Spec
