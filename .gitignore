@@ -66,3 +66,11 @@ target/
 .idea
 
 main.py
+
+# Local work items (see docs/workflow.md)
+plans/
+
+# Claude Code local files
+.claude/settings.local.json
+.claude/worktrees/
+.claude/scheduled_tasks.lock
