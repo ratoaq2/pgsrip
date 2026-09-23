@@ -94,34 +94,35 @@ class PgsImage:
 
     @classmethod
     def decode_rle_image(cls, data: bytes, palettes: list[Palette], binary: bool = True) -> npt.NDArray[np.uint8]:
-        image_array: list[int] = []
-        alpha_array: list[int] = []
-        dimension = 1 if binary else 3
+        # parse the runs only: the pixels are built at once with np.repeat, not one by one.
+        lengths: list[int] = []
+        colors: list[int] = []
+        total = 0
         cols = 1
         i = 0
         while i < len(data):
             length, color, count = cls.decode_rle_position(data, i)
             if not length and cols < 2:
-                cols = len(image_array) // dimension
-            palette = palettes[color]
-            image_color = cls.get_color(palette, binary)
-            image_array.extend(image_color * length)
-            if not binary:
-                alpha_array.extend([palette[3]] * length)
+                cols = total
+            lengths.append(length)
+            colors.append(color)
+            total += length
             i += count
 
-        rows = (len(image_array) // dimension + cols - 1) // cols
-        if cols * rows * dimension != len(image_array):
-            # corrupted image
-            delta = cols * rows * dimension - len(image_array)
-            image_array.extend((cls.get_color(palettes[0], binary) * dimension) * delta)
+        rows = (total + cols - 1) // cols
+        # corrupted image: pad the missing pixels with palette 0
+        lengths.append(cols * rows - total)
+        colors.append(0)
+        color_indexes = np.array(colors, dtype=np.intp)
 
-        img = np.array(image_array, dtype=np.uint8).reshape((rows, cols) if binary else (rows, cols, dimension))
+        lut = np.array([cls.get_color(palette, binary) for palette in palettes], dtype=np.uint8)
+        pixels = np.repeat(lut[color_indexes], lengths, axis=0)
         if binary:
-            return img
+            return pixels.reshape(rows, cols)
 
-        image = cv2.cvtColor(img, cv2.COLOR_YCR_CB2BGR)
-        a_channel = np.array(alpha_array, dtype=np.uint8).reshape(rows, cols)
+        image = cv2.cvtColor(pixels.reshape(rows, cols, 3), cv2.COLOR_YCR_CB2BGR)
+        alpha_lut = np.array([palette[3] for palette in palettes], dtype=np.uint8)
+        a_channel = np.repeat(alpha_lut[color_indexes], lengths).reshape(rows, cols)
         b_channel, g_channel, r_channel = cv2.split(image)
         image = cv2.merge((b_channel, g_channel, r_channel, a_channel))
         return typing.cast('npt.NDArray[np.uint8]', image)
