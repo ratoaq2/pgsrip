@@ -136,6 +136,12 @@ Using docker:
     Ripping subtitles  [####################################]  100%  /medias/mymedia.mkv [4:en]
     11 PGS subtitles ripped from 9 files
 
+pgsrip runs several tesseract processes in parallel. The default is the number
+of CPUs that pgsrip can use, at most 4. Use `-w` to change it, for example
+`-w 16` on a large machine or `-w 1` on a shared one. A container with a CPU
+limit (`docker run --cpus`) still shows all the CPUs of the host, so set `-w`
+to the same limit.
+
 ### Subtitle names
 
 Ripped subtitles are named `<video>.<language>[.<flag>]*.srt`, in that order,

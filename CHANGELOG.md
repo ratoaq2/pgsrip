@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+  - Fix: a long subtitle track with wide images failed with
+    `Image too large` and was not ripped
+  - Rip faster: run several tesseract processes in parallel, decode the
+    subtitle images faster, and OCR only the part of each image that holds
+    text
+  - `-w/--max-workers` now sets the number of tesseract processes that run in
+    parallel. The default is the number of CPUs, at most 4
+
 ## 0.2.0
 
 **release date:** 2026-09-21

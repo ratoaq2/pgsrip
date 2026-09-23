@@ -48,8 +48,8 @@ real.
   `test_rip_e2e.py`; redirecting `tempfile.tempdir` or patching `tess.get_languages` repo-wide would
   silently change `tests/test_tessdata.py`, which tests the real fallback/patches `get_languages`
   itself.
-- The `item.place` contract (`FullImage.from_items` draws each item's image exactly where `item.place`
-  says) is the one thing the whole fake OCR rests on. It is pinned once, directly, in
+- The `item.place` contract (`FullImage.from_items` draws each item's ink-cropped `bitmap` exactly where
+  `item.place` says) is the one thing the whole fake OCR rests on. It is pinned once, directly, in
   `test_every_subtitle_image_is_composed_where_its_place_says`, instead of trying to verify it through
   ink detection on the composite image.
 

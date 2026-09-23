@@ -30,7 +30,7 @@ pre-commit runs ruff/mypy and Conventional Commits.
 
 Read only when touching the matching code; skip `docs/` otherwise.
 
-- `ripper.py` → `docs/ocr_batching.md` (call-minimization constraint)
+- `ripper.py` → `docs/ocr_batching.md` (few large calls, one per worker, in parallel)
 - `pgs.py` / `media.py`'s `auto_fix` → `docs/corrupted_data.md` (degrade-gracefully constraint)
 - `tests/fabricate.py` / `tests/test_rip_e2e.py` → `docs/rip-e2e.md` (fabrication API, backend model)
 - Restructuring files/modules → update `docs/architecture.md` after
