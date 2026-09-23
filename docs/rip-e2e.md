@@ -36,9 +36,10 @@ real.
   can be driven from a plain script). `TrackSpec`/`MediaSpec` dataclasses; `payload(cues)` slices the
   committed sample with `scrub_display_sets`; `FakeMkvToolNix` answers `mkvmerge -i -F json` and
   `mkvextract` from a registry of `MediaSpec`; `FakeTesseract` wraps `PgsToSrtRipper.process` so the
-  real image composition still runs (`item.place` gets set for real) and patches
-  `pgsrip.ripper.tess.image_to_data` to read back `TrackSpec.texts`/`confidences` instead of running
-  tesseract; `mkvmerge_version`/`mkvmerge_args`/`fabricate_real` drive the real backend.
+  real image composition still runs (`item.place` gets set for real), wraps `FullImage.from_items` to
+  record every composite, and patches `pgsrip.ripper.tess.image_to_data` to read back
+  `TrackSpec.texts`/`confidences` for the items of the composite it receives (matched by identity, not
+  pixels: the sample cues are identical bitmaps) instead of running tesseract; `mkvmerge_version`/`mkvmerge_args`/`fabricate_real` drive the real backend.
 - **YAML scenarios** (`tests/test_rip_e2e.yml`), loaded with the existing `from_yaml()` helper and fed
   to `@pytest.mark.parametrize`, the `tests/test_mkvtrack.py` pattern. Each scenario asserts both the
   set of files written and their content (cue count, timings, text), and that nothing else appeared in
@@ -47,8 +48,8 @@ real.
   `test_rip_e2e.py`; redirecting `tempfile.tempdir` or patching `tess.get_languages` repo-wide would
   silently change `tests/test_tessdata.py`, which tests the real fallback/patches `get_languages`
   itself.
-- The `item.place` contract (`FullImage.from_items` draws each item's image exactly where `item.place`
-  says) is the one thing the whole fake OCR rests on. It is pinned once, directly, in
+- The `item.place` contract (`FullImage.from_items` draws each item's ink-cropped `bitmap` exactly where
+  `item.place` says) is the one thing the whole fake OCR rests on. It is pinned once, directly, in
   `test_every_subtitle_image_is_composed_where_its_place_says`, instead of trying to verify it through
   ink detection on the composite image.
 

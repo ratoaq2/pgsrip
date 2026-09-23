@@ -73,12 +73,27 @@ def test_sample_images_are_decoded_with_their_window_size(display_sets, media_pa
     items = PgsSubtitleItem.create_items(media_path, display_sets)
 
     for item in items:
-        assert item.shape == (900, 100, 900 + HEIGHT, 100 + WIDTH)
         assert item.image is not None
         assert item.image.shape == (HEIGHT, WIDTH)
         # the placeholder text is decoded as ink on a light background
         assert item.image.data.min() == 0
         assert item.image.data.max() == 255
+
+
+def test_sample_items_are_cropped_to_their_ink(display_sets, media_path):
+    items = PgsSubtitleItem.create_items(media_path, display_sets)
+
+    for item in items:
+        assert item.image is not None
+        top, left, bottom, right = item.shape
+        # the window is at (900, 100): the ink box is inside it, and its position on screen is kept
+        assert 900 < top < bottom < 900 + HEIGHT
+        assert 100 < left < right < 100 + WIDTH
+        window_box = item.image.data[top - 900 : bottom - 900, left - 100 : right - 100]
+        assert (item.bitmap == window_box).all()
+        # no blank row or column is left on any side
+        ink = item.bitmap == 0
+        assert ink[0].any() and ink[-1].any() and ink[:, 0].any() and ink[:, -1].any()
 
 
 def test_sample_can_be_scrubbed_again(data, media_path):
@@ -92,3 +107,11 @@ def test_sample_can_be_scrubbed_again(data, media_path):
         ('00:00:04,000', '00:00:06,000'),
         ('00:00:07,000', '00:00:09,000'),
     ]
+
+
+def test_a_redacted_item_has_no_ink_to_crop(data, media_path):
+    scrubbed, _ = scrub_data(data, media_path)
+
+    items = PgsSubtitleItem.create_items(media_path, PgsReader.decode(scrubbed, media_path))
+
+    assert [(item.height, item.width) for item in items] == [(0, 0)] * 3

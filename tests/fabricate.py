@@ -22,6 +22,7 @@ from pgsrip.scrub import Redaction, scrub_display_sets
 
 if typing.TYPE_CHECKING:
     from pgsrip.media import PgsSubtitleItem
+    from pgsrip.ripper import FullImage
 
 SAMPLE = os.path.join(os.path.dirname(__file__), 'samples', 'placeholder.en.sup')
 
@@ -206,7 +207,9 @@ class FakeTesseract:
         self.toolnix = toolnix
         # (subtitle path, confidence) for every `process()` call, in order: the OCR retry ladder.
         self.passes: list[tuple[str, int]] = []
-        self._context: tuple[typing.Any, list[PgsSubtitleItem], int] | None = None
+        # every composite `FullImage.from_items` returned, in order: one tesseract call each.
+        self.composites: list[FullImage] = []
+        self._pgs: typing.Any = None
 
     def _track_spec_for(self, pgs: typing.Any) -> TrackSpec:
         spec = self.toolnix._spec(str(pgs.source_path))
@@ -228,19 +231,27 @@ class FakeTesseract:
             oem: typing.Any,
             psm: typing.Any,
         ) -> typing.Any:
-            self._context = (ripper.pgs, items, confidence)
+            self._pgs = ripper.pgs
             self.passes.append((str(ripper.pgs.media_path), confidence))
             return original_process(ripper, subs, items, post_process, confidence, max_width, oem, psm)
 
         return process
 
+    def wrap_from_items(self, original_from_items: typing.Callable[..., list[FullImage]]) -> typing.Any:
+        def from_items(*args: typing.Any) -> list[FullImage]:
+            composites = original_from_items(*args)
+            self.composites.extend(composites)
+            return composites
+
+        return from_items
+
     def image_to_data(self, image: typing.Any, **config: typing.Any) -> dict[str, list[typing.Any]]:
-        assert self._context is not None
-        pgs, items, _confidence = self._context
-        spec = self._track_spec_for(pgs)
+        spec = self._track_spec_for(self._pgs)
+        # identity, not pixels: identical bitmaps drawn at the same place in two composites look the same.
+        composite = next(c for c in self.composites if c.data is image)
 
         rows: list[dict[str, typing.Any]] = []
-        for item in items:
+        for item in composite.items:
             text = spec.texts[item.index] if item.index < len(spec.texts) else ''
             conf = spec.confidences[item.index] if item.index < len(spec.confidences) else DEFAULT_CONFIDENCE
             rows.extend(_tsv_rows_for_item(item, text, conf))
