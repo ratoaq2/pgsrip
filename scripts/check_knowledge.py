@@ -20,7 +20,6 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 RULES_DIR = '.claude/rules'
 KNOWLEDGE_GLOBS = ('CLAUDE.md', 'CONTRIBUTING.md', 'docs/**/*.md', '.claude/**/*.md')
-CHECKED_PREFIXES = ('pgsrip/', 'tests/', 'docs/', 'scripts/', '.claude/', '.github/')
 PLACEHOLDER_CHARS = frozenset('<>*{}[]|$')
 
 FENCED_BLOCK = re.compile(r'^```.*?^```', re.MULTILINE | re.DOTALL)
@@ -66,13 +65,16 @@ def rule_paths(text: str) -> list[str]:
     return FRONTMATTER_ITEM.findall(after)
 
 
-def path_references(text: str) -> list[str]:
+def top_level_dirs(files: Iterable[str]) -> tuple[str, ...]:
+    """Return the top-level folders of the files (``docs/``, ``.claude/``). Only these paths are checked."""
+    return tuple(sorted({f.split('/', 1)[0] + '/' for f in files if '/' in f}))
+
+
+def path_references(text: str, prefixes: tuple[str, ...]) -> list[str]:
     """Return the repository paths that the text names in inline code."""
     text = FENCED_BLOCK.sub('', text.replace('\r\n', '\n'))
     return [
-        ref
-        for ref in INLINE_CODE.findall(text)
-        if ref.startswith(CHECKED_PREFIXES) and not PLACEHOLDER_CHARS.intersection(ref)
+        ref for ref in INLINE_CODE.findall(text) if ref.startswith(prefixes) and not PLACEHOLDER_CHARS.intersection(ref)
     ]
 
 
@@ -98,12 +100,13 @@ def knowledge_files(files: Sequence[str]) -> list[str]:
 def check(root: Path, files: Sequence[str]) -> list[str]:
     errors: list[str] = []
     present = [f for f in files if (root / f).exists()]
+    prefixes = top_level_dirs(present)
     for rule in matches(f'{RULES_DIR}/*.md', present):
         for pattern in rule_paths((root / rule).read_text(encoding='utf-8')):
             if not matches(pattern, present):
                 errors.append(f'{rule}: paths glob `{pattern}` matches no file')
     for doc in knowledge_files(present):
-        for ref in path_references((root / doc).read_text(encoding='utf-8')):
+        for ref in path_references((root / doc).read_text(encoding='utf-8'), prefixes):
             if not exists(ref, present):
                 errors.append(f'{doc}: `{ref}` does not exist')
     return errors
@@ -132,7 +135,7 @@ def report_changed(base: str) -> None:
         print(f'No rule covers the {len(changed)} changed files. Check CLAUDE.md and CONTRIBUTING.md only.')
         return
     for rule, covered in rules.items():
-        docs = [ref for ref in path_references((ROOT / rule).read_text(encoding='utf-8')) if ref.startswith('docs/')]
+        docs = path_references((ROOT / rule).read_text(encoding='utf-8'), ('docs/',))
         print(rule)
         print(f'  covers: {", ".join(covered)}')
         if docs:

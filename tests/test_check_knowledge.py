@@ -44,7 +44,15 @@ def test_path_references(ck: ModuleType) -> None:
         'See `docs/a.md` and `pgsrip/`, not `ripper.py`, `plans/<item>/`, `tests/*.py` or `uv run pytest`.\n'
         '```\n`docs/in_fence.md`\n```\n'
     )
-    assert ck.path_references(text) == ['docs/a.md', 'pgsrip/']
+    assert ck.path_references(text, ('docs/', 'pgsrip/', 'tests/')) == ['docs/a.md', 'pgsrip/']
+
+
+def test_top_level_dirs(ck: ModuleType) -> None:
+    assert ck.top_level_dirs(['README.md', 'docs/a.md', 'pgsrip/sub/x.py', '.claude/rules/r.md']) == (
+        '.claude/',
+        'docs/',
+        'pgsrip/',
+    )
 
 
 def test_check_finds_broken_references(ck: ModuleType, tmp_path: Path) -> None:
