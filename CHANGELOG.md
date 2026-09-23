@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.2.1
+
+**release date:** 2026-09-23
 
   - Fix: a `.sup` or `.mks` file with a 3-letter language code in its name,
     e.g. `movie.fre.sup`, failed with `FileNotFoundError` and was not ripped
