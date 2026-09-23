@@ -174,7 +174,7 @@ def redact_object(segment: ObjectDefinitionSegment, index: int, color: int | Non
         logger.debug('Keeping the header of a corrupted object segment in display set %d', index)
         return rebuild_segment(segment, data[:4])
 
-    if sequence_type == ObjectSequenceType.LAST:
+    if sequence_type in (ObjectSequenceType.MIDDLE, ObjectSequenceType.LAST):
         # the object continues here, the replacement bitmap goes in the segment that starts it
         return rebuild_segment(segment, data[:4])
 

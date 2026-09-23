@@ -4,6 +4,9 @@
 
   - Fix: a long subtitle track with wide images failed with
     `Image too large` and was not ripped
+  - Fix: a subtitle track with images split over 3 or more segments, or with
+    palette updates, failed with `0 is not a valid ObjectSequenceType` or
+    `IndexError` and was not ripped
   - Rip faster: run several tesseract processes in parallel, decode the
     subtitle images faster, and OCR only the part of each image that holds
     text

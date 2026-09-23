@@ -170,8 +170,8 @@ def test_scrub_keeps_nothing_out_when_redaction_is_none(stream, media_path):
 
 
 def test_scrub_keeps_a_corrupted_object_header(media_path):
-    # an object sequence type of 0 is invalid and is what pgsrip has to be able to reproduce
-    stream = display_set(sequence_type=0x00)
+    # an object sequence type of 1 is invalid and is what pgsrip has to be able to reproduce
+    stream = display_set(sequence_type=0x01)
 
     scrubbed, stats = scrub_data(stream, media_path)
 
@@ -179,7 +179,7 @@ def test_scrub_keeps_a_corrupted_object_header(media_path):
     corrupted = decode(scrubbed, media_path)[0].ods_segments[0]
     with pytest.raises(ValueError):
         _ = corrupted.sequence_type
-    assert corrupted.data == b'\x00\x00\x00\x00'
+    assert corrupted.data == b'\x00\x00\x00\x01'
 
 
 def test_scrub_keeps_an_object_split_over_two_segments(media_path):
@@ -202,6 +202,31 @@ def test_scrub_keeps_an_object_split_over_two_segments(media_path):
     assert stats.redacted_objects == 2
     result = decode(scrubbed, media_path)[0]
     assert len(result.ods_segments) == 2
+    assert images([result])[0].shape == (HEIGHT, WIDTH)
+
+
+def test_scrub_keeps_an_object_split_over_three_segments(media_path):
+    """Regression for #120: the middle segment has the sequence type 0x00 and only a 4 byte header."""
+    first = segment(SegmentType.ODS, ods(text_image_data(), sequence_type=0x80))
+    middle = segment(SegmentType.ODS, b'\x00\x00\x00\x00' + text_image_data())
+    last = segment(SegmentType.ODS, b'\x00\x00\x00\x40' + text_image_data())
+    stream = b''.join(
+        [
+            segment(SegmentType.PCS, pcs()),
+            segment(SegmentType.WDS, wds()),
+            segment(SegmentType.PDS, pds()),
+            first,
+            middle,
+            last,
+            segment(SegmentType.END, b''),
+        ]
+    )
+
+    scrubbed, stats = scrub_data(stream, media_path)
+
+    assert stats.redacted_objects == 3
+    result = decode(scrubbed, media_path)[0]
+    assert [s.data for s in result.ods_segments[1:]] == [b'\x00\x00\x00\x00', b'\x00\x00\x00\x40']
     assert images([result])[0].shape == (HEIGHT, WIDTH)
 
 
