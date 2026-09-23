@@ -51,7 +51,6 @@ def test_a_cue_at_pts_0_does_not_stop_the_rip(stream, media_path):
     assert items[1].end == SubRipTime(seconds=6)
 
 
-@pytest.mark.xfail(reason='to_time() reads PTS 0 as a missing timestamp', strict=True)
 def test_a_cue_at_pts_0_keeps_its_timestamps(stream, media_path):
     """PTS 0 is a valid timestamp: the cue must not take the time of its clear set as start."""
     items = create_items(stream, media_path)
