@@ -21,7 +21,7 @@ def safe_get(b: bytes, i: int, default_value: int | None = 0) -> int | None:
 
 
 def to_time(value: float | None) -> SubRipTime | None:
-    return SubRipTime.from_ordinal(value) if value else None
+    return SubRipTime.from_ordinal(value) if value is not None else None
 
 
 T = typing.TypeVar('T')
