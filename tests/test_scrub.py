@@ -233,7 +233,7 @@ def test_scrub_keeps_an_object_split_over_three_segments(media_path):
 @pytest.mark.parametrize(
     'path, keep_name, expected',
     [
-        ('mymedia.en.sup', True, 'mymedia.en.sup'),
+        ('mymedia.en.sup', True, 'mymedia.en.track0.sup'),
         ('mymedia.mkv', True, 'mymedia.en.sup'),
         (os.path.join('medias', 'mymedia.en.sup'), True, 'mymedia.en.sup'),
         ('mymedia.en.sup', False, 'pgsrip-b47da897.en.sup'),

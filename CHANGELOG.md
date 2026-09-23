@@ -4,6 +4,8 @@
 
   - Fix: a `.sup` or `.mks` file with a 3-letter language code in its name,
     e.g. `movie.fre.sup`, failed with `FileNotFoundError` and was not ripped
+  - Fix: `pgsrip scrub` could write the scrubbed file over its source `.sup`
+    file. It now adds `.track0` to the name
   - Fix: a long subtitle track with wide images failed with
     `Image too large` and was not ripped
   - Fix: a subtitle track with images split over 3 or more segments, or with
