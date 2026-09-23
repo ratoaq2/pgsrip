@@ -9,4 +9,5 @@ paths:
 # Tooling
 
 These files define the commands and checks. When you change one, make sure that the commands in
-`CONTRIBUTING.md` are still correct, and that `scripts/test.sh` still runs the same checks as CI.
+`CLAUDE.md` and the setup in `CONTRIBUTING.md` are still correct, and that `scripts/test.sh` still runs the
+same checks as CI.

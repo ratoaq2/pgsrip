@@ -2,30 +2,23 @@
 
 ## Setup
 
-Use `uv` only (not poetry or pip). Python 3.11 to 3.14. MKVToolNix and tesseract must be on `PATH` to rip real
-media.
+MKVToolNix and tesseract must be on `PATH` to rip real media.
 
 ```
 uv sync
 uv run pre-commit install --hook-type pre-commit --hook-type commit-msg
 ```
 
+pre-commit runs ruff, mypy, the knowledge check, and the Conventional Commits check.
+
 ## Commands
 
-```
-uv run pytest -q --tb=short tests
-uv run ruff check .
-uv run ruff format .
-uv run mypy pgsrip
-uv run python scripts/check_knowledge.py
-bash scripts/test.sh
-```
-
-`scripts/test.sh` runs all the checks of CI. pre-commit runs ruff, mypy, the knowledge check, and the
-Conventional Commits check.
+The command list is in `CLAUDE.md`. Claude Code loads that file in each session, and people can read it
+too.
 
 ## Code
 
+- Keep the code small. See "Code: lazy senior dev" in `CLAUDE.md`.
 - Strict mypy: annotate every function.
 - Ruff formats the code (single quotes, 120-character lines). Do not format by hand against it.
 - Flat package layout: `pgsrip/`, not `src/pgsrip/`.
