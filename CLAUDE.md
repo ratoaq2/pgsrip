@@ -2,36 +2,34 @@
 
 CLI + library: extracts PGS/SUP subtitles (`.mkv`/`.mks`/`.sup`) and OCRs them into `.srt`.
 
-## Commands
+@CONTRIBUTING.md
 
-`uv` only (not poetry/pip). Python 3.11–3.14.
+## Code
 
-```
-uv sync
-uv run pytest -q --tb=short tests
-uv run ruff check .
-uv run ruff format .
-uv run mypy pgsrip
-bash scripts/test.sh
-```
+- Narrow `X | None` at the point of use. Never assume that a value is not `None`.
+- YAGNI: write the minimum code. No speculative features.
+- Use quiet flags (`-q --tb=short`, `-q` on install). Never send full logs into the context.
 
-pre-commit runs ruff/mypy and Conventional Commits.
+## Writing
 
-## Code style
+All text follows ASD-STE100 Simplified Technical English. Most readers are not native English speakers.
 
-- Strict mypy: annotate everything. Narrow `X | None` at point of use, never assume non-`None`.
-- Ruff formats (single quotes, 120-char lines) — don't hand-format against it.
-- Conventional Commits, single-line subject, no attribution trailers.
-- Flat package layout (`pgsrip/`, not `src/pgsrip/`).
-- YAGNI: minimum viable code, no speculative features.
-- Quiet/short flags only (`-q --tb=short`, `-q` on install) — never pipe full logs into context.
+- One idea in each sentence. Short sentences.
+- Active voice and simple tenses.
+- Common words. Use one word for one thing.
+- No semicolons, no phrasal verbs, no idioms, no filler, no emoji.
+- Do not change code, commands, logs, or quotes.
 
-## Docs policy
+Use the `writing-style` skill for docs, PR, issue, and release text.
 
-Read only when touching the matching code; skip `docs/` otherwise.
+## Knowledge
 
-- `ripper.py` → `docs/ocr_batching.md` (few large calls, one per worker, in parallel)
-- `pgs.py` / `media.py`'s `auto_fix` → `docs/corrupted_data.md` (degrade-gracefully constraint)
-- `tests/fabricate.py` / `tests/test_rip_e2e.py` → `docs/rip-e2e.md` (fabrication API, backend model)
-- Restructuring files/modules → update `docs/architecture.md` after
-- Any doc whose claims your change invalidates → update it, same commit
+- The rules in `.claude/rules/` load for the paths that they name. They link to `docs/`.
+- When a change makes a statement in a knowledge file wrong, fix it in the same commit. The `ship` skill
+  runs this check.
+- Put project facts in the repo, not in personal memory. `.claude/rules/knowledge.md` tells where.
+
+## Work items
+
+Local work lives in `plans/<issue>-<slug>/` (gitignored). The lifecycle is in `docs/workflow.md`.
+Skills: `triage-issue`, `investigate`, `spec`, `plan`, `resume`, `ship`, `release`, `knowledge-audit`.
