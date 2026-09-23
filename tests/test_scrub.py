@@ -276,3 +276,19 @@ def test_output_path_uses_the_canonical_language_of_a_source_with_a_three_letter
     media_path = MediaPath('/media/movie.fre.sup')
 
     assert output_path(media_path, None, False, set()) == 'pgsrip-8a6ba32c.fr.sup'
+
+
+@pytest.mark.parametrize(
+    'source, output',
+    [
+        (os.path.join('{tmp}', 'mymedia.en.sup'), '{tmp}'),
+        ('mymedia.en.sup', '.'),
+    ],
+)
+def test_output_path_never_writes_over_the_source(tmp_path, monkeypatch, source, output):
+    monkeypatch.chdir(tmp_path)
+    media_path = MediaPath(source.format(tmp=tmp_path))
+
+    target = output_path(media_path, output.format(tmp=tmp_path), True, set())
+
+    assert os.path.abspath(target) != os.path.abspath(str(media_path))
