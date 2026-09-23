@@ -50,10 +50,9 @@ class ImageArea:
 
         current_width = 0
         for item in self.items:
-            assert item.image is not None
             h_start, w_start, h_end, w_end = self.get_shape(item, current_width=current_width)
             item.place = (start[0] + h_start, start[1] + w_start, start[0] + h_end, start[1] + w_end)
-            area_image[h_start:h_end, w_start:w_end] = item.image.data
+            area_image[h_start:h_end, w_start:w_end] = item.bitmap
             current_width += item.width + self.gap[1]
 
         return area_image
@@ -246,7 +245,8 @@ class PgsToSrtRipper:
     def rip(self, post_process: typing.Callable[[str], str]) -> SubRipFile:
         subs = SubRipFile(path=str(self.pgs.media_path.translate(extension='srt')))
         oem, psm, confidence, max_width = self.oem, self.psm, self.confidence, self.max_tess_width
-        items = self.pgs.items
+        # an item with no ink has no text to read
+        items = [item for item in self.pgs.items if item.height]
         previous_size = len(items)
         while previous_size > 0:
             items = self.process(subs, items, post_process, confidence, max_width, oem, psm)

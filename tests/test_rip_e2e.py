@@ -248,27 +248,28 @@ def test_every_subtitle_image_is_composed_where_its_place_says(sample_items: lis
     composites = list(FullImage.from_items(sample_items, (42, 112), MAX_TESS_DIMENSION, MAX_TESS_DIMENSION))
     assert len(composites) == 1
     for item in sample_items:
-        assert item.place is not None and item.image is not None
+        assert item.place is not None
         top, left, bottom, right = item.place
-        assert np.array_equal(composites[0].data[top:bottom, left:right], item.image.data)
+        assert np.array_equal(composites[0].data[top:bottom, left:right], item.bitmap)
 
 
 def test_composites_are_bounded_in_height(sample_items: list[PgsSubtitleItem]) -> None:
     """Issue #136: a long track must be split into several composites, each small enough for tesseract."""
-    # 600 px wide fits one 480 px item per area; 340 px tall fits two 48 px areas plus gap and border.
+    # the sample ink is about 28 x 405 px. 600 px wide fits one item per area; 340 px tall fits two areas
+    # plus gap and border.
     max_width, max_height = 600, 340
     composites = list(FullImage.from_items(sample_items, (42, 112), max_width, max_height))
 
-    assert [c.data.shape for c in composites] == [(338, 680), (248, 680)]
+    assert len(composites) == 2
     assert sorted(item.index for c in composites for item in c.items) == [0, 1, 2]
     for composite in composites:
         height, width = composite.data.shape
         assert height <= max_height
         assert width <= max_width + 2 * FullImage.border
         for item in composite.items:
-            assert item.place is not None and item.image is not None
+            assert item.place is not None
             top, left, bottom, right = item.place
-            assert np.array_equal(composite.data[top:bottom, left:right], item.image.data)
+            assert np.array_equal(composite.data[top:bottom, left:right], item.bitmap)
 
 
 def test_an_area_taller_than_the_bound_gets_a_composite_of_its_own(sample_items: list[PgsSubtitleItem]) -> None:

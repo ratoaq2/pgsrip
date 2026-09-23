@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import os
@@ -9,6 +10,8 @@ from abc import ABC, abstractmethod
 from datetime import timedelta
 from types import TracebackType
 
+import numpy as np
+import numpy.typing as npt
 from babelfish import Language
 from pysrt import SubRipTime
 
@@ -79,15 +82,34 @@ class PgsSubtitleItem:
     def language(self) -> Language:
         return self.media_path.language
 
+    @functools.cached_property
+    def _ink(self) -> tuple[tuple[int, int], npt.NDArray[np.uint8]]:
+        """The (top, left) origin of the ink box in the image, and the image cropped to it.
+
+        PGS objects often span the whole frame width: OCR only the ink. Decoded here, not with
+        `image.data`, so the full image is not kept in memory.
+        """
+        assert self.image is not None
+        data = PgsImage.decode_rle_image(self.image.rle_data, self.image.palettes)
+        ink = data == 0
+        rows = np.flatnonzero(ink.any(axis=1))
+        cols = np.flatnonzero(ink.any(axis=0))
+        if not len(rows):
+            return (0, 0), data[:0, :0].copy()
+
+        return (int(rows[0]), int(cols[0])), data[rows[0] : rows[-1] + 1, cols[0] : cols[-1] + 1].copy()
+
+    @property
+    def bitmap(self) -> npt.NDArray[np.uint8]:
+        return self._ink[1]
+
     @property
     def height(self) -> int:
-        assert self.image is not None
-        return self.image.shape[0]
+        return int(self.bitmap.shape[0])
 
     @property
     def width(self) -> int:
-        assert self.image is not None
-        return self.image.shape[1]
+        return int(self.bitmap.shape[1])
 
     @property
     def h_center(self) -> int:
@@ -97,9 +119,10 @@ class PgsSubtitleItem:
     @property
     def shape(self) -> tuple[int, int, int, int]:
         height, width = self.height, self.width
-        y_offset, x_offset = self.y_offset, self.x_offset
-        assert y_offset is not None
-        assert x_offset is not None
+        assert self.y_offset is not None
+        assert self.x_offset is not None
+        top, left = self._ink[0]
+        y_offset, x_offset = self.y_offset + top, self.x_offset + left
 
         return y_offset, x_offset, y_offset + height, x_offset + width
 

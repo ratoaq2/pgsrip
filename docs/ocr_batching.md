@@ -4,6 +4,9 @@ One tesseract call per subtitle item = hundreds of slow roundtrips per episode. 
 
 - `FullImage`/`ImageArea` bin-pack many subtitle bitmaps (by vertical overlap, max width) into one or a few
   composite PNGs.
+- Each bitmap is cropped to its ink box first (`PgsSubtitleItem.bitmap`, `shape` moves by the crop). PGS
+  objects often span the full frame width: a 1080p track measured 16% ink. An item with no ink is not
+  OCR'd.
 - `FullImage.from_items` bounds each composite in both dimensions (`MAX_TESS_DIMENSION`): tesseract refuses
   any image side above 32767 px (`Image too large`, issue #136). A long track with wide bitmaps yields
   several composites instead of one oversized image. They are yielded one at a time, so only one composite

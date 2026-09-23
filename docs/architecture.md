@@ -4,7 +4,7 @@
 - `api.py` — public API over `core.py` (`scan_path`, `rip`, `rip_pgs`).
 - `core.py` — path scanning/filtering, top-level rip loop. No OCR logic.
 - `media.py` — `Media`/`Pgs`/`PgsSubtitleItem`: media abstraction, per-item bookkeeping (timing, offsets,
-  image), corrupted-data auto-fix (see `docs/corrupted_data.md`).
+  image cropped to its ink), corrupted-data auto-fix (see `docs/corrupted_data.md`).
 - `mkv.py` / `sup.py` — `Media` subclasses for `.mkv`/`.mks` (`mkvmerge`/`mkvextract`) and `.sup`.
 - `media_path.py` — filename parsing/generation (language, track number, extension).
 - `pgs.py` — binary PGS segment format: PDS/ODS/PCS/WDS/END parsing, RLE image decoding. Format-spec-heavy;
