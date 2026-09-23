@@ -279,12 +279,13 @@ def default_name(media_path: MediaPath, keep_name: bool) -> str:
 
 
 def output_path(media_path: MediaPath, output: str | None, keep_name: bool, used: set[str]) -> str:
-    """Build the path of the scrubbed file, without ever reusing one.
+    """Build the path of the scrubbed file, without ever reusing one or writing over the source .sup.
 
     media_path is expected to already carry the subtitle's language/flags/track_id, e.g. a Pgs.media_path,
     so the scrubbed file follows the same <base>.<language>[.<flag>]*[.track<id>].<ext> grammar as a
     ripped .srt.
     """
+    source = os.path.normcase(os.path.abspath(str(media_path)))
     if output and output.lower().endswith(SUP_EXTENSION):
         base = output[: -len(SUP_EXTENSION)]
     elif output and (os.path.isdir(output) or output.endswith(('/', os.sep))):
@@ -300,7 +301,7 @@ def output_path(media_path: MediaPath, output: str | None, keep_name: bool, used
 
     path = str(target)
     track_id = target.track_id
-    while path in used:
+    while path in used or os.path.normcase(os.path.abspath(path)) == source:
         track_id = 0 if track_id is None else track_id + 1
         target.track_id = track_id
         path = str(target)

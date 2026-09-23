@@ -45,10 +45,21 @@ class MediaPath:
             self.flags = TrackFlags()
             self.track_id = None
 
+        #: the input path, used as long as the parsed parts do not change: a non-canonical language token
+        #: (e.g. `fre`) does not render back as it was (`fr`).
+        self._source = (path, self._parts())
+
+    def _parts(self) -> tuple[str, Language, TrackFlags, int | None, str | None]:
+        return self.base_path, self.language, self.flags, self.track_id, self.extension
+
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__} [{str(self)}]>'
 
     def __str__(self) -> str:
+        path, source_parts = self._source
+        if self._parts() == source_parts:
+            return path
+
         parts = [self.base_path]
         if self.language:
             parts.append(str(self.language))

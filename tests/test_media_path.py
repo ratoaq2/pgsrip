@@ -6,6 +6,7 @@ from babelfish import Language
 from pgsrip.media import Pgs
 from pgsrip.media_path import MediaPath
 from pgsrip.options import Options
+from pgsrip.sup import Sup
 from pgsrip.track_flags import TrackFlags
 
 FLAG_FIELDS = ('forced', 'hearing_impaired', 'closed_caption', 'commentary', 'descriptive')
@@ -104,3 +105,23 @@ def test_srt_path_matches_the_ripper_write_path_for_a_flagged_track():
     ripper_write_path = pgs.media_path.translate(extension='srt')
 
     assert str(pgs.srt_path) == str(ripper_write_path)
+
+
+@pytest.mark.parametrize('code', ['fre', 'ger', 'chi', 'dut'])
+def test_media_path_keeps_the_name_of_a_source_with_a_three_letter_language(code):
+    media_path = MediaPath(f'/media/movie.{code}.sup')
+
+    assert str(media_path) == f'/media/movie.{code}.sup'
+
+
+def test_sup_reads_a_source_with_a_three_letter_language(tmp_path):
+    path = tmp_path / 'movie.fre.sup'
+    path.write_bytes(b'PG')
+
+    assert Sup(str(path)).media_path.get_data() == b'PG'
+
+
+def test_media_path_translates_a_three_letter_language_to_the_canonical_name():
+    media_path = MediaPath('/media/movie.fre.sup')
+
+    assert str(media_path.translate(extension='srt')) == '/media/movie.fr.srt'

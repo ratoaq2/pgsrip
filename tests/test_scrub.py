@@ -233,7 +233,7 @@ def test_scrub_keeps_an_object_split_over_three_segments(media_path):
 @pytest.mark.parametrize(
     'path, keep_name, expected',
     [
-        ('mymedia.en.sup', True, 'mymedia.en.sup'),
+        ('mymedia.en.sup', True, 'mymedia.en.track0.sup'),
         ('mymedia.mkv', True, 'mymedia.en.sup'),
         (os.path.join('medias', 'mymedia.en.sup'), True, 'mymedia.en.sup'),
         ('mymedia.en.sup', False, 'pgsrip-b47da897.en.sup'),
@@ -270,3 +270,25 @@ def test_output_path_uses_the_given_file_name():
     media_path = MediaPath('mymedia.mkv').translate(language=Language('eng'))
 
     assert output_path(media_path, 'report.sup', True, set()) == 'report.en.sup'
+
+
+def test_output_path_uses_the_canonical_language_of_a_source_with_a_three_letter_language():
+    media_path = MediaPath('/media/movie.fre.sup')
+
+    assert output_path(media_path, None, False, set()) == 'pgsrip-8a6ba32c.fr.sup'
+
+
+@pytest.mark.parametrize(
+    'source, output',
+    [
+        (os.path.join('{tmp}', 'mymedia.en.sup'), '{tmp}'),
+        ('mymedia.en.sup', '.'),
+    ],
+)
+def test_output_path_never_writes_over_the_source(tmp_path, monkeypatch, source, output):
+    monkeypatch.chdir(tmp_path)
+    media_path = MediaPath(source.format(tmp=tmp_path))
+
+    target = output_path(media_path, output.format(tmp=tmp_path), True, set())
+
+    assert os.path.abspath(target) != os.path.abspath(str(media_path))
