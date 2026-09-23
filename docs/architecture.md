@@ -12,4 +12,9 @@
 - `ripper.py` — `PgsToSrtRipper`: OCR batching (see `docs/ocr_batching.md`), tesseract TSV → SRT (`accept`).
 - `tsv.py` — typed wrapper over pytesseract TSV (`TsvData`/`TsvDataItem`).
 - `options.py` — `Options` config object threaded through the pipeline.
+- `tessdata.py` — tesseract language codes and `.traineddata` lookup/download (`Tessdata`).
+- `track_flags.py` — `TrackFlags`: track flags (forced, SDH, commentary, ...), their filename tokens and the
+  `--with`/`--without` filter.
+- `scrub.py` — makes a small, redacted copy of a PGS track so a reporter can share a bug sample.
+- `diagnostics.py` — environment checks (MKVToolNix, package versions) for bug reports.
 - `utils.py` — binary/time helpers (`from_hex`, `safe_get`, `to_time`, `pairwise`).

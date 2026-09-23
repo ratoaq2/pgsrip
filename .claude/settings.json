@@ -1,0 +1,48 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(uv run pytest *)",
+      "Bash(uv run ruff *)",
+      "Bash(uv run mypy *)",
+      "Bash(uv run python scripts/check_knowledge.py *)",
+      "Bash(bash scripts/test.sh)",
+      "Bash(git status *)",
+      "Bash(git log *)",
+      "Bash(git diff *)",
+      "Bash(gh issue view *)",
+      "Bash(gh issue list *)",
+      "Bash(gh pr view *)",
+      "Bash(gh label list *)",
+      "PowerShell(uv run pytest *)",
+      "PowerShell(uv run ruff *)",
+      "PowerShell(uv run mypy *)",
+      "PowerShell(uv run python scripts/check_knowledge.py *)",
+      "PowerShell(bash scripts/test.sh)",
+      "PowerShell(git status *)",
+      "PowerShell(git log *)",
+      "PowerShell(git diff *)",
+      "PowerShell(gh issue view *)",
+      "PowerShell(gh issue list *)",
+      "PowerShell(gh pr view *)",
+      "PowerShell(gh label list *)"
+    ]
+  },
+  "skillOverrides": {
+    "dataviz": "user-invocable-only",
+    "claude-api": "user-invocable-only",
+    "schedule": "user-invocable-only"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "uv run --no-project python \"$CLAUDE_PROJECT_DIR/.claude/hooks/session_start.py\" 2>/dev/null || true",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
