@@ -33,6 +33,7 @@ class CompositionState(enum.Enum):
 
 @enum.unique
 class ObjectSequenceType(enum.Enum):
+    MIDDLE = from_hex(b'\x00')
     LAST = from_hex(b'\x40')
     FIRST = from_hex(b'\x80')
     FIRST_AND_LAST = from_hex(b'\xc0')
@@ -340,25 +341,25 @@ class ObjectDefinitionSegment(BaseSegment):
 
     @property
     def data_len(self) -> int | None:
-        if self.sequence_type != ObjectSequenceType.LAST:
+        if self.sequence_type in (ObjectSequenceType.FIRST, ObjectSequenceType.FIRST_AND_LAST):
             return from_hex(self.data[4:7])
         return None
 
     @property
     def width(self) -> int | None:
-        if self.sequence_type != ObjectSequenceType.LAST:
+        if self.sequence_type in (ObjectSequenceType.FIRST, ObjectSequenceType.FIRST_AND_LAST):
             return from_hex(self.data[7:9])
         return None
 
     @property
     def height(self) -> int | None:
-        if self.sequence_type != ObjectSequenceType.LAST:
+        if self.sequence_type in (ObjectSequenceType.FIRST, ObjectSequenceType.FIRST_AND_LAST):
             return from_hex(self.data[9:11])
         return None
 
     @property
     def img_data(self) -> bytes:
-        if self.sequence_type == ObjectSequenceType.LAST:
+        if self.sequence_type in (ObjectSequenceType.MIDDLE, ObjectSequenceType.LAST):
             return self.data[4:]
 
         return self.data[11:]
@@ -398,8 +399,8 @@ class DisplaySet:
         return [s for s in self.segments if isinstance(s, PresentationCompositionSegment)][0]
 
     @property
-    def wds(self) -> WindowDefinitionSegment:
-        return [s for s in self.segments if isinstance(s, WindowDefinitionSegment)][0]
+    def wds(self) -> WindowDefinitionSegment | None:
+        return next((s for s in self.segments if isinstance(s, WindowDefinitionSegment)), None)
 
     @property
     def pds_segments(self) -> list[PaletteDefinitionSegment]:

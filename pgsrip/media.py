@@ -31,9 +31,9 @@ class PgsSubtitleItem:
         self.start: SubRipTime | None = min((t for t in timestamps if t is not None), default=None)
         self.end: SubRipTime | None = max((t for t in timestamps if t is not None), default=None)
         self.image = PgsSubtitleItem.generate_image(display_sets)
-        x_offsets = [ds.wds.x_offset for ds in display_sets if ds.wds.num_windows > 0]
+        x_offsets = [w.x_offset for ds in display_sets if (w := ds.wds) and w.num_windows > 0]
         self.x_offset: int | None = min((x for x in x_offsets if x is not None), default=None)
-        y_offsets = [ds.wds.y_offset for ds in display_sets if ds.wds.num_windows > 0]
+        y_offsets = [w.y_offset for ds in display_sets if (w := ds.wds) and w.num_windows > 0]
         self.y_offset: int | None = min((y for y in y_offsets if y is not None), default=None)
         self.text: str | None = None
         self.place: tuple[int, int, int, int] | None = None
