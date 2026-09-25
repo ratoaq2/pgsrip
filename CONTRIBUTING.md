@@ -24,6 +24,12 @@ too.
 - Flat package layout: `pgsrip/`, not `src/pgsrip/`.
 - Do not add tests with real subtitle content. See `tests/samples/README.md`.
 
+## Tests
+
+`tests/test_rip_e2e.py` rips fabricated media from end to end through the CLI. It checks the `.srt` files that
+it writes. By default, the tests use a fake MKVToolNix. Tesseract is always fake. `--media-backend real` or
+`--media-backend both` runs the same scenarios with a real `mkvmerge`. See `docs/rip-e2e.md`.
+
 ## Branches
 
 - `fix/<issue>-<slug>`, `feat/<issue>-<slug>`, `chore/<slug>`. Example: `fix/135-pts-zero`.
