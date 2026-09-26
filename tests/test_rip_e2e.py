@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import types
 import typing
 
 import numpy as np
@@ -328,3 +329,31 @@ def test_the_default_worker_count_is_capped(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr(os, 'sched_getaffinity', lambda _pid: set(range(64)), raising=False)
 
     assert default_workers() == MAX_DEFAULT_WORKERS
+
+
+def test_the_retry_passes_stop_when_a_pass_would_repeat_the_last_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 20 or more items that no pass can read: the passes must stop, not repeat the same pass forever
+    items: typing.Any = [types.SimpleNamespace(height=50, width=500) for _ in range(25)]
+    ripper = PgsToSrtRipper.__new__(PgsToSrtRipper)
+    ripper.pgs = typing.cast(typing.Any, types.SimpleNamespace(items=items, media_path=MediaPath('movie.en.sup')))
+    ripper.oem, ripper.psm, ripper.confidence = None, None, 65
+    ripper.max_tess_width, ripper.gap = 4000, (10, 10)
+    passes: list[tuple[int, int]] = []
+
+    def process(
+        subs: typing.Any,
+        items: list[typing.Any],
+        post_process: typing.Any,
+        confidence: int,
+        max_width: int,
+        *args: typing.Any,
+    ) -> typing.Any:
+        passes.append((confidence, max_width))
+        assert len(passes) <= 20, f'the passes do not stop: {passes[-3:]}'
+        return items
+
+    monkeypatch.setattr(ripper, 'process', process)
+
+    ripper.rip(lambda text: text)
+
+    assert len(passes) == len(set(passes))
