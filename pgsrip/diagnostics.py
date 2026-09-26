@@ -15,7 +15,6 @@ import typing
 import pytesseract as tess
 
 from pgsrip import __version__
-from pgsrip.options import Options
 from pgsrip.tessdata import Tessdata, TessdataError, is_writable
 
 logger = logging.getLogger(__name__)
@@ -85,8 +84,7 @@ def check_languages() -> Check:
     return Check('tesseract languages', f'{", ".join(listed)}{f" and {remaining} more" if remaining else ""}')
 
 
-def check_tessdata(options: Options) -> list[Check]:
-    tessdata = Tessdata.from_options(options)
+def check_tessdata(tessdata: Tessdata) -> list[Check]:
     checks = [
         Check('tessdata directory', str(tessdata.directory or 'not set')),
         Check('TESSDATA_PREFIX', os.getenv('TESSDATA_PREFIX') or 'not set'),
@@ -97,7 +95,7 @@ def check_tessdata(options: Options) -> list[Check]:
         checks.append(Check('tessdata download directory', tessdata.target_dir))
     except TessdataError as e:
         checks.append(
-            Check('tessdata download directory', str(e), ok=False, hint='Set --tessdata-dir to a writable directory')
+            Check('tessdata download directory', str(e), ok=False, hint='Set --tesseract-dir to a writable directory')
         )
 
     return checks
@@ -124,7 +122,7 @@ def check_temp_directory() -> Check:
     return Check('temporary directory', directory)
 
 
-def run_checks(options: Options | None = None) -> list[Check]:
+def run_checks(tessdata: Tessdata | None = None) -> list[Check]:
     """Collect everything that is worth knowing about this installation."""
     checks = [
         Check('pgsrip', __version__),
@@ -134,7 +132,7 @@ def run_checks(options: Options | None = None) -> list[Check]:
     checks += [check_executable(name, MKVTOOLNIX_HINT) for name in MKVTOOLNIX_EXECUTABLES]
     checks.append(check_tesseract())
     checks.append(check_languages())
-    checks += check_tessdata(options or Options())
+    checks += check_tessdata(tessdata or Tessdata())
     checks.append(check_temp_directory())
     checks += check_packages()
 

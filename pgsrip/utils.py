@@ -1,6 +1,23 @@
+import os
+import sys
 import typing
 
 from pysrt import SubRipTime
+
+#: cap for the default number of parallel OCR jobs: a container with a CPU quota still reports every host core.
+MAX_DEFAULT_WORKERS = 4
+
+
+def default_workers() -> int:
+    """The CPUs this process may run on, at most MAX_DEFAULT_WORKERS."""
+    if sys.version_info >= (3, 13):
+        count = os.process_cpu_count()
+    elif sys.platform == 'linux':
+        count = len(os.sched_getaffinity(0))
+    else:
+        count = os.cpu_count()
+
+    return min(MAX_DEFAULT_WORKERS, count or 1)
 
 
 def from_hex(b: bytes) -> int | None:

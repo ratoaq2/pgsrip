@@ -5,7 +5,6 @@ import urllib.error
 import pytest
 from babelfish import Language
 
-from pgsrip.options import Options
 from pgsrip.tessdata import (
     Tessdata,
     TessdataError,
@@ -228,13 +227,3 @@ def test_target_dir_falls_back_when_directory_is_not_writable(tmp_path, monkeypa
     monkeypatch.setattr('pgsrip.tessdata.is_writable', lambda directory: 'prefix' not in directory)
 
     assert 'prefix' not in Tessdata().target_dir
-
-
-def test_from_options():
-    options = Options(tessdata_dir='/data', tessdata_repository='fast', download_tessdata=False)
-
-    tessdata = Tessdata.from_options(options)
-
-    assert tessdata.directory == '/data'
-    assert tessdata.repository == 'fast'
-    assert tessdata.download is False

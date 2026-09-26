@@ -35,9 +35,9 @@ real.
 - **`tests/fabricate.py`**: the fabrication API, pytest-free (builds bytes, dicts and argv lists, so it
   can be driven from a plain script). `TrackSpec`/`MediaSpec` dataclasses; `payload(cues)` slices the
   committed sample with `scrub_display_sets`; `FakeMkvToolNix` answers `mkvmerge -i -F json` and
-  `mkvextract` from a registry of `MediaSpec`; `FakeTesseract` wraps `PgsToSrtRipper.process` so the
+  `mkvextract` from a registry of `MediaSpec`; `FakeTesseract` wraps `TesseractEngine.process` so the
   real image composition still runs (`item.place` gets set for real), wraps `FullImage.from_items` to
-  record every composite, and patches `pgsrip.ripper.tess.image_to_data` to read back
+  record every composite, and patches `pgsrip.tesseract.tess.image_to_data` to read back
   `TrackSpec.texts`/`confidences` for the items of the composite it receives (matched by identity, not
   pixels: the sample cues are identical bitmaps) instead of running tesseract; `mkvmerge_version`/`mkvmerge_args`/`fabricate_real` drive the real backend.
 - **YAML scenarios** (`tests/test_rip_e2e.yml`), loaded with the existing `from_yaml()` helper and fed
@@ -66,7 +66,7 @@ in the system temp dir.
 ### Step 2 — the fake OCR
 
 **Files:** `tests/fabricate.py`.
-**Do:** `FakeTesseract`, the `PgsToSrtRipper.process` wrapper, per-track registration, multi-line text,
+**Do:** `FakeTesseract`, the `TesseractEngine.process` wrapper, per-track registration, multi-line text,
 `confidences`. The `item.place` contract test.
 **Done when:** a two-line cue, a cue recovered on retry, a cue below confidence 0, and an empty-text cue
 are all covered.

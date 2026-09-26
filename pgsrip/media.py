@@ -36,6 +36,8 @@ class PgsSubtitleItem:
         y_offsets = [w.y_offset for ds in display_sets if (w := ds.wds) and w.num_windows > 0]
         self.y_offset: int | None = min((y for y in y_offsets if y is not None), default=None)
         self.text: str | None = None
+        # the OCR engine is not sure of the text: the next engine of the chain reads the item again
+        self.doubtful = False
         self.place: tuple[int, int, int, int] | None = None
 
     @staticmethod

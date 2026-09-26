@@ -21,7 +21,7 @@ pgsrip downloads each file one time only. Every later rip uses it again.
 
 pgsrip uses the first directory in this list that it can write to:
 
-1. `--tessdata-dir`, or the `PGSRIP_TESSDATA_DIR` environment variable
+1. `--tesseract-dir`, or the `PGSRIP_TESSDATA_DIR` environment variable
 2. the `TESSDATA_PREFIX` environment variable
 3. the user cache directory:
    - Windows: `%LOCALAPPDATA%\pgsrip\tessdata`
@@ -35,8 +35,8 @@ finds for a language.
 
 | Option | Environment variable | What it does |
 | --- | --- | --- |
-| `--no-tessdata-download` | | Do not download. Use only the installed languages. |
-| `--tessdata-repository fast` | `PGSRIP_TESSDATA_REPO=fast` | Download the smaller and faster models of [tessdata_fast](https://github.com/tesseract-ocr/tessdata_fast). |
+| `--no-tesseract-download` | | Do not download. Use only the installed languages. |
+| `--tesseract-repository fast` | `PGSRIP_TESSDATA_REPO=fast` | Download the smaller and faster models of [tessdata_fast](https://github.com/tesseract-ocr/tessdata_fast). |
 | | `PGSRIP_TESSDATA_URL` | Download from a mirror. Set the base URL of the mirror. |
 
 The default source is [tessdata_best](https://github.com/tesseract-ocr/tessdata_best). It gives the best OCR
@@ -106,3 +106,59 @@ machine.
 
 A container with a CPU limit (`docker run --cpus`) shows all the CPUs of the host. Thus, set `-w` to the same
 value as the limit.
+
+`-w` applies to each OCR engine of a [chain](#a-chain-of-ocr-engines). `--tesseract-workers` overrides it for
+tesseract only. For example, `-w 1 --tesseract-workers 4` runs 4 tesseract processes, and the next engine gets 1.
+
+## OCR engines
+
+pgsrip reads the text of the subtitle images with an OCR engine. The default engine is tesseract. Other Python
+packages can add an engine (see [Add an OCR engine](#add-an-ocr-engine)).
+
+### A chain of OCR engines
+
+Use `--engine` more than one time to make a chain:
+
+```bash
+pgsrip --engine tesseract --engine myocr mymedia.mkv
+```
+
+The first engine reads all the cues. Each next engine reads only these cues:
+
+- The cues that the engines before it could not read.
+- The cues that the engine before it is not sure of ("doubtful" cues).
+
+Tesseract marks a cue as doubtful when a word of the cue has a confidence below 80. `--tesseract-threshold`
+changes this value (0 to 100). A higher value sends more cues to the next engine. When the next engine gives no
+text for a cue, pgsrip keeps the tesseract text.
+
+A [configuration file](../README.md#configuration-file) can also set the chain and the threshold:
+
+```yaml
+engine:
+  - tesseract
+  - myocr
+tesseract:
+  threshold: 90
+```
+
+### Add an OCR engine
+
+A Python package can add an OCR engine. Declare an entry point in the `pgsrip.engines` group. Its value is a
+callable that takes `workers` (the `-w` value, or `None`) and returns the engine:
+
+```toml
+[project.entry-points."pgsrip.engines"]
+myocr = "myocr.engine:MyEngine"
+```
+
+The engine has 2 methods (see `OcrEngine` in `pgsrip/ripper.py`):
+
+- `prepare(languages, reporter)`: get ready before the rip starts. Raise `pgsrip.ripper.OcrError` when the
+  engine cannot rip at all.
+- `recognize(pgs, items)`: set `item.text` for each item that the engine can read. Leave `None` for the next
+  engine of the chain. Set `item.doubtful` when the text can be wrong. Raise `OcrError` when the engine fails:
+  pgsrip then writes no `.srt` file for that track.
+
+The engine reads its own settings, for example from environment variables. Use it by name, alone or in a
+chain. A plug-in cannot replace `tesseract`.

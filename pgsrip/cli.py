@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.metadata
 import json
 import logging
 import os
@@ -19,8 +20,10 @@ from pgsrip.core import get_reason
 from pgsrip.diagnostics import format_checks, run_checks
 from pgsrip.media import Media
 from pgsrip.options import Options
+from pgsrip.ripper import OcrEngine, OcrError
 from pgsrip.scrub import Redaction, output_path, scrub_data
-from pgsrip.tessdata import REPOSITORIES, Tessdata, TessdataError, get_required_codes
+from pgsrip.tessdata import REPOSITORIES, Tessdata
+from pgsrip.tesseract import DEFAULT_THRESHOLD, TesseractEngine
 from pgsrip.track_flags import FLAG_CHOICES
 
 if typing.TYPE_CHECKING:
@@ -99,9 +102,32 @@ class RangeParamType(click.ParamType[frozenset[int], str]):
         return frozenset(range(start, end + 1))
 
 
+ENGINES = ('tesseract',)
+#: other packages add an OCR engine with an entry point in this group. See the README.
+ENGINE_ENTRY_POINTS = 'pgsrip.engines'
+
+
+def plugin_engines() -> dict[str, importlib.metadata.EntryPoint]:
+    """The OCR engines of other packages, by name. A built-in engine wins over a plug-in with the same name."""
+    return {ep.name: ep for ep in importlib.metadata.entry_points(group=ENGINE_ENTRY_POINTS) if ep.name not in ENGINES}
+
+
+class EngineParamType(click.ParamType[str, str]):
+    name = 'engine'
+
+    def convert(self, value: str, param: click.Parameter | None, ctx: click.Context | None) -> str:
+        # not a click.Choice: the plug-ins are known only when the command runs
+        names = [*ENGINES, *plugin_engines()]
+        if value not in names:
+            self.fail(f'{click.style(value, bold=True)} is not an OCR engine. Choose from: {", ".join(names)}')
+
+        return value
+
+
 LANGUAGE = LanguageParamType()
 AGE = AgeParamType()
 RANGE = RangeParamType()
+ENGINE = EngineParamType()
 
 
 def merge_ranges(values: tuple[frozenset[int], ...]) -> set[int]:
@@ -127,7 +153,11 @@ def echo_failures(failures: list[tuple[Pgs, Exception]], log_file: str | None) -
     for pgs, error in failures[:MAX_REPORTED_PATHS]:
         click.echo(f'  {pgs}: <{type(error).__name__}> [{error}]')
 
-    sources = sorted({str(pgs.source_path) for pgs, _ in failures})
+    # a scrubbed sample cannot reproduce an OCR engine failure, e.g. missing tesseract data
+    sources = sorted({str(pgs.source_path) for pgs, error in failures if not isinstance(error, OcrError)})
+    if not sources:
+        return
+
     click.echo('To report this, run:')
     for source in sources[:MAX_REPORTED_PATHS]:
         click.echo(f'  {click.style(f"pgsrip scrub {quote(source)}", bold=True)}')
@@ -174,29 +204,58 @@ def configure_logging(debug: bool, log_file: str | None) -> None:
         logger.addHandler(file_handler)
 
 
-def log_environment(options: Options) -> None:
+def log_environment(tessdata: Tessdata | None = None) -> None:
     """Record the installed versions at the top of the debug log."""
     if not logger.isEnabledFor(logging.DEBUG):
         return
 
-    for line in format_checks(run_checks(options)).splitlines():
+    for line in format_checks(run_checks(tessdata)).splitlines():
         logger.info(line)
 
 
-def download_tessdata(pgs_medias: list[Pgs], options: Options) -> None:
-    """Download the tesseract data every collected subtitle needs, before any ripping starts."""
+def create_engines(
+    names: tuple[str, ...],
+    workers: int | None,
+    tessdata: Tessdata,
+    tesseract_options: bool,
+    threshold: int | None,
+    tesseract_workers: int | None,
+) -> list[OcrEngine]:
+    """Create the chain of OCR engines that the user selected, in order. Reject the options of the other engines."""
+    if len(set(names)) < len(names):
+        raise click.UsageError('use each --engine only one time')
+    if 'tesseract' not in names and (tesseract_options or threshold is not None or tesseract_workers):
+        raise click.UsageError('the --tesseract-* options need --engine tesseract')
+
+    engines: list[OcrEngine] = []
+    for name in names:
+        if name == 'tesseract':
+            engines.append(
+                TesseractEngine(workers=tesseract_workers or workers, tessdata=tessdata, threshold=threshold)
+            )
+        else:
+            # a plug-in reads its own settings, e.g. from environment variables
+            try:
+                engines.append(plugin_engines()[name].load()(workers=workers))
+            except OcrError as e:
+                raise click.UsageError(str(e)) from e
+
+    return engines
+
+
+def prepare_engines(pgs_medias: list[Pgs], options: Options) -> bool:
+    """Get the OCR engines ready for every collected subtitle, before any ripping starts."""
     if not pgs_medias:
-        return
+        return True
 
-    def report(code: str) -> None:
-        click.echo(f'Downloading tesseract data for {click.style(code, bold=True)}...')
-
-    psm_value = options.tesseract_psm.value if options.tesseract_psm else None
-    codes = get_required_codes([pgs.language for pgs in pgs_medias], psm_value)
     try:
-        Tessdata.from_options(options).ensure(codes, reporter=report)
-    except TessdataError as e:
+        for engine in options.engines:
+            engine.prepare([pgs.language for pgs in pgs_medias], reporter=click.echo)
+    except OcrError as e:
         click.echo(click.style(str(e), fg='red'))
+        return False
+
+    return True
 
 
 CONFIG_EXTENSIONS = ('.json', '.yml', '.yaml')
@@ -219,7 +278,15 @@ def read_config(path: str) -> dict[str, typing.Any]:
     if not isinstance(values, dict):
         raise click.BadParameter(f'{path} must contain option names and values')
 
-    return values
+    # a section groups the options with the same prefix: `tesseract: {threshold: 90}` is `tesseract_threshold: 90`
+    flat: dict[str, typing.Any] = {}
+    for key, value in values.items():
+        if isinstance(value, dict):
+            flat.update({f'{key}_{name}': section_value for name, section_value in value.items()})
+        else:
+            flat[key] = value
+
+    return flat
 
 
 def set_default_config(ctx: click.Context, param: click.Parameter, configs: tuple[str, ...]) -> None:
@@ -328,24 +395,44 @@ def pgsrip() -> None:
     '--max-workers',
     type=click.IntRange(1, 50),
     default=None,
-    help='Number of tesseract processes to run in parallel. Default: the number of CPUs, at most 4.',
+    help='Number of OCR jobs to run in parallel, e.g. tesseract processes. Default: the number of CPUs, at most 4.',
 )
 @click.option(
-    '--tessdata-dir',
+    '--engine',
+    type=ENGINE,
+    multiple=True,
+    default=('tesseract',),
+    show_default=True,
+    help='OCR engine that reads the subtitle images: tesseract, or an engine of an installed plug-in. '
+    'Use it more than one time for a chain: each engine reads the cues that the engines before it '
+    'could not read or are not sure of.',
+)
+@click.option(
+    '--tesseract-threshold',
+    type=click.IntRange(0, 100),
+    help=f'A cue with a word below this tesseract confidence goes to the next --engine. Default: {DEFAULT_THRESHOLD}.',
+)
+@click.option(
+    '--tesseract-workers',
+    type=click.IntRange(1, 50),
+    default=None,
+    help='Number of tesseract processes to run in parallel. Default: -w.',
+)
+@click.option(
+    '--tesseract-dir',
     type=click.Path(),
     help='Directory where tesseract data is stored. Defaults to TESSDATA_PREFIX or a user cache directory.',
 )
 @click.option(
-    '--tessdata-repository',
+    '--tesseract-repository',
     type=click.Choice(sorted(REPOSITORIES)),
     default=None,
     help='Repository to download missing tesseract data from.',
 )
 @click.option(
-    '--no-tessdata-download',
-    is_flag=True,
-    default=False,
-    help='Do not download missing tesseract data, only use what is already installed.',
+    '--tesseract-download/--no-tesseract-download',
+    default=True,
+    help='Download missing tesseract data. With --no-tesseract-download, use only the installed data.',
 )
 @click.option(
     '--keep-temp-files',
@@ -377,9 +464,12 @@ def rip(
     debug: bool,
     log_file: str | None,
     max_workers: int | None,
-    tessdata_dir: str | None,
-    tessdata_repository: str | None,
-    no_tessdata_download: bool,
+    engine: tuple[str, ...],
+    tesseract_threshold: int | None,
+    tesseract_workers: int | None,
+    tesseract_dir: str | None,
+    tesseract_repository: str | None,
+    tesseract_download: bool,
     keep_temp_files: bool,
     verbose: int,
     path: tuple[str],
@@ -395,6 +485,7 @@ def rip(
         click.echo(f'Invalid cleanit configuration is defined: {click.style(cleanit_config, bold=True)}')
         return
 
+    tessdata = Tessdata(directory=tesseract_dir, repository=tesseract_repository, download=tesseract_download)
     options = Options(
         cleanit_config=cleanit_config,
         languages=set(language or []),
@@ -406,15 +497,19 @@ def rip(
         include_flags=frozenset(with_flags),
         exclude_flags=frozenset(without_flags),
         keep_temp_files=keep_temp_files,
-        max_workers=max_workers,
-        tessdata_dir=tessdata_dir,
-        tessdata_repository=tessdata_repository,
-        download_tessdata=not no_tessdata_download,
+        engines=create_engines(
+            engine,
+            max_workers,
+            tessdata,
+            bool(tesseract_dir or tesseract_repository or not tesseract_download),
+            tesseract_threshold,
+            tesseract_workers,
+        ),
         age=age,
         srt_age=srt_age,
     )
 
-    log_environment(options)
+    log_environment(tessdata)
 
     rules = options.cleanit_config.select_rules(tags=options.tags, languages=options.languages)
     if not rules:
@@ -466,7 +561,8 @@ def rip(
         )
     click.echo(report)
 
-    download_tessdata(collected_pgs_medias, options)
+    if not prepare_engines(collected_pgs_medias, options):
+        raise SystemExit(1)
 
     pgs_progressbar = DebugProgressBar(
         debug or verbose > 1,
@@ -499,19 +595,19 @@ def rip(
 
 @pgsrip.command()
 @click.option(
-    '--tessdata-dir',
+    '--tesseract-dir',
     type=click.Path(),
     help='Directory where tesseract data is stored. Defaults to TESSDATA_PREFIX or a user cache directory.',
 )
 @click.option(
-    '--tessdata-repository',
+    '--tesseract-repository',
     type=click.Choice(sorted(REPOSITORIES)),
     default=None,
     help='Repository to download missing tesseract data from.',
 )
-def doctor(tessdata_dir: str | None, tessdata_repository: str | None) -> None:
+def doctor(tesseract_dir: str | None, tesseract_repository: str | None) -> None:
     """Check that everything pgsrip needs is installed. Add the output to a bug report."""
-    checks = run_checks(Options(tessdata_dir=tessdata_dir, tessdata_repository=tessdata_repository))
+    checks = run_checks(Tessdata(directory=tesseract_dir, repository=tesseract_repository))
     click.echo(format_checks(checks))
 
     failed = [check for check in checks if not check.ok]
@@ -604,7 +700,7 @@ def scrub(
 
     redaction = Redaction(redact)
     options = Options(languages=set(language or []), one_per_lang=not every_track, overwrite=True)
-    log_environment(options)
+    log_environment()
 
     collected_medias: list[Media] = []
     discarded_paths: list[str] = []

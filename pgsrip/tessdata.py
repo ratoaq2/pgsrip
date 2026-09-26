@@ -14,7 +14,7 @@ from contextlib import contextmanager
 import pytesseract as tess
 from babelfish import Language
 
-from pgsrip.options import Options
+from pgsrip.ripper import OcrError
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +44,7 @@ SCRIPT_CODES = {
 TRADITIONAL_CHINESE_COUNTRIES = frozenset({'HK', 'MO', 'TW'})
 
 
-class TessdataError(Exception):
+class TessdataError(OcrError):
     """Raised when the tesseract data required to rip a subtitle cannot be made available."""
 
 
@@ -140,14 +140,6 @@ class Tessdata:
         self.timeout = timeout
         self._target_dir: str | None = None
         self._installed_codes: set[str] | None = None
-
-    @classmethod
-    def from_options(cls, options: Options) -> Tessdata:
-        return cls(
-            directory=options.tessdata_dir,
-            repository=options.tessdata_repository,
-            download=options.download_tessdata,
-        )
 
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__} [{self}]>'
