@@ -6,6 +6,7 @@ run for real with `--media-backend real`/`both`. See docs/rip-e2e.md.
 
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 import types
@@ -14,6 +15,7 @@ import typing
 import numpy as np
 import pysrt
 import pytest
+import yaml
 from click.testing import CliRunner
 
 from pgsrip.cli import pgsrip
@@ -357,3 +359,150 @@ def test_the_retry_passes_stop_when_a_pass_would_repeat_the_last_one(monkeypatch
     ripper.rip(lambda text: text)
 
     assert len(passes) == len(set(passes))
+
+
+CONFIG_SCENARIO = {
+    'media': {
+        'name': 'movie.mkv',
+        'tracks': [
+            {'language': 'en', 'cues': 1, 'texts': ['Hello']},
+            {'language': 'de', 'cues': 1, 'texts': ['Hallo']},
+            {'language': 'fr', 'cues': 1, 'texts': ['Bonjour']},
+        ],
+    }
+}
+
+
+def write_config(path: typing.Any, languages: list[str]) -> str:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    values = {'language': languages}
+    path.write_text(json.dumps(values) if path.suffix == '.json' else yaml.safe_dump(values), encoding='utf-8')
+    return str(path)
+
+
+@pytest.mark.parametrize('extension', ['.json', '.yml', '.yaml'])
+def test_the_config_file_in_the_current_folder_sets_the_defaults(
+    extension: str,
+    tmp_path: typing.Any,
+    monkeypatch: pytest.MonkeyPatch,
+    fabricate_media: typing.Callable[[dict[str, typing.Any]], typing.Any],
+    fake_ocr: FakeTesseract,
+) -> None:
+    media_dir = fabricate_media(CONFIG_SCENARIO)
+    write_config(tmp_path / 'cwd' / f'pgsrip{extension}', ['de'])
+    monkeypatch.chdir(tmp_path / 'cwd')
+
+    result = CliRunner().invoke(pgsrip, [str(media_dir)])
+
+    assert result.exit_code == 0, result.output
+    assert written_subtitles(media_dir) == {'movie.de.srt'}
+
+
+@pytest.mark.parametrize('extension', ['.json', '.yml', '.yaml'])
+def test_the_config_file_in_the_user_config_folder_sets_the_defaults(
+    extension: str,
+    user_config_dir: typing.Any,
+    fabricate_media: typing.Callable[[dict[str, typing.Any]], typing.Any],
+    fake_ocr: FakeTesseract,
+) -> None:
+    media_dir = fabricate_media(CONFIG_SCENARIO)
+    write_config(user_config_dir / f'config{extension}', ['de'])
+
+    result = CliRunner().invoke(pgsrip, [str(media_dir)])
+
+    assert result.exit_code == 0, result.output
+    assert written_subtitles(media_dir) == {'movie.de.srt'}
+
+
+def test_the_config_file_in_the_current_folder_wins_over_the_user_config_folder(
+    tmp_path: typing.Any,
+    user_config_dir: typing.Any,
+    monkeypatch: pytest.MonkeyPatch,
+    fabricate_media: typing.Callable[[dict[str, typing.Any]], typing.Any],
+    fake_ocr: FakeTesseract,
+) -> None:
+    media_dir = fabricate_media(CONFIG_SCENARIO)
+    write_config(user_config_dir / 'config.yml', ['de'])
+    write_config(tmp_path / 'cwd' / 'pgsrip.yml', ['fr'])
+    monkeypatch.chdir(tmp_path / 'cwd')
+
+    result = CliRunner().invoke(pgsrip, [str(media_dir)])
+
+    assert result.exit_code == 0, result.output
+    assert written_subtitles(media_dir) == {'movie.fr.srt'}
+
+
+def test_the_config_option_wins_over_the_other_config_files(
+    tmp_path: typing.Any,
+    user_config_dir: typing.Any,
+    monkeypatch: pytest.MonkeyPatch,
+    fabricate_media: typing.Callable[[dict[str, typing.Any]], typing.Any],
+    fake_ocr: FakeTesseract,
+) -> None:
+    media_dir = fabricate_media(CONFIG_SCENARIO)
+    write_config(user_config_dir / 'config.yml', ['de'])
+    write_config(tmp_path / 'cwd' / 'pgsrip.yml', ['fr'])
+    config = write_config(tmp_path / 'custom.json', ['en'])
+    monkeypatch.chdir(tmp_path / 'cwd')
+
+    result = CliRunner().invoke(pgsrip, ['--config', config, str(media_dir)])
+
+    assert result.exit_code == 0, result.output
+    assert written_subtitles(media_dir) == {'movie.en.srt'}
+
+
+def test_a_later_config_option_wins(
+    tmp_path: typing.Any,
+    fabricate_media: typing.Callable[[dict[str, typing.Any]], typing.Any],
+    fake_ocr: FakeTesseract,
+) -> None:
+    media_dir = fabricate_media(CONFIG_SCENARIO)
+    first = write_config(tmp_path / 'first.yml', ['de'])
+    second = write_config(tmp_path / 'second.yml', ['fr'])
+
+    result = CliRunner().invoke(pgsrip, ['rip', '--config', first, '--config', second, str(media_dir)])
+
+    assert result.exit_code == 0, result.output
+    assert written_subtitles(media_dir) == {'movie.fr.srt'}
+
+
+def test_the_command_line_wins_over_the_config_file(
+    tmp_path: typing.Any,
+    fabricate_media: typing.Callable[[dict[str, typing.Any]], typing.Any],
+    fake_ocr: FakeTesseract,
+) -> None:
+    media_dir = fabricate_media(CONFIG_SCENARIO)
+    config = write_config(tmp_path / 'config.yml', ['de'])
+
+    result = CliRunner().invoke(pgsrip, ['--config', config, '-l', 'fr', str(media_dir)])
+
+    assert result.exit_code == 0, result.output
+    assert written_subtitles(media_dir) == {'movie.fr.srt'}
+
+
+@pytest.mark.parametrize(
+    'name, content, error',
+    [
+        ('config.yml', 'languages: [de]\npath: movie.mkv\n', 'Unknown option in'),
+        ('config.toml', 'language = ["de"]\n', 'is not a .json, .yml or .yaml file'),
+        ('config.yml', '- de\n', 'must contain option names and values'),
+        ('config.json', '{"language": ', 'Cannot read'),
+    ],
+)
+def test_a_wrong_config_file_is_an_error(
+    name: str,
+    content: str,
+    error: str,
+    tmp_path: typing.Any,
+    fabricate_media: typing.Callable[[dict[str, typing.Any]], typing.Any],
+    fake_ocr: FakeTesseract,
+) -> None:
+    media_dir = fabricate_media(CONFIG_SCENARIO)
+    config = tmp_path / name
+    config.write_text(content, encoding='utf-8')
+
+    result = CliRunner().invoke(pgsrip, ['--config', str(config), str(media_dir)])
+
+    assert result.exit_code == 2
+    assert error in result.output
+    assert written_subtitles(media_dir) == set()

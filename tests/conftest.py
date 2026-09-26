@@ -1,4 +1,5 @@
 import os
+import typing
 
 import pytest
 
@@ -21,3 +22,11 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
     selected = metafunc.config.getoption('--media-backend')
     backends = BACKENDS if selected == 'both' else (selected,)
     metafunc.parametrize('media_backend', backends)
+
+
+@pytest.fixture(autouse=True)
+def user_config_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: typing.Any) -> typing.Any:
+    """Never read the pgsrip configuration file of the user who runs the tests."""
+    path = tmp_path / 'user-config'
+    monkeypatch.setattr('pgsrip.cli.AppDirs.user_config_dir', str(path))
+    return path

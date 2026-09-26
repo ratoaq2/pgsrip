@@ -109,7 +109,7 @@ def rip_pgs(pgs: Pgs, options: Options, on_error: ErrorHandler | None = None) ->
             if not p.matches(options):
                 return False
 
-            rules = options.config.select_rules(tags=options.tags, languages={p.language})
+            rules = options.cleanit_config.select_rules(tags=options.tags, languages={p.language})
             srt = PgsToSrtRipper(p, options).rip(lambda t: rules.apply(t, '')[0])
             srt.save(encoding=options.encoding)
             return True

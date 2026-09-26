@@ -159,6 +159,33 @@ pgsrip does not rip a subtitle again when the `.srt` file exists. Use `-f` to ri
 
 Run `pgsrip --help` for all options. [docs/usage.md](docs/usage.md) gives more details.
 
+### Configuration file
+
+A configuration file can contain the options of `pgsrip rip`. The keys are the option names, with `_` in
+place of `-`. For `--with` and `--without`, use `with_flags` and `without_flags`.
+
+```yaml
+language:
+  - en
+  - pt-BR
+max_workers: 2
+without_flags:
+  - commentary
+```
+
+pgsrip reads the configuration files in this order. A later file overrides an earlier file.
+
+1. `config.json`, `config.yml`, or `config.yaml` in the pgsrip user configuration folder:
+   - Linux: `~/.config/pgsrip/` (or `$XDG_CONFIG_HOME/pgsrip/`)
+   - macOS: `~/Library/Application Support/pgsrip/`
+   - Windows: `%LOCALAPPDATA%\pgsrip\pgsrip\`
+2. `pgsrip.json`, `pgsrip.yml`, or `pgsrip.yaml` in the current folder.
+3. Each file that you give with `--config`, in the order of the command line.
+
+An option on the command line overrides the configuration files. An unknown key is an error.
+
+The cleanit rules file option is `--cleanit-config`.
+
 ### Output file names
 
 pgsrip writes the `.srt` file next to the video. The name contains the language and the flags of the track:

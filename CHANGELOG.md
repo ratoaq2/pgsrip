@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+  - New: a configuration file with the default values of the `rip` options.
+    pgsrip reads `config.{json,yml,yaml}` in the user configuration folder,
+    `pgsrip.{json,yml,yaml}` in the current folder, and each `--config` file
+  - Breaking: the cleanit rules file option `-c/--config` is now
+    `--cleanit-config`. `--config` is now the pgsrip configuration file
+  - Breaking: library: `Options(config_path=...)` is now
+    `Options(cleanit_config=...)`, and `Options.config` is now
+    `Options.cleanit_config`
   - Fix: a track with 20 or more cues that tesseract could not read made the
     rip run forever
 
