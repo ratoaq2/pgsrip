@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+  - Fix: a track with 20 or more cues that tesseract could not read made the
+    rip run forever
+
 ## 0.2.1
 
 **release date:** 2026-09-23

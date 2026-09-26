@@ -292,8 +292,13 @@ class PgsToSrtRipper:
                     logger.warning('Subtitles were not ripped: %r', remaining_items)
                 break
             elif current_size > previous_size * 0.8:
+                last_pass = (confidence, max_width)
                 max_width = min(sum([item.width + self.gap[1] for item in items]), self.max_tess_width) // 2
                 confidence = max(0, confidence - 5)
+                # the same pass on the same items reads nothing new: the remaining items stay unread
+                if (confidence, max_width) == last_pass:
+                    logger.warning('Subtitles were not ripped: %r', items)
+                    break
             previous_size = current_size
 
         subs.clean_indexes()
