@@ -768,6 +768,7 @@ name = "pgsrip"
 version = "0.3.0.dev0"
 source = { editable = "." }
 dependencies = [
+    { name = "appdirs" },
     { name = "babelfish" },
     { name = "cleanit" },
     { name = "click" },
@@ -776,6 +777,7 @@ dependencies = [
     { name = "opencv-python" },
     { name = "pysrt" },
     { name = "pytesseract" },
+    { name = "pyyaml" },
     { name = "setuptools" },
     { name = "trakit" },
 ]
@@ -787,10 +789,13 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "types-appdirs" },
+    { name = "types-pyyaml" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "appdirs", specifier = ">=1.4.4" },
     { name = "babelfish", specifier = ">=0.6.1" },
     { name = "cleanit", specifier = ">=0.5.1" },
     { name = "click", specifier = ">=8.2.1" },
@@ -798,6 +803,7 @@ requires-dist = [
     { name = "opencv-python", specifier = ">=4.12.0" },
     { name = "pysrt", specifier = ">=1.1.2" },
     { name = "pytesseract", specifier = ">=0.3.10" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "setuptools", specifier = ">=70.1.0" },
     { name = "trakit", specifier = ">=0.2.3" },
 ]
@@ -809,6 +815,8 @@ dev = [
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "pytest-cov", specifier = ">=6.2.1" },
     { name = "ruff" },
+    { name = "types-appdirs", specifier = ">=1.4.3.5" },
+    { name = "types-pyyaml", specifier = ">=6.0.12.20260906" },
 ]
 
 [[package]]
@@ -1303,6 +1311,24 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/47/35/e2273b5152ff6f77b9dd6449547c4d14bfb170fa00893f64fd785ec67116/trakit-0.4.0.tar.gz", hash = "sha256:bdf04ca6840ce25f60bc31c4496832e8c14167725b9240badf0e2edf38bb7305", size = 34465, upload-time = "2026-09-15T18:41:44.075Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b8/a7/cc13f1f16723e5ed9b13a1a196a4ad31e130813218c6ff5c599bce2b6b24/trakit-0.4.0-py3-none-any.whl", hash = "sha256:89264b561ef5149c3de4a918e4e4fb80a5a0b6bb40a0ed7fa20732d329ac7508", size = 19687, upload-time = "2026-09-15T18:41:43.053Z" },
+]
+
+[[package]]
+name = "types-appdirs"
+version = "1.4.3.5"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/fe/dc/600964f9ee98f4afdb69be74cd8e1ca566635a76ada9af0046e44a778fbb/types-appdirs-1.4.3.5.tar.gz", hash = "sha256:83268da64585361bfa291f8f506a209276212a0497bd37f0512a939b3d69ff14", size = 2866, upload-time = "2023-03-14T15:21:34.849Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cf/07/41f5b9b11f11855eb67760ed680330e0ce9136a44b51c24dd52edb1c4eb1/types_appdirs-1.4.3.5-py3-none-any.whl", hash = "sha256:337c750e423c40911d389359b4edabe5bbc2cdd5cd0bd0518b71d2839646273b", size = 2667, upload-time = "2023-03-14T15:21:32.431Z" },
+]
+
+[[package]]
+name = "types-pyyaml"
+version = "6.0.12.20260906"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/90/6e/abec85b9013db5b934b0280a6dd104904d84f7bcbaab2e2f3def87ac7463/types_pyyaml-6.0.12.20260906.tar.gz", hash = "sha256:f59c1cc05010b833d2d72287bbaa72610106b28d42d89a907313117faba85212", size = 18649, upload-time = "2026-09-06T06:35:35.362Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/15/c0/fc0644b7ddcfb969e95845837143cb5173ddd6e06ee4ba5fc493cd9329b7/types_pyyaml-6.0.12.20260906-py3-none-any.whl", hash = "sha256:bca893ff0d51df5c9053137d5d0e6ccd36e939a196356f1d5c16372422f5137b", size = 21282, upload-time = "2026-09-06T06:35:34.372Z" },
 ]
 
 [[package]]

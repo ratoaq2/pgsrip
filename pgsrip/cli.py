@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import re
@@ -8,6 +9,8 @@ from datetime import timedelta
 from types import TracebackType
 
 import click
+import yaml
+from appdirs import AppDirs
 from babelfish import Error as BabelfishError
 from babelfish import Language
 
@@ -196,6 +199,48 @@ def download_tessdata(pgs_medias: list[Pgs], options: Options) -> None:
         click.echo(click.style(str(e), fg='red'))
 
 
+CONFIG_EXTENSIONS = ('.json', '.yml', '.yaml')
+
+
+def read_config(path: str) -> dict[str, typing.Any]:
+    """Read the option values of a .json, .yml or .yaml configuration file."""
+    extension = os.path.splitext(path)[1].lower()
+    if extension not in CONFIG_EXTENSIONS:
+        raise click.BadParameter(f'{path} is not a .json, .yml or .yaml file')
+
+    try:
+        with open(path, encoding='utf-8') as f:
+            values = json.load(f) if extension == '.json' else yaml.safe_load(f)
+    except (OSError, ValueError, yaml.YAMLError) as e:
+        raise click.BadParameter(f'Cannot read {path}: {e}') from e
+
+    if values is None:
+        return {}
+    if not isinstance(values, dict):
+        raise click.BadParameter(f'{path} must contain option names and values')
+
+    return values
+
+
+def set_default_config(ctx: click.Context, param: click.Parameter, configs: tuple[str, ...]) -> None:
+    """Use the values of the configuration files as option defaults. A later file wins."""
+    found = [
+        os.path.join(folder, f'{name}{extension}')
+        for folder, name in ((AppDirs('pgsrip').user_config_dir, 'config'), (os.getcwd(), 'pgsrip'))
+        for extension in CONFIG_EXTENSIONS
+    ]
+    names = {p.name for p in ctx.command.params if isinstance(p, click.Option) and p is not param}
+    default_map: dict[str, typing.Any] = {}
+    for path in [p for p in found if os.path.isfile(p)] + list(configs):
+        values = read_config(path)
+        unknown = sorted(set(values) - names)
+        if unknown:
+            raise click.BadParameter(f'Unknown option in {path}: {", ".join(unknown)}')
+        default_map.update(values)
+
+    ctx.default_map = default_map
+
+
 class DefaultGroup(click.Group):
     """A group that runs a default command, so that `pgsrip MEDIA` keeps working."""
 
@@ -217,7 +262,16 @@ def pgsrip() -> None:
 
 
 @pgsrip.command()
-@click.option('-c', '--config', type=click.Path(), help='cleanit configuration path to be used')
+@click.option(
+    '--config',
+    type=click.Path(exists=True, dir_okay=False),
+    multiple=True,
+    callback=set_default_config,
+    is_eager=True,
+    expose_value=False,
+    help='pgsrip configuration file (.json, .yml or .yaml) with default option values (can be used multiple times).',
+)
+@click.option('--cleanit-config', type=click.Path(), help='cleanit configuration path to be used')
 @click.option(
     '-l',
     '--language',
@@ -309,7 +363,7 @@ def pgsrip() -> None:
 @click.option('-v', '--verbose', count=True, help='Display debug messages')
 @click.argument('path', type=click.Path(), required=True, nargs=-1)
 def rip(
-    config: str | None,
+    cleanit_config: str | None,
     language: tuple[Language] | None,
     tag: tuple[str] | None,
     encoding: str | None,
@@ -337,12 +391,12 @@ def rip(
         click.echo(click.style(f'Cannot write the log file: {e}', fg='red'))
         return
 
-    if config and (not os.path.isfile(config) or os.path.isdir(config)):
-        click.echo(f'Invalid configuration is defined: {click.style(config, bold=True)}')
+    if cleanit_config and (not os.path.isfile(cleanit_config) or os.path.isdir(cleanit_config)):
+        click.echo(f'Invalid cleanit configuration is defined: {click.style(cleanit_config, bold=True)}')
         return
 
     options = Options(
-        config_path=config,
+        cleanit_config=cleanit_config,
         languages=set(language or []),
         tags=set(tag or []),
         encoding=encoding,
@@ -362,7 +416,7 @@ def rip(
 
     log_environment(options)
 
-    rules = options.config.select_rules(tags=options.tags, languages=options.languages)
+    rules = options.cleanit_config.select_rules(tags=options.tags, languages=options.languages)
     if not rules:
         values = tuple(options.tags) + tuple(str(lang) for lang in options.languages)
         click.echo(f'No rules defined for {click.style(", ".join(values), bold=True)}')

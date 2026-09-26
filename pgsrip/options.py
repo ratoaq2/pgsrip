@@ -34,7 +34,7 @@ class TesseractPageSegmentationMode(enum.Enum):
 class Options:
     def __init__(
         self,
-        config_path: str | None = None,
+        cleanit_config: str | None = None,
         languages: set[Language] | None = None,
         tags: set[str] | None = None,
         encoding: str | None = None,
@@ -55,7 +55,7 @@ class Options:
         age: timedelta | None = None,
         srt_age: timedelta | None = None,
     ):
-        self.config = Config.from_path(config_path) if config_path else Config()
+        self.cleanit_config = Config.from_path(cleanit_config) if cleanit_config else Config()
         self.languages = languages or set()
         self.tags = tags or {'default'}
         self.encoding = encoding

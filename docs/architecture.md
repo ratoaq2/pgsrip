@@ -1,6 +1,6 @@
 # Project map
 
-- `cli.py` — Click entry point. Args, progress bars, reporting.
+- `cli.py` — Click entry point. Args, configuration files (`--config`), progress bars, reporting.
 - `api.py` — public API over `core.py` (`scan_path`, `rip`, `rip_pgs`).
 - `core.py` — path scanning/filtering, top-level rip loop. No OCR logic.
 - `media.py` — `Media`/`Pgs`/`PgsSubtitleItem`: media abstraction, per-item bookkeeping (timing, offsets,
