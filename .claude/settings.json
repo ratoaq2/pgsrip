@@ -24,7 +24,23 @@
       "PowerShell(gh issue view *)",
       "PowerShell(gh issue list *)",
       "PowerShell(gh pr view *)",
-      "PowerShell(gh label list *)"
+      "PowerShell(gh label list *)",
+      "Bash(podman logs *)",
+      "Bash(podman info *)",
+      "Bash(podman --version)",
+      "Bash(ffprobe *)",
+      "Bash(mediainfo --Output=JSON *)",
+      "Bash(tesseract --version)",
+      "Bash(mediainfo --version)",
+      "Bash(mkvmerge -i *)",
+      "PowerShell(podman logs *)",
+      "PowerShell(podman info *)",
+      "PowerShell(podman --version)",
+      "PowerShell(ffprobe *)",
+      "PowerShell(mediainfo --Output=JSON *)",
+      "PowerShell(tesseract --version)",
+      "PowerShell(mediainfo --version)",
+      "PowerShell(mkvmerge -i *)"
     ]
   },
   "skillOverrides": {
