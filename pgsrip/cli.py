@@ -18,7 +18,6 @@ from babelfish import Language
 from click.core import ParameterSource
 
 from pgsrip import Pgs, __url__, __version__, api
-from pgsrip.cleanit import CleanitPostProcessor
 from pgsrip.core import get_reason
 from pgsrip.diagnostics import Check, format_checks, run_checks
 from pgsrip.engines.auto import AutoEngine, check_auto
@@ -27,7 +26,8 @@ from pgsrip.engines.rapidocr import RapidOcrEngine
 from pgsrip.engines.tesseract import TesseractEngine
 from pgsrip.media import Media
 from pgsrip.options import Options
-from pgsrip.postprocess import PostProcessor, PostProcessorFactory
+from pgsrip.postprocessors.base import PostProcessor, PostProcessorFactory
+from pgsrip.postprocessors.cleanit import CleanitPostProcessor
 from pgsrip.scrub import Redaction, output_path, scrub_data
 from pgsrip.track_flags import FLAG_CHOICES
 

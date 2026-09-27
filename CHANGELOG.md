@@ -64,14 +64,17 @@
     post-processors
   - Breaking: library: `Options(config_path=..., tags=...)` is now
     `Options(post_processors=[CleanitPostProcessor(config_path, tags)])`, from
-    `pgsrip.cleanit`. `Options.config` and `Options.tags` are removed.
+    `pgsrip.postprocessors.cleanit`. `Options.config` and `Options.tags` are
+    removed.
     `PgsToSrtRipper.rip()` returns the cues, and `pgsrip.ripper.create_srt`
     makes the SRT from them
   - Breaking: plug-ins: `pgsrip.ripper.EngineOption` is now
     `pgsrip.plugin.PluginOption`
   - Breaking: the modules move into sub-packages. Plug-ins import
     `OcrEngine`, `OcrEngineFactory` and `OcrError` from `pgsrip.engines.base`.
-    The OCR engines are in `pgsrip.engines`
+    `PostProcessor` and `PostProcessorFactory` from
+    `pgsrip.postprocessors.base`. The OCR engines are in `pgsrip.engines`, and
+    the post-processors are in `pgsrip.postprocessors`
   - Fix: a track with 20 or more cues that tesseract could not read made the
     rip run forever
 

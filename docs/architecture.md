@@ -7,8 +7,8 @@
 - `api.py` — public API over `core.py` (`scan_path`, `rip`, `rip_pgs`).
 - `core.py` — path scanning/filtering, top-level rip loop: OCR chain, post-processor chain, SRT. With
   `--keep-temp-files`, writes the cues as JSON. No OCR logic.
-- `postprocess.py` — `PostProcessor` protocol and `PostProcessorFactory` protocol.
-- `cleanit.py` — `CleanitPostProcessor`, the default post-processor: the cleanit rules of the track language.
+- `postprocessors/base.py` — `PostProcessor` protocol and `PostProcessorFactory` protocol.
+- `postprocessors/cleanit.py` — `CleanitPostProcessor`, the default post-processor: the cleanit rules of the track language.
 - `media.py` — `Media`/`Pgs`/`PgsSubtitleItem`: media abstraction, per-item bookkeeping (timing, offsets,
   image cropped to its ink), corrupted-data auto-fix (see `docs/corrupted_data.md`).
 - `mkv.py` / `sup.py` — `Media` subclasses for `.mkv`/`.mks` (`mkvmerge`/`mkvextract`) and `.sup`.

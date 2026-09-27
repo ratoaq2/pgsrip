@@ -11,7 +11,7 @@ if typing.TYPE_CHECKING:
 class PostProcessor(typing.Protocol):
     """Changes the cues of a track after the chain of OCR engines.
 
-    `pgsrip.cleanit.CleanitPostProcessor` is the default.
+    `pgsrip.postprocessors.cleanit.CleanitPostProcessor` is the default.
     """
 
     def process(self, pgs: Pgs, cues: list[Cue]) -> list[Cue]:

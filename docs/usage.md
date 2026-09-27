@@ -334,7 +334,8 @@ myfix = "myfix.postprocessor:MyFix"
 The class declares its options like an [OCR engine](#add-an-ocr-engine), with `PluginOption`. pgsrip makes
 the `--myfix-*` options and reads the `myfix` section of a configuration file. A post-processor has no
 `workers` option. `from_settings` gets only the settings (see `PostProcessorFactory` in
-`pgsrip/postprocess.py`). Raise `ValueError` when a value is wrong: pgsrip shows it as a usage error.
+`pgsrip/postprocessors/base.py`). Raise `ValueError` when a value is wrong: pgsrip shows it as a usage
+error.
 
 ```python
 from pgsrip.plugin import PluginOption
@@ -355,9 +356,9 @@ class MyFix:
 ```
 
 `process(pgs, cues)` gets all the cues of one track, and returns the new list (see `PostProcessor` in
-`pgsrip/postprocess.py` and `Cue` in `pgsrip/ripper.py`). It can change, remove, add, or merge cues. A cue with
-`text=None` was not read by any engine. `cue.item` gives the subtitle image. An error stops the track: pgsrip
-then writes no `.srt` file for that track.
+`pgsrip/postprocessors/base.py` and `Cue` in `pgsrip/ripper.py`). It can change, remove, add, or merge cues. A
+cue with `text=None` was not read by any engine. `cue.item` gives the subtitle image. An error stops the track:
+pgsrip then writes no `.srt` file for that track.
 
 The class can also have a `check(settings)` classmethod, like an OCR engine. `pgsrip doctor` shows the checks of
 all post-processors.
