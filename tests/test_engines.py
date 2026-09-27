@@ -13,6 +13,7 @@ import pytest
 from click.testing import CliRunner
 
 from pgsrip.cli import ENGINE_ENTRY_POINTS, pgsrip
+from pgsrip.diagnostics import Check
 from pgsrip.ripper import EngineOption
 from pgsrip.tesseract import TesseractEngine
 from pgsrip.tsv import TsvData
@@ -77,11 +78,19 @@ class TunedEngine(PluginEngine):
         TunedEngine.settings.append(settings)
         return cls(workers=workers)
 
+    @classmethod
+    def check(cls, settings: dict[str, typing.Any]) -> list[Check]:
+        return [Check('tuned model', settings['model'] or 'not set')]
+
 
 class RemoteEngine(PluginEngine):
-    """An engine of another package that cannot work without its url."""
+    """An engine of another package that cannot work without its url, and has a broken check."""
 
     options = (EngineOption('url', required=True),)
+
+    @classmethod
+    def check(cls, settings: dict[str, typing.Any]) -> list[Check]:
+        raise RuntimeError('no network')
 
 
 @pytest.fixture
@@ -397,3 +406,62 @@ def test_a_plugin_that_cannot_be_loaded_does_not_stop_the_other_engines(
 
     assert result.exit_code == 0, result.output
     assert 'Cannot load the OCR engine broken' in caplog.text
+
+
+@pytest.fixture
+def doctor(monkeypatch: pytest.MonkeyPatch) -> typing.Callable[..., typing.Any]:
+    """Run `pgsrip doctor`, without the checks of the real tesseract."""
+    monkeypatch.setattr(TesseractEngine, 'check', classmethod(lambda cls, settings: [Check('tesseract', 'fake')]))
+    return lambda *args: CliRunner().invoke(pgsrip, ['doctor', *args])
+
+
+def test_doctor_has_the_options_of_every_engine(doctor: typing.Callable[..., typing.Any]) -> None:
+    result = doctor('--help')
+
+    assert result.exit_code == 0, result.output
+    for option in ('--config', '--tesseract-dir', '--tuned-model', '--remote-url'):
+        assert option in result.output
+
+
+def test_doctor_prints_the_checks_of_every_engine(doctor: typing.Callable[..., typing.Any]) -> None:
+    result = doctor('--tuned-model', 'small')
+
+    lines = result.output.splitlines()
+    assert any(line.startswith('tesseract ') and line.endswith('fake') for line in lines)
+    assert any(line.startswith('tuned model') and line.endswith('small') for line in lines)
+    # a broken check does not hide the other checks
+    assert any(line.startswith('remote ') and 'check failed: <RuntimeError> no network' in line for line in lines)
+
+
+def test_doctor_reads_the_engine_sections_of_a_config_file(
+    doctor: typing.Callable[..., typing.Any], tmp_path: typing.Any
+) -> None:
+    config = tmp_path / 'config.yml'
+    config.write_text('tuned:\n  model: large\n', encoding='utf-8')
+
+    result = doctor('--config', str(config))
+
+    assert any(line.startswith('tuned model') and line.endswith('large') for line in result.output.splitlines())
+
+
+def test_the_debug_log_has_the_checks_of_the_selected_engines(media_dir: typing.Any, tmp_path: typing.Any) -> None:
+    log_file = tmp_path / 'pgsrip.log'
+
+    result = rip('--engine', 'tuned', '--tuned-model', 'small', '--log-file', str(log_file), str(media_dir))
+
+    assert result.exit_code == 0, result.output
+    log = log_file.read_text(encoding='utf-8')
+    assert 'tuned model' in log
+    assert 'check failed' not in log
+
+
+def test_doctor_accepts_the_rip_options_of_a_config_file(
+    doctor: typing.Callable[..., typing.Any], tmp_path: typing.Any
+) -> None:
+    config = tmp_path / 'config.yml'
+    config.write_text('language: [en]\nmax_workers: 2\ntuned:\n  model: large\n', encoding='utf-8')
+
+    result = doctor('--config', str(config))
+
+    assert 'Unknown option' not in result.output
+    assert any(line.startswith('tuned model') and line.endswith('large') for line in result.output.splitlines())

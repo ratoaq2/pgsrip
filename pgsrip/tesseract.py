@@ -6,6 +6,7 @@ import enum
 import json
 import logging
 import os
+import shutil
 import typing
 from concurrent.futures import ThreadPoolExecutor
 
@@ -15,6 +16,7 @@ import numpy as np
 import numpy.typing as npt
 import pytesseract as tess
 
+from pgsrip.diagnostics import Check
 from pgsrip.ripper import EngineOption
 from pgsrip.tessdata import (
     REPOSITORIES,
@@ -41,6 +43,8 @@ MAX_TESS_DIMENSION = 31 * 1024
 DEFAULT_CONFIDENCE = 65
 #: a cue with a word below this confidence is doubtful: the next engine of the chain reads it again.
 DEFAULT_THRESHOLD = 80
+TESSERACT_HINT = 'Install tesseract-ocr and make sure that it is in the PATH'
+MAX_REPORTED_LANGUAGES = 20
 
 
 @enum.unique
@@ -196,6 +200,50 @@ class FullImage:
         return f'{self.data.shape}]'
 
 
+def check_tesseract() -> Check:
+    path = shutil.which('tesseract')
+    try:
+        version = tess.get_tesseract_version()
+    except Exception as e:
+        logger.debug('Cannot get the tesseract version: <%s> %s', type(e).__name__, e)
+        return Check('tesseract', f'not found: <{type(e).__name__}> {e}', ok=False, hint=TESSERACT_HINT)
+
+    return Check('tesseract', f'{version} ({path or "unknown path"})')
+
+
+def check_languages() -> Check:
+    try:
+        codes = sorted(tess.get_languages())
+    except Exception as e:
+        logger.debug('Cannot list the tesseract languages: <%s> %s', type(e).__name__, e)
+        return Check('tesseract languages', f'unknown: <{type(e).__name__}> {e}', ok=False, hint=TESSERACT_HINT)
+
+    if not codes:
+        return Check('tesseract languages', 'none installed, pgsrip downloads the ones it needs')
+
+    listed = codes[:MAX_REPORTED_LANGUAGES]
+    remaining = len(codes) - len(listed)
+
+    return Check('tesseract languages', f'{", ".join(listed)}{f" and {remaining} more" if remaining else ""}')
+
+
+def check_tessdata(tessdata: Tessdata) -> list[Check]:
+    checks = [
+        Check('tessdata directory', str(tessdata.directory or 'not set')),
+        Check('TESSDATA_PREFIX', os.getenv('TESSDATA_PREFIX') or 'not set'),
+        Check('tessdata repository', tessdata.repository),
+        Check('tessdata download', 'enabled' if tessdata.download else 'disabled'),
+    ]
+    try:
+        checks.append(Check('tessdata download directory', tessdata.target_dir))
+    except TessdataError as e:
+        checks.append(
+            Check('tessdata download directory', str(e), ok=False, hint='Set --tesseract-dir to a writable directory')
+        )
+
+    return checks
+
+
 class TesseractEngine:
     """The default OCR engine. One engine reads all the tracks of a rip."""
 
@@ -224,8 +272,16 @@ class TesseractEngine:
 
     @classmethod
     def from_settings(cls, settings: dict[str, typing.Any], workers: int | None) -> TesseractEngine:
-        tessdata = Tessdata(directory=settings['dir'], repository=settings['repository'], download=settings['download'])
-        return cls(workers=workers, tessdata=tessdata, threshold=settings['threshold'])
+        return cls(workers=workers, tessdata=cls.tessdata_from(settings), threshold=settings['threshold'])
+
+    @classmethod
+    def check(cls, settings: dict[str, typing.Any]) -> list[Check]:
+        """The tesseract program, its languages, and the tesseract data, for `pgsrip doctor`."""
+        return [check_tesseract(), check_languages(), *check_tessdata(cls.tessdata_from(settings))]
+
+    @staticmethod
+    def tessdata_from(settings: dict[str, typing.Any]) -> Tessdata:
+        return Tessdata(directory=settings['dir'], repository=settings['repository'], download=settings['download'])
 
     def __init__(
         self,

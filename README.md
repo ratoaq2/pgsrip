@@ -196,6 +196,8 @@ pgsrip reads the configuration files in this order. A later file overrides an ea
 
 An option on the command line overrides the configuration files. An unknown key is an error.
 
+`pgsrip doctor` reads the same files. It uses only the OCR engine sections, for example `tesseract`.
+
 The cleanit rules file option is `--cleanit-config`.
 
 ### Output file names

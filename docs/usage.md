@@ -199,4 +199,8 @@ The engine has 2 methods (see `OcrEngine` in `pgsrip/ripper.py`):
   engine of the chain. Set `item.doubtful` when the text can be wrong. Raise `OcrError` when the engine fails:
   pgsrip then writes no `.srt` file for that track.
 
+The class can also have a `check(settings)` classmethod. It returns a list of `pgsrip.diagnostics.Check`.
+`pgsrip doctor` shows the checks of all engines, and the debug log shows the checks of the engines in
+`--engine`. A check must not fail when an option has no value: show `not set`.
+
 Use the engine by name, alone or in a chain. A plug-in cannot replace `tesseract`.

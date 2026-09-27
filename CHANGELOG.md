@@ -10,6 +10,8 @@
     point. The engine declares its options: pgsrip adds them to `rip` as
     `--<engine>-*` options and reads them from the `<engine>` section of the
     configuration file
+  - New: `doctor` shows the checks of every OCR engine. It accepts `--config`
+    and the `--<engine>-*` options
   - New: `--tesseract-workers` sets the number of tesseract processes. It
     overrides `-w/--max-workers` for tesseract only
   - Breaking: the tessdata options of `rip` and `doctor` are now

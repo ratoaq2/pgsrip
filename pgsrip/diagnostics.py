@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import importlib.metadata
 import logging
-import os
 import platform
 import shutil
 import subprocess
@@ -12,19 +11,15 @@ import sys
 import tempfile
 import typing
 
-import pytesseract as tess
-
 from pgsrip import __version__
-from pgsrip.tessdata import Tessdata, TessdataError, is_writable
+from pgsrip.tessdata import is_writable
 
 logger = logging.getLogger(__name__)
 
 MKVTOOLNIX_EXECUTABLES = ('mkvmerge', 'mkvextract')
 REPORTED_PACKAGES = ('click', 'numpy', 'opencv-python', 'pytesseract', 'pysrt', 'babelfish', 'cleanit', 'trakit')
 MKVTOOLNIX_HINT = 'Install MKVToolNix: https://mkvtoolnix.download/downloads.html'
-TESSERACT_HINT = 'Install tesseract-ocr and make sure that it is in the PATH'
 COMMAND_TIMEOUT = 10
-MAX_REPORTED_LANGUAGES = 20
 
 
 class Check(typing.NamedTuple):
@@ -57,50 +52,6 @@ def check_executable(name: str, hint: str) -> Check:
     return Check(name, f'{version or "unknown version"} ({path})')
 
 
-def check_tesseract() -> Check:
-    path = shutil.which('tesseract')
-    try:
-        version = tess.get_tesseract_version()
-    except Exception as e:
-        logger.debug('Cannot get the tesseract version: <%s> %s', type(e).__name__, e)
-        return Check('tesseract', f'not found: <{type(e).__name__}> {e}', ok=False, hint=TESSERACT_HINT)
-
-    return Check('tesseract', f'{version} ({path or "unknown path"})')
-
-
-def check_languages() -> Check:
-    try:
-        codes = sorted(tess.get_languages())
-    except Exception as e:
-        logger.debug('Cannot list the tesseract languages: <%s> %s', type(e).__name__, e)
-        return Check('tesseract languages', f'unknown: <{type(e).__name__}> {e}', ok=False, hint=TESSERACT_HINT)
-
-    if not codes:
-        return Check('tesseract languages', 'none installed, pgsrip downloads the ones it needs')
-
-    listed = codes[:MAX_REPORTED_LANGUAGES]
-    remaining = len(codes) - len(listed)
-
-    return Check('tesseract languages', f'{", ".join(listed)}{f" and {remaining} more" if remaining else ""}')
-
-
-def check_tessdata(tessdata: Tessdata) -> list[Check]:
-    checks = [
-        Check('tessdata directory', str(tessdata.directory or 'not set')),
-        Check('TESSDATA_PREFIX', os.getenv('TESSDATA_PREFIX') or 'not set'),
-        Check('tessdata repository', tessdata.repository),
-        Check('tessdata download', 'enabled' if tessdata.download else 'disabled'),
-    ]
-    try:
-        checks.append(Check('tessdata download directory', tessdata.target_dir))
-    except TessdataError as e:
-        checks.append(
-            Check('tessdata download directory', str(e), ok=False, hint='Set --tesseract-dir to a writable directory')
-        )
-
-    return checks
-
-
 def check_packages() -> list[Check]:
     checks = []
     for name in REPORTED_PACKAGES:
@@ -122,17 +73,15 @@ def check_temp_directory() -> Check:
     return Check('temporary directory', directory)
 
 
-def run_checks(tessdata: Tessdata | None = None) -> list[Check]:
-    """Collect everything that is worth knowing about this installation."""
+def run_checks(engine_checks: list[Check] | None = None) -> list[Check]:
+    """Collect everything that is worth knowing about this installation, with the checks of the OCR engines."""
     checks = [
         Check('pgsrip', __version__),
         Check('python', f'{platform.python_version()} ({sys.executable})'),
         Check('platform', platform.platform()),
     ]
     checks += [check_executable(name, MKVTOOLNIX_HINT) for name in MKVTOOLNIX_EXECUTABLES]
-    checks.append(check_tesseract())
-    checks.append(check_languages())
-    checks += check_tessdata(tessdata or Tessdata())
+    checks += engine_checks or []
     checks.append(check_temp_directory())
     checks += check_packages()
 

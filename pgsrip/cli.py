@@ -18,12 +18,11 @@ from click.core import ParameterSource
 
 from pgsrip import Pgs, __url__, __version__, api
 from pgsrip.core import get_reason
-from pgsrip.diagnostics import format_checks, run_checks
+from pgsrip.diagnostics import Check, format_checks, run_checks
 from pgsrip.media import Media
 from pgsrip.options import Options
 from pgsrip.ripper import OcrEngine, OcrEngineFactory, OcrError
 from pgsrip.scrub import Redaction, output_path, scrub_data
-from pgsrip.tessdata import REPOSITORIES, Tessdata
 from pgsrip.tesseract import TesseractEngine
 from pgsrip.track_flags import FLAG_CHOICES
 
@@ -287,12 +286,30 @@ def configure_logging(debug: bool, log_file: str | None) -> None:
         logger.addHandler(file_handler)
 
 
-def log_environment(tessdata: Tessdata | None = None) -> None:
-    """Record the installed versions at the top of the debug log."""
+def engine_checks(ctx: click.Context, names: typing.Iterable[str]) -> list[Check]:
+    """The checks of these OCR engines, with the option values of the command."""
+    installed = installed_engines(ctx)
+    checks: list[Check] = []
+    for name in names:
+        check = getattr(installed[name], 'check', None)
+        if not check:
+            continue
+        try:
+            checks += check(engine_settings(name, installed[name], ctx.params))
+        except Exception as e:
+            # a broken check of a plug-in must not hide the other checks
+            logger.debug('Cannot check the OCR engine %s', name, exc_info=True)
+            checks.append(Check(name, f'check failed: <{type(e).__name__}> {e}', ok=False))
+
+    return checks
+
+
+def log_environment(ctx: click.Context | None = None) -> None:
+    """Record the installed versions, and the checks of the selected OCR engines, at the top of the debug log."""
     if not logger.isEnabledFor(logging.DEBUG):
         return
 
-    for line in format_checks(run_checks(tessdata)).splitlines():
+    for line in format_checks(run_checks(engine_checks(ctx, ctx.params['engine']) if ctx else None)).splitlines():
         logger.info(line)
 
 
@@ -381,7 +398,8 @@ def set_default_config(ctx: click.Context, param: click.Parameter, configs: tupl
         for folder, name in ((AppDirs('pgsrip').user_config_dir, 'config'), (os.getcwd(), 'pgsrip'))
         for extension in CONFIG_EXTENSIONS
     ]
-    names = {p.name for p in ctx.command.get_params(ctx) if isinstance(p, click.Option) and p is not param}
+    # the files hold rip options: a command with fewer options, e.g. doctor, reads only its own
+    names = {p.name for p in rip.get_params(ctx) if isinstance(p, click.Option) and p.name != param.name}
     default_map: dict[str, typing.Any] = {}
     for path in [p for p in found if os.path.isfile(p)] + list(configs):
         values = read_config(path)
@@ -413,8 +431,7 @@ def pgsrip() -> None:
     """Rip your PGS subtitles."""
 
 
-@pgsrip.command(cls=EngineCommand)
-@click.option(
+config_option = click.option(
     '--config',
     type=click.Path(exists=True, dir_okay=False),
     multiple=True,
@@ -423,6 +440,10 @@ def pgsrip() -> None:
     expose_value=False,
     help='pgsrip configuration file (.json, .yml or .yaml) with default option values (can be used multiple times).',
 )
+
+
+@pgsrip.command(cls=EngineCommand)
+@config_option
 @click.option('--cleanit-config', type=click.Path(), help='cleanit configuration path to be used')
 @click.option(
     '-l',
@@ -558,7 +579,7 @@ def rip(
         srt_age=srt_age,
     )
 
-    log_environment(next((e.tessdata for e in options.engines if isinstance(e, TesseractEngine)), None))
+    log_environment(ctx)
 
     rules = options.cleanit_config.select_rules(tags=options.tags, languages=options.languages)
     if not rules:
@@ -642,21 +663,12 @@ def rip(
     echo_failures(failures, log_file)
 
 
-@pgsrip.command()
-@click.option(
-    '--tesseract-dir',
-    type=click.Path(),
-    help='Directory where tesseract data is stored. Defaults to TESSDATA_PREFIX or a user cache directory.',
-)
-@click.option(
-    '--tesseract-repository',
-    type=click.Choice(sorted(REPOSITORIES)),
-    default=None,
-    help='Repository to download missing tesseract data from.',
-)
-def doctor(tesseract_dir: str | None, tesseract_repository: str | None) -> None:
+@pgsrip.command(cls=EngineCommand)
+@config_option
+@click.pass_context
+def doctor(ctx: click.Context, /, **engine_params: typing.Any) -> None:
     """Check that everything pgsrip needs is installed. Add the output to a bug report."""
-    checks = run_checks(Tessdata(directory=tesseract_dir, repository=tesseract_repository))
+    checks = run_checks(engine_checks(ctx, installed_engines(ctx)))
     click.echo(format_checks(checks))
 
     failed = [check for check in checks if not check.ok]
