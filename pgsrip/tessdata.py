@@ -120,7 +120,7 @@ def is_writable(directory: str) -> bool:
         with tempfile.NamedTemporaryFile(dir=directory, suffix='.pgsrip'):
             return True
     except OSError as e:
-        logger.debug('Cannot write tesseract data to %s: <%s> %s', directory, type(e).__name__, e)
+        logger.debug('Cannot write to %s: <%s> %s', directory, type(e).__name__, e)
         return False
 
 

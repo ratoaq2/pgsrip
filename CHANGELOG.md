@@ -15,6 +15,13 @@
   - New: tesseract cannot read a language when the tesseract program is not
     found, or when its data is not installed and cannot be downloaded. A
     failed download does not stop the downloads of the other languages
+  - New: the `rapidocr` OCR engine (`--engine rapidocr`). It reads the text
+    with the PaddleOCR models on ONNX Runtime, and needs no program on the
+    system. pgsrip installs it on the platforms with ONNX Runtime wheels. It
+    downloads the model of each language before the rip starts. Options:
+    `--rapidocr-threshold`, `--rapidocr-model`, `--rapidocr-border`,
+    `--rapidocr-batch`, `--rapidocr-dir`, `--no-rapidocr-download` and
+    `--rapidocr-workers`
   - New: `doctor` shows the checks of every OCR engine. It accepts `--config`
     and the `--<engine>-*` options
   - New: `--tesseract-workers` sets the number of tesseract processes. It

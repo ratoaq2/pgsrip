@@ -22,6 +22,9 @@
   It does not know which engines run.
 - `tesseract.py` — `TesseractEngine`, the default engine: OCR batching (see `docs/ocr_batching.md`), tesseract
   TSV → item text and confidence (`accept`).
+- `rapidocr.py` — `RapidOcrEngine`: the PaddleOCR text line models on ONNX Runtime, with no system program.
+  It imports `rapidocr` only in its methods. Line batching and the lowest character score (see
+  `docs/ocr_batching.md`, "RapidOCR"). The models go to `PGSRIP_RAPIDOCR_DIR` or the user cache directory.
 - `tsv.py` — typed wrapper over pytesseract TSV (`TsvData`/`TsvDataItem`).
 - `options.py` — `Options` config object threaded through the pipeline. `Options.engines` holds the OCR
   engines, and `Options.post_processors` the post-processors, in chain order.

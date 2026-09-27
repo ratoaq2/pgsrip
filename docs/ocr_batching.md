@@ -1,4 +1,4 @@
-# OCR batching (`tesseract.py`)
+# OCR batching (`tesseract.py`, `rapidocr.py`)
 
 One tesseract call per subtitle item = hundreds of slow roundtrips per episode. Instead:
 
@@ -25,6 +25,27 @@ One tesseract call per subtitle item = hundreds of slow roundtrips per episode. 
 
 Invariant: a few large tesseract calls per pass, about one per worker, run in parallel. Never one call per
 item: the per-call cost (process start, model load) is what batching avoids.
+
+## RapidOCR (`rapidocr.py`)
+
+RapidOCR loads its model one time, in the pgsrip process. There is no cost for each call that composites can
+save. The cost grows with the number of pixels. So the engine batches text lines, not composites:
+
+- The recognition model reads one text line, scaled to 48 px high. `split_lines` (`utils.py`) cuts each cue at
+  its empty rows. The RapidOCR detector is not used: it is one more model call for each cue, and it missed
+  lines on short cues.
+- Each line gets a white border of 4 px (`--rapidocr-border`). A larger border makes the letters small. Cue
+  errors on 751 cues of 3 tracks: 0 px 34, 4 px 8, 8 px 9, 20 px 12.
+- All the lines of a track go to `read_lines` in one call. It sorts them by width and runs them in batches of
+  `--rapidocr-batch` (default 6) lines. Batch 1 was 60 % slower than batch 6. From batch 6 to 64 there was no
+  clear change.
+- Composites (lines side by side in one image) were not faster (37.9-40.8 s against 34.6 s), because the gaps
+  add pixels. With 8 lines in a composite, new errors appeared.
+- `--rapidocr-workers` (else `-w`) sets the ONNX Runtime threads. 8 threads was the fastest, 16 was slower.
+- `read_lines` runs the model and decodes its output itself (greedy CTC, `ctc`). The cue score is the lowest
+  character score of its lines. The RapidOCR line score is a mean, and one bad character is hidden in it.
+  `read_lines` uses `TextRecognizer` internals: `rapidocr` is pinned to one minor version. The real-model test
+  in `tests/test_rapidocr.py` finds a change.
 
 ## Engine chain (`ripper.py`)
 

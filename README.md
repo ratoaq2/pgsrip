@@ -155,7 +155,7 @@ pgsrip does not rip a subtitle again when the `.srt` file exists. Use `-f` to ri
 | `-e`, `--encoding` | Write the `.srt` files with this encoding. |
 | `-w`, `--max-workers` | Number of OCR jobs that run at the same time, for example tesseract processes. The default is the number of CPUs, at most 4. `--tesseract-workers` overrides it for tesseract. |
 | `--no-tesseract-download` | Do not download language data. Use only the installed languages. |
-| `--engine NAME` | OCR engine: `tesseract` (default) or an engine of a plug-in. Use it more than one time for a [chain](docs/usage.md#ocr-engines). |
+| `--engine NAME` | OCR engine: `tesseract` (default), [`rapidocr`](docs/usage.md#rapidocr), or an engine of a plug-in. Use it more than one time for a [chain](docs/usage.md#ocr-engines). |
 | `--log-file FILE` | Write a debug log to this file. |
 
 Run `pgsrip --help` for all options. [docs/usage.md](docs/usage.md) gives more details.

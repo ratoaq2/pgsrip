@@ -116,8 +116,43 @@ tesseract only. For example, `-w 1 --tesseract-workers 4` runs 4 tesseract proce
 
 ## OCR engines
 
-pgsrip reads the text of the subtitle images with an OCR engine. The default engine is tesseract. Other Python
-packages can add an engine (see [Add an OCR engine](#add-an-ocr-engine)).
+pgsrip reads the text of the subtitle images with an OCR engine. The default engine is tesseract. pgsrip also
+has the [RapidOCR](#rapidocr) engine. Other Python packages can add an engine (see
+[Add an OCR engine](#add-an-ocr-engine)).
+
+### RapidOCR
+
+`--engine rapidocr` reads the text with the PaddleOCR models of [RapidOCR](https://github.com/RapidAI/RapidOCR),
+on ONNX Runtime. It needs no program on the system. pgsrip installs it on Windows (x64 and ARM64), macOS (Apple
+silicon), and Linux with glibc (x86_64 and aarch64). These are the platforms with ONNX Runtime wheels. On the
+other platforms, `pgsrip doctor` shows `rapidocr not installed`.
+
+The engine reads these languages:
+
+- PP-OCRv6 model: Afrikaans, Albanian, Basque, Bosnian, Catalan, Chinese, Croatian, Czech, Danish, Dutch,
+  English, Estonian, Finnish, French, Galician, German, Hungarian, Icelandic, Indonesian, Irish, Italian,
+  Japanese, Kurdish, Latin, Latvian, Lithuanian, Luxembourgish, Malay, Maltese, Maori, Norwegian, Occitan,
+  Polish, Portuguese, Quechua, Romanian, Romansh, Slovak, Slovenian, Spanish, Swahili, Swedish, Tagalog,
+  Turkish, Uzbek, Vietnamese, Welsh.
+- PP-OCRv5 script models: Cyrillic, Arabic, Devanagari, Greek, Korean, Thai, Tamil, and Telugu languages. These
+  models are not measured on subtitles.
+
+The engine cuts each cue into text lines, and reads all the lines of a track in batches. It marks a cue as
+doubtful when a character of the cue has a score below 90. The threshold never removes text.
+
+| Option | Default | What it does |
+| --- | --- | --- |
+| `--rapidocr-threshold` | `90` | A cue with a character score below this value (0 to 100) is doubtful. |
+| `--rapidocr-model` | `small` | Size of the PP-OCRv6 model: `tiny`, `small`, or `medium`. Japanese always uses `small` or `medium`. |
+| `--rapidocr-border` | `4` | White border around each line, in pixels. |
+| `--rapidocr-batch` | `6` | Text lines in one model call. |
+| `--rapidocr-dir` | | Directory of the models. Also `PGSRIP_RAPIDOCR_DIR`. The default is the user cache directory (for example `~/.cache/pgsrip/rapidocr`). |
+| `--no-rapidocr-download` | | Do not download models. Use only the models in the directory. |
+| `--rapidocr-workers` | `-w` | Number of ONNX Runtime threads. |
+
+Before the rip starts, pgsrip downloads the model of each language that it collected (about 20 MB for the
+small model). RapidOCR checks the SHA256 of each model. When a model cannot be loaded, the engine cannot read
+its languages, and the chain skips it for those tracks.
 
 ### A chain of OCR engines
 

@@ -24,6 +24,7 @@ from pgsrip.diagnostics import Check, format_checks, run_checks
 from pgsrip.media import Media
 from pgsrip.options import Options
 from pgsrip.postprocess import PostProcessor, PostProcessorFactory
+from pgsrip.rapidocr import RapidOcrEngine
 from pgsrip.ripper import OcrEngine, OcrEngineFactory, OcrError
 from pgsrip.scrub import Redaction, output_path, scrub_data
 from pgsrip.tesseract import TesseractEngine
@@ -107,7 +108,7 @@ class RangeParamType(click.ParamType[frozenset[int], str]):
 
 Factory = type[OcrEngineFactory] | type[PostProcessorFactory]
 
-ENGINES: dict[str, Factory] = {'tesseract': TesseractEngine}
+ENGINES: dict[str, Factory] = {'tesseract': TesseractEngine, 'rapidocr': RapidOcrEngine}
 #: other packages add an OCR engine with an entry point in this group. See docs/usage.md.
 ENGINE_ENTRY_POINTS = 'pgsrip.engines'
 POST_PROCESSORS: dict[str, Factory] = {'cleanit': CleanitPostProcessor}

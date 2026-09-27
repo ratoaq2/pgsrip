@@ -297,7 +297,10 @@ def test_an_unknown_engine_is_rejected(media_dir: typing.Any) -> None:
     result = rip('--engine', 'nope', str(media_dir))
 
     assert result.exit_code == 2
-    assert 'nope is not an OCR engine. Choose from: tesseract, plugin, blind, english, tuned, remote' in result.output
+    assert (
+        'nope is not an OCR engine. Choose from: tesseract, rapidocr, plugin, blind, english, tuned, remote'
+        in result.output
+    )
 
 
 def test_an_engine_is_rejected_the_second_time(media_dir: typing.Any) -> None:

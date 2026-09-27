@@ -12,9 +12,18 @@ jobs:
     strategy:
       matrix:
         python-version: ["3.11", "3.12", "3.13", "3.14"]
+    env:
+      # the RapidOCR model of the real-model tests
+      PGSRIP_RAPIDOCR_DIR: ${{ github.workspace }}/.rapidocr
     steps:
       - name: Check out the repo
         uses: actions/checkout@v7
+
+      - name: Cache the RapidOCR model
+        uses: actions/cache@v6
+        with:
+          path: .rapidocr
+          key: rapidocr-${{ hashFiles('uv.lock') }}
 
       - name: Install uv
         uses: astral-sh/setup-uv@v10.2.0

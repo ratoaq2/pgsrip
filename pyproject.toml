@@ -50,6 +50,11 @@ dependencies = [
     "setuptools>=70.1.0",
     "pyyaml>=6.0",
     "appdirs>=1.4.4",
+    # the platforms with onnxruntime wheels. pgsrip.rapidocr uses the raw model output: keep the minor version.
+    "rapidocr>=3.9,<3.10; (sys_platform == 'win32' and (platform_machine == 'AMD64' or platform_machine == 'ARM64')) or (sys_platform == 'darwin' and platform_machine == 'arm64') or (sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64'))",
+    "onnxruntime>=1.30; (sys_platform == 'win32' and (platform_machine == 'AMD64' or platform_machine == 'ARM64')) or (sys_platform == 'darwin' and platform_machine == 'arm64') or (sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64'))",
+    # RapidOCR puts the Arabic text in reading order with it
+    "python-bidi>=0.6; (sys_platform == 'win32' and (platform_machine == 'AMD64' or platform_machine == 'ARM64')) or (sys_platform == 'darwin' and platform_machine == 'arm64') or (sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64'))",
 ]
 
 [project.urls]
@@ -100,8 +105,10 @@ module = [
     "babelfish.*",
     "cleanit.*",
     "cv2.*",
+    "onnxruntime.*",
     "pysrt.*",
     "pytesseract.*",
+    "rapidocr.*",
     "trakit.*",
 ]
 ignore_missing_imports = true
