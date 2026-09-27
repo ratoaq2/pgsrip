@@ -1,5 +1,6 @@
 import json
 import os
+import tempfile
 from subprocess import CalledProcessError
 
 import pytest
@@ -12,6 +13,8 @@ from pgsrip.media_path import MediaPath
 from pgsrip.options import Options
 from pgsrip.sources.base import Media
 
+from .fabricate import FakeMkvToolNix, MediaSpec, TrackSpec, fabricate_fake, payload
+
 
 @pytest.fixture
 def mkvmerge(monkeypatch):
@@ -22,6 +25,32 @@ def mkvmerge(monkeypatch):
             return json.dumps({'tracks': list(tracks)}).encode()
 
         monkeypatch.setattr('pgsrip.sources.mkvtoolnix.check_output', check_output)
+
+    return use
+
+
+@pytest.fixture
+def mkvextract(tmp_path, monkeypatch):
+    """Fabricate `movie.mkv` with 3 PGS tracks (en, de, fr). Return its path and the list of mkvextract calls."""
+    temp_dir = tmp_path / 'temp'
+    temp_dir.mkdir()
+    monkeypatch.setattr(tempfile, 'tempdir', str(temp_dir))
+
+    def use(error=None):
+        toolnix = FakeMkvToolNix()
+        spec = MediaSpec(tracks=(TrackSpec(language='en'), TrackSpec(language='de'), TrackSpec(language='fr')))
+        fabricate_fake(str(tmp_path), [spec], toolnix, monkeypatch)
+        calls = []
+
+        def check_output(cmd, *args, **kwargs):
+            if cmd[0] == 'mkvextract':
+                calls.append(cmd)
+                if error:
+                    raise error
+            return toolnix.check_output(cmd, *args, **kwargs)
+
+        monkeypatch.setattr('pgsrip.sources.mkvtoolnix.check_output', check_output)
+        return os.path.join(str(tmp_path), spec.name), calls
 
     return use
 
@@ -282,3 +311,43 @@ def test_get_pgs_medias_one_per_language_ignores_flags(tmp_path, mkvmerge):
     medias = list(Media(path).get_pgs_medias(Options(one_per_language=True)))
 
     assert [os.path.basename(str(m.srt_path)) for m in medias] == ['movie.en.srt']
+
+
+def test_get_pgs_medias_extracts_all_tracks_with_one_call(mkvextract):
+    path, calls = mkvextract()
+
+    medias = Media(path).get_pgs_medias(Options(one_per_lang=False))
+    data = []
+    for pgs in medias:
+        with pgs:
+            data.append(pgs.data_reader())
+
+    assert data == [payload()] * 3
+    assert len(calls) == 1
+    assert [target.partition(':')[0] for target in calls[0][3:]] == ['0', '1', '2']
+
+
+def test_a_failed_extraction_fails_each_track(mkvextract):
+    path, calls = mkvextract(error=CalledProcessError(2, ['mkvextract']))
+    options = Options(one_per_lang=False)
+    errors = []
+
+    for pgs in Media(path).get_pgs_medias(options):
+        rip_pgs(pgs, options, on_error=lambda p, e: errors.append(e))
+
+    assert [type(e) for e in errors] == [CalledProcessError] * 3
+    assert len(calls) == 1
+
+
+def test_no_temp_folder_is_left_for_a_skipped_track(tmp_path, mkvextract):
+    path, _ = mkvextract()
+    create_file(tmp_path, 'movie.de.srt')
+    create_file(tmp_path, 'movie.fr.srt')
+
+    medias = Media(path).get_pgs_medias(Options(one_per_lang=False))
+    for pgs in medias:
+        with pgs:
+            pgs.data_reader()
+
+    assert [str(pgs.language) for pgs in medias] == ['en']
+    assert os.listdir(tempfile.tempdir) == []
