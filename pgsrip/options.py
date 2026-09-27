@@ -1,34 +1,10 @@
-import enum
 from datetime import timedelta
 
 from babelfish import Language
 from cleanit import Config
 
-
-@enum.unique
-class TesseractEngineMode(enum.Enum):
-    LEGACY = 0
-    NEURAL = 1
-    LEGACY_AND_NEURAL = 2
-    DEFAULT_AVAILABLE = 3
-
-
-@enum.unique
-class TesseractPageSegmentationMode(enum.Enum):
-    OSD_ONLY = 0
-    AUTOMATIC_PAGE_SEGMENTATION_WITH_OSD = 1
-    AUTOMATIC_PAGE_SEGMENTATION_WITHOUT_OSD_OR_OCR = 2
-    FULLY_AUTOMATIC_PAGE_SEGMENTATION_WITHOUT_OSD = 3
-    SINGLE_COLUMN_OF_TEXT_OF_VARIABLE_SIZES = 4
-    SINGLE_UNIFORM_BLOCK_OF_VERTICALLY_ALIGNED_TEXT = 5
-    SINGLE_UNIFORM_BLOCK_OF_TEXT = 6
-    SINGLE_TEXT_LINE = 7
-    SINGLE_WORD = 8
-    SINGLE_WORD_IN_CIRCLE = 9
-    SINGLE_CHARACTER = 10
-    SPARSE_TEXT = 11
-    SPARSE_TEXT_WITH_OSD = 12
-    RAW_LINE = 13
+from pgsrip.ripper import OcrEngine
+from pgsrip.tesseract import TesseractEngine
 
 
 class Options:
@@ -44,14 +20,7 @@ class Options:
         include_flags: frozenset[str] = frozenset(),
         exclude_flags: frozenset[str] = frozenset(),
         keep_temp_files: bool = False,
-        max_workers: int | None = None,
-        confidence: int | None = None,
-        tesseract_width: int | None = None,
-        tesseract_oem: TesseractEngineMode | None = None,
-        tesseract_psm: TesseractPageSegmentationMode | None = None,
-        tessdata_dir: str | None = None,
-        tessdata_repository: str | None = None,
-        download_tessdata: bool = True,
+        engines: list[OcrEngine] | None = None,
         age: timedelta | None = None,
         srt_age: timedelta | None = None,
     ):
@@ -65,14 +34,8 @@ class Options:
         self.include_flags = include_flags
         self.exclude_flags = exclude_flags
         self.keep_temp_files = keep_temp_files
-        self.max_workers = max_workers
-        self.confidence = confidence
-        self.tesseract_width = tesseract_width
-        self.tesseract_oem = tesseract_oem
-        self.tesseract_psm = tesseract_psm
-        self.tessdata_dir = tessdata_dir
-        self.tessdata_repository = tessdata_repository
-        self.download_tessdata = download_tessdata
+        # a chain: each engine reads the items that the engines before it left unread
+        self.engines = engines or [TesseractEngine()]
         self.age = age
         self.srt_age = srt_age
 
@@ -90,14 +53,7 @@ class Options:
             f'include_flags:{self.include_flags}, '
             f'exclude_flags:{self.exclude_flags}, '
             f'keep_temp_files:{self.keep_temp_files}, '
-            f'max_workers:{self.max_workers}, '
-            f'confidence:{self.confidence}, '
-            f'tesseract_width:{self.tesseract_width}, '
-            f'tesseract_oem:{self.tesseract_oem}, '
-            f'tesseract_psm:{self.tesseract_psm}, '
-            f'tessdata_dir:{self.tessdata_dir}, '
-            f'tessdata_repository:{self.tessdata_repository}, '
-            f'download_tessdata:{self.download_tessdata}, '
+            f'engines:{self.engines!r}, '
             f'age:{self.age}, '
             f'srt_age:{self.srt_age}'
         )

@@ -21,7 +21,7 @@ pgsrip downloads each file one time only. Every later rip uses it again.
 
 pgsrip uses the first directory in this list that it can write to:
 
-1. `--tessdata-dir`, or the `PGSRIP_TESSDATA_DIR` environment variable
+1. `--tesseract-dir`, or the `PGSRIP_TESSDATA_DIR` environment variable
 2. the `TESSDATA_PREFIX` environment variable
 3. the user cache directory:
    - Windows: `%LOCALAPPDATA%\pgsrip\tessdata`
@@ -35,8 +35,8 @@ finds for a language.
 
 | Option | Environment variable | What it does |
 | --- | --- | --- |
-| `--no-tessdata-download` | | Do not download. Use only the installed languages. |
-| `--tessdata-repository fast` | `PGSRIP_TESSDATA_REPO=fast` | Download the smaller and faster models of [tessdata_fast](https://github.com/tesseract-ocr/tessdata_fast). |
+| `--no-tesseract-download` | | Do not download. Use only the installed languages. |
+| `--tesseract-repository fast` | `PGSRIP_TESSDATA_REPO=fast` | Download the smaller and faster models of [tessdata_fast](https://github.com/tesseract-ocr/tessdata_fast). |
 | | `PGSRIP_TESSDATA_URL` | Download from a mirror. Set the base URL of the mirror. |
 
 The default source is [tessdata_best](https://github.com/tesseract-ocr/tessdata_best). It gives the best OCR
@@ -106,3 +106,101 @@ machine.
 
 A container with a CPU limit (`docker run --cpus`) shows all the CPUs of the host. Thus, set `-w` to the same
 value as the limit.
+
+`-w` applies to each OCR engine of a [chain](#a-chain-of-ocr-engines). `--tesseract-workers` overrides it for
+tesseract only. For example, `-w 1 --tesseract-workers 4` runs 4 tesseract processes, and the next engine gets 1.
+
+## OCR engines
+
+pgsrip reads the text of the subtitle images with an OCR engine. The default engine is tesseract. Other Python
+packages can add an engine (see [Add an OCR engine](#add-an-ocr-engine)).
+
+### A chain of OCR engines
+
+Use `--engine` more than one time to make a chain:
+
+```bash
+pgsrip --engine tesseract --engine myocr mymedia.mkv
+```
+
+The first engine reads all the cues. Each next engine reads only these cues:
+
+- The cues that the engines before it could not read.
+- The cues that the engine before it is not sure of ("doubtful" cues).
+
+Tesseract marks a cue as doubtful when a word of the cue has a confidence below 80. `--tesseract-threshold`
+changes this value (0 to 100). A higher value sends more cues to the next engine. When the next engine gives no
+text for a cue, pgsrip keeps the tesseract text.
+
+A [configuration file](../README.md#configuration-file) can also set the chain and the threshold:
+
+```yaml
+engine:
+  - tesseract
+  - myocr
+tesseract:
+  threshold: 90
+```
+
+### Add an OCR engine
+
+A Python package can add an OCR engine. Declare an entry point in the `pgsrip.engines` group. Its value is the
+engine class:
+
+```toml
+[project.entry-points."pgsrip.engines"]
+myocr = "myocr.engine:MyEngine"
+```
+
+The class declares its options, and creates the engine from their values (see `OcrEngineFactory` in
+`pgsrip/ripper.py`):
+
+```python
+import click
+
+from pgsrip.ripper import EngineOption
+
+
+class MyEngine:
+    options = (
+        EngineOption('model', click.Choice(['small', 'large']), default='small', help='Model to use.'),
+        EngineOption('url', required=True, envvar='MYOCR_URL', help='URL of the server.'),
+        EngineOption('gpu', flag=True, help='Use the GPU.'),
+    )
+
+    @classmethod
+    def from_settings(cls, settings, workers):
+        return cls(settings['model'], settings['url'], settings['gpu'], workers=workers)
+```
+
+pgsrip makes a command line option from each declared option, with the engine name as prefix:
+`--myocr-model`, `--myocr-url`, and `--myocr-gpu/--no-myocr-gpu`. Each engine also gets `--myocr-workers`.
+`workers` is its value, or the `-w` value, or `None`. A configuration file sets the options in a section:
+
+```yaml
+myocr:
+  model: large
+  url: http://127.0.0.1:8080
+```
+
+- The value of a `required` option is necessary only when the engine is in `--engine`.
+- An `envvar` option also reads this environment variable.
+- The `--myocr-*` options on the command line need `--engine myocr`.
+
+pgsrip loads every plug-in class when it starts, also for `pgsrip --help`. Import the large libraries of the
+engine (for example onnxruntime) only in its methods. A plug-in that cannot be loaded is left out, with a
+warning.
+
+The engine has 2 methods (see `OcrEngine` in `pgsrip/ripper.py`):
+
+- `prepare(languages, reporter)`: get ready before the rip starts. Raise `pgsrip.ripper.OcrError` when the
+  engine cannot rip at all.
+- `recognize(pgs, items)`: set `item.text` for each item that the engine can read. Leave `None` for the next
+  engine of the chain. Set `item.doubtful` when the text can be wrong. Raise `OcrError` when the engine fails:
+  pgsrip then writes no `.srt` file for that track.
+
+The class can also have a `check(settings)` classmethod. It returns a list of `pgsrip.diagnostics.Check`.
+`pgsrip doctor` shows the checks of all engines, and the debug log shows the checks of the engines in
+`--engine`. A check must not fail when an option has no value: show `not set`.
+
+Use the engine by name, alone or in a chain. A plug-in cannot replace `tesseract`.

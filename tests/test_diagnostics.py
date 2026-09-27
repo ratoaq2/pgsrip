@@ -3,11 +3,10 @@ import pytest
 from pgsrip.diagnostics import (
     Check,
     check_executable,
-    check_languages,
-    check_tesseract,
     format_checks,
     run_checks,
 )
+from pgsrip.tesseract import check_languages, check_tesseract
 
 
 @pytest.fixture
@@ -15,8 +14,8 @@ def missing_tesseract(monkeypatch):
     def fail(*args, **kwargs):
         raise OSError('tesseract not found')
 
-    monkeypatch.setattr('pgsrip.diagnostics.tess.get_tesseract_version', fail)
-    monkeypatch.setattr('pgsrip.diagnostics.tess.get_languages', fail)
+    monkeypatch.setattr('pgsrip.tesseract.tess.get_tesseract_version', fail)
+    monkeypatch.setattr('pgsrip.tesseract.tess.get_languages', fail)
 
 
 def test_check_executable_reports_missing_executable(monkeypatch):
@@ -52,23 +51,23 @@ def test_check_languages_reports_missing_tesseract(missing_tesseract):
 
 
 def test_check_languages_lists_installed_languages(monkeypatch):
-    monkeypatch.setattr('pgsrip.diagnostics.tess.get_languages', lambda: ['por', 'eng'])
+    monkeypatch.setattr('pgsrip.tesseract.tess.get_languages', lambda: ['por', 'eng'])
 
     assert check_languages() == Check('tesseract languages', 'eng, por')
 
 
 def test_check_languages_cuts_a_long_list_short(monkeypatch):
-    monkeypatch.setattr('pgsrip.diagnostics.tess.get_languages', lambda: [f'l{i:02d}' for i in range(25)])
+    monkeypatch.setattr('pgsrip.tesseract.tess.get_languages', lambda: [f'l{i:02d}' for i in range(25)])
 
     assert check_languages().value.endswith('and 5 more')
 
 
-def test_run_checks_reports_the_versions(missing_tesseract):
-    checks = {check.name: check for check in run_checks()}
+def test_run_checks_reports_the_versions_and_the_engine_checks():
+    checks = {check.name: check for check in run_checks([Check('myocr', 'not set', ok=False)])}
 
     assert checks['pgsrip'].ok
     assert 'python' in checks
-    assert not checks['tesseract'].ok
+    assert not checks['myocr'].ok
 
 
 def test_format_checks_aligns_the_values():

@@ -2,9 +2,31 @@
 
 ## Unreleased
 
+  - New: a chain of OCR engines. Use `--engine` more than one time. Each next
+    engine reads the cues that the engines before it could not read or are not
+    sure of. `--tesseract-threshold` (default 80) sets which tesseract cues go
+    to the next engine
+  - New: other packages can add an OCR engine with a `pgsrip.engines` entry
+    point. The engine declares its options: pgsrip adds them to `rip` as
+    `--<engine>-*` options and reads them from the `<engine>` section of the
+    configuration file
+  - New: `doctor` shows the checks of every OCR engine. It accepts `--config`
+    and the `--<engine>-*` options
+  - New: `--tesseract-workers` sets the number of tesseract processes. It
+    overrides `-w/--max-workers` for tesseract only
+  - Breaking: the tessdata options of `rip` and `doctor` are now
+    `--tesseract-dir`, `--tesseract-repository` and `--no-tesseract-download`
+  - Breaking: library: `Options(engines=[...])` sets the OCR engines. The
+    `confidence`, `tesseract_*` and `max_workers` arguments of `Options` move
+    to `pgsrip.tesseract.TesseractEngine`. The `tessdata_*` and
+    `download_tessdata` arguments move to `TesseractEngine(tessdata=Tessdata(...))`.
+    `TesseractEngineMode` and `TesseractPageSegmentationMode` move to
+    `pgsrip.tesseract`
   - New: a configuration file with the default values of the `rip` options.
     pgsrip reads `config.{json,yml,yaml}` in the user configuration folder,
-    `pgsrip.{json,yml,yaml}` in the current folder, and each `--config` file
+    `pgsrip.{json,yml,yaml}` in the current folder, and each `--config` file.
+    A section groups the options with the same prefix, e.g.
+    `tesseract: {threshold: 90}` for `--tesseract-threshold`
   - Breaking: the cleanit rules file option `-c/--config` is now
     `--cleanit-config`. `--config` is now the pgsrip configuration file
   - Breaking: library: `Options(config_path=...)` is now

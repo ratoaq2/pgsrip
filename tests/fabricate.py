@@ -22,7 +22,7 @@ from pgsrip.scrub import Redaction, scrub_display_sets
 
 if typing.TYPE_CHECKING:
     from pgsrip.media import PgsSubtitleItem
-    from pgsrip.ripper import FullImage
+    from pgsrip.tesseract import FullImage
 
 SAMPLE = os.path.join(os.path.dirname(__file__), 'samples', 'placeholder.en.sup')
 
@@ -201,7 +201,7 @@ def _tsv_rows_for_item(item: PgsSubtitleItem, text: str, conf: int) -> list[dict
 
 
 class FakeTesseract:
-    """Answers `PgsToSrtRipper.process`'s tesseract calls with text fabricated from `TrackSpec.texts`."""
+    """Answers `TesseractEngine.process`'s tesseract calls with text fabricated from `TrackSpec.texts`."""
 
     def __init__(self, toolnix: FakeMkvToolNix) -> None:
         self.toolnix = toolnix
@@ -222,18 +222,17 @@ class FakeTesseract:
 
     def wrap_process(self, original_process: typing.Callable[..., typing.Any]) -> typing.Callable[..., typing.Any]:
         def process(
-            ripper: typing.Any,
-            subs: typing.Any,
+            engine: typing.Any,
+            pgs: typing.Any,
             items: list[PgsSubtitleItem],
-            post_process: typing.Any,
             confidence: int,
             max_width: int,
-            oem: typing.Any,
-            psm: typing.Any,
+            gap: tuple[int, int],
+            tessdata_dir: str | None,
         ) -> typing.Any:
-            self._pgs = ripper.pgs
-            self.passes.append((str(ripper.pgs.media_path), confidence))
-            return original_process(ripper, subs, items, post_process, confidence, max_width, oem, psm)
+            self._pgs = pgs
+            self.passes.append((str(pgs.media_path), confidence))
+            return original_process(engine, pgs, items, confidence, max_width, gap, tessdata_dir)
 
         return process
 

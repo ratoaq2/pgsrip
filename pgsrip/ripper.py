@@ -1,305 +1,111 @@
 from __future__ import annotations
 
-import json
+import dataclasses
 import logging
-import os
-import sys
 import typing
-from concurrent.futures import ThreadPoolExecutor
 
-import cv2
-import numpy as np
-import numpy.typing as npt
-import pytesseract as tess
 from pysrt import SubRipFile, SubRipItem
 
-from pgsrip.media import Pgs, PgsSubtitleItem
-from pgsrip.options import Options, TesseractEngineMode, TesseractPageSegmentationMode
-from pgsrip.tessdata import Tessdata, get_config_arg, get_required_codes, get_tesseract_code, tessdata_env
-from pgsrip.tsv import TsvData, TsvDataItem
+if typing.TYPE_CHECKING:
+    from babelfish import Language
+
+    from pgsrip.media import Pgs, PgsSubtitleItem
+    from pgsrip.options import Options
 
 logger = logging.getLogger(__name__)
 
-#: tesseract refuses any image dimension above INT16_MAX; stay under it with room for the border.
-MAX_TESS_DIMENSION = 31 * 1024
-#: cap for the default number of parallel tesseract processes: a container with a CPU quota still reports
-#: every host core.
-MAX_DEFAULT_WORKERS = 4
+
+class OcrError(Exception):
+    """Raised when an OCR engine cannot read the subtitles."""
 
 
-def default_workers() -> int:
-    """The CPUs this process may run on, at most MAX_DEFAULT_WORKERS."""
-    if sys.version_info >= (3, 13):
-        count = os.process_cpu_count()
-    elif sys.platform == 'linux':
-        count = len(os.sched_getaffinity(0))
-    else:
-        count = os.cpu_count()
+class OcrEngine(typing.Protocol):
+    """Reads the text of subtitle bitmaps: `pgsrip.tesseract.TesseractEngine` is the default engine."""
 
-    return min(MAX_DEFAULT_WORKERS, count or 1)
+    def prepare(
+        self, languages: typing.Iterable[Language], reporter: typing.Callable[[str], None] | None = None
+    ) -> None:
+        """Get ready to read these languages, before any ripping starts. Tell the user through reporter.
 
+        Raise OcrError only when the engine cannot rip at all: the rip then stops before it starts.
+        """
 
-class ImageArea:
-    def __init__(self, items: list[PgsSubtitleItem], gap: tuple[int, int]):
-        self.gap = gap
-        self.width = sum([(item.shape[3] - item.shape[1]) for item in items]) + (len(items) - 1) * gap[1]
-        self.shape = (
-            min([item.shape[0] for item in items]),
-            items[0].shape[1],
-            max([item.shape[2] for item in items]),
-            min([item.shape[1] for item in items]) + self.width,
-        )
-        self.items = items
+    def recognize(self, pgs: Pgs, items: list[PgsSubtitleItem]) -> None:
+        """Set the text of each item, or leave it None when it cannot be read. Raise OcrError on failure.
 
-    def __str__(self) -> str:
-        return str(self.shape)
-
-    def __repr__(self) -> str:
-        return f'<{self.__class__.__name__} [{self}]>'
-
-    @property
-    def height(self) -> int:
-        return self.shape[2] - self.shape[0]
-
-    def create_area_image(self, start: tuple[int, int]) -> npt.NDArray[np.uint8]:
-        area_image = np.full((self.height, self.width), 255, dtype=np.uint8)
-
-        current_width = 0
-        for item in self.items:
-            h_start, w_start, h_end, w_end = self.get_shape(item, current_width=current_width)
-            item.place = (start[0] + h_start, start[1] + w_start, start[0] + h_end, start[1] + w_end)
-            area_image[h_start:h_end, w_start:w_end] = item.bitmap
-            current_width += item.width + self.gap[1]
-
-        return area_image
-
-    def get_shape(
-        self, item: PgsSubtitleItem, current_width: int = 0, full_shape: bool = False
-    ) -> tuple[int, int, int, int]:
-        start_y = 0
-        start_x = current_width
-        h_start = start_y + ((item.shape[0] - self.shape[0]) if not full_shape else 0)
-        w_start = start_x
-        h_end = h_start + (item.height if not full_shape else self.height)
-        w_end = w_start + (item.width if not full_shape else self.width)
-
-        return h_start, w_start, h_end, w_end
+        Set `item.doubtful` when the text can be wrong. The next engine of the chain gets the items that are
+        still None or doubtful.
+        """
 
 
-class FullImage:
-    border = 100
+@dataclasses.dataclass(frozen=True)
+class EngineOption:
+    """One setting of an OCR engine: `--<engine>-<name>` on the command line, `<name>` in the `<engine>` section."""
 
-    def __init__(self, areas: list[ImageArea], gap: tuple[int, int]):
-        border = self.border
-        total_height = sum([area.height for area in areas]) + (len(areas) - 1) * gap[0] + 2 * border
-        total_width = max([area.width for area in areas]) + 2 * border
-        full_image = np.full((total_height, total_width), 255, dtype=np.uint8)
-        h_start = border
-        w_start = border
-        for area in areas:
-            h_end = h_start + area.height
-            w_end = w_start + area.width
-            full_image[h_start:h_end, w_start:w_end] = area.create_area_image((h_start, w_start))
-            h_start = h_end + gap[0]
+    name: str
+    #: a Python type or a click type, e.g. `click.IntRange(0, 100)`
+    type: typing.Any = str
+    default: typing.Any = None
+    help: str = ''
+    #: an on/off option: `--<engine>-<name>/--no-<engine>-<name>`
+    flag: bool = False
+    #: the engine cannot work without it
+    required: bool = False
+    envvar: str | None = None
 
-        self.data = full_image
-        self.items = [item for area in areas for item in area.items]
+
+class OcrEngineFactory(typing.Protocol):
+    """An OCR engine that the CLI can create. Its class is the value of a `pgsrip.engines` entry point.
+
+    The class can also have a `check(settings) -> list[Check]` classmethod for `pgsrip doctor`.
+    """
+
+    options: typing.ClassVar[tuple[EngineOption, ...]]
 
     @classmethod
-    def from_items(
-        cls, items: list[PgsSubtitleItem], gap: tuple[int, int], max_width: int, max_height: int, parts: int = 1
-    ) -> list[FullImage]:
-        """Split items into at most `parts` composites of about the same height, to OCR them in parallel.
-
-        No composite is taller than max_height, so a long track can give more than `parts` composites.
-        An area taller than max_height on its own still gets a composite of its own.
-        """
-        areas: list[ImageArea] = []
-        remaining = list(items)
-        remaining.sort(key=lambda x: x.height)
-        while len(remaining) > 0:
-            first_item = remaining.pop(0)
-            area_items = [first_item] + [item for item in remaining if item.intersect(first_item)]
-            remaining = [item for item in remaining if not item.intersect(first_item)]
-            current_items: list[PgsSubtitleItem] = []
-            current_width = 0
-            for area_item in area_items:
-                current_width += area_item.width + gap[1]
-                if current_width > max_width:
-                    areas.append(ImageArea(current_items, gap))
-                    current_width = area_item.width
-                    current_items = [area_item]
-                else:
-                    current_items.append(area_item)
-
-            if len(current_items) > 0:
-                areas.append(ImageArea(current_items, gap))
-
-        composites: list[FullImage] = []
-        # cut the stacked areas in `parts` slices of the same height: each area goes to the slice of its middle.
-        share = max(1.0, (sum(area.height for area in areas) + (len(areas) - 1) * gap[0]) / parts)
-        group: list[ImageArea] = []
-        group_part = 0
-        height = 2 * cls.border
-        top = 0
-        for area in areas:
-            part = int((top + area.height / 2) // share)
-            top += area.height + gap[0]
-            if group and (part != group_part or height + gap[0] + area.height > max_height):
-                composites.append(cls(group, gap))
-                group = []
-                height = 2 * cls.border
-
-            height += (gap[0] if group else 0) + area.height
-            group.append(area)
-            group_part = part
-
-        if group:
-            composites.append(cls(group, gap))
-
-        return composites
-
-    def __repr__(self) -> str:
-        return f'<{self.__class__.__name__} [{self}]>'
-
-    def __str__(self) -> str:
-        return f'{self.data.shape}]'
+    def from_settings(cls, settings: dict[str, typing.Any], workers: int | None) -> OcrEngine:
+        """Create the engine. `settings` has a value for each option, by name. `workers` is None for the default."""
 
 
 class PgsToSrtRipper:
     def __init__(self, pgs: Pgs, options: Options):
         self.pgs = pgs
-        self.confidence = min(max(options.confidence or 65, 0), 100)
-        self.max_tess_width = min(max(options.tesseract_width or MAX_TESS_DIMENSION, 10 * 1024), MAX_TESS_DIMENSION)
-        self.workers = options.max_workers or default_workers()
-        self.oem = options.tesseract_oem or TesseractEngineMode.NEURAL
-        self.psm = options.tesseract_psm or TesseractPageSegmentationMode.SINGLE_UNIFORM_BLOCK_OF_TEXT
-        max_height = max([item.height for item in self.pgs.items]) // 2
-        self.gap = (max_height // 2 + 30, max_height // 2 + 100)
-        self.keep_temp_files = options.keep_temp_files
-        self.language_code = get_tesseract_code(self.pgs.language)
-        tessdata = Tessdata.from_options(options)
-        self.tessdata_dir = tessdata.ensure(get_required_codes([self.pgs.language], self.psm.value))
+        self.engines = options.engines
 
-    def process(
-        self,
-        subs: SubRipFile,
-        items: list[PgsSubtitleItem],
-        post_process: typing.Callable[[str], str] | None,
-        confidence: int,
-        max_width: int,
-        oem: TesseractEngineMode,
-        psm: TesseractPageSegmentationMode,
-    ) -> list[PgsSubtitleItem]:
-        config: dict[str, typing.Any] = {
-            'output_type': tess.Output.DICT,
-            'config': f'{get_config_arg(self.tessdata_dir)} --psm {psm.value} --oem {oem.value}'.strip(),
-        }
+    def rip(self, post_process: typing.Callable[[str], str] | None) -> SubRipFile:
+        if not self.pgs.items:
+            # a track with no image is corrupted: do not write an empty srt as if it was ripped
+            raise ValueError(f'No subtitle image in {self.pgs}')
 
-        if self.language_code:
-            config.update({'lang': self.language_code})
-
-        # one tesseract process per composite, in parallel: one process with OpenMP threads uses about one core.
-        os.environ['OMP_THREAD_LIMIT'] = '1'
-
-        composites = FullImage.from_items(items, self.gap, max_width, MAX_TESS_DIMENSION, self.workers)
-        prefix = f'{os.path.basename(subs.path)}-{len(items)}'
-        if self.keep_temp_files:
-            for index, full_image in enumerate(composites):
-                png_file = os.path.join(
-                    self.pgs.temp_folder, f'{prefix}-{index}-psm{psm.value}-{oem.name}-{confidence}.png'
-                )
-                logger.debug('Writing temporary png file %s', png_file)
-                cv2.imwrite(png_file, full_image.data)
-
-        with tessdata_env(self.tessdata_dir), ThreadPoolExecutor(self.workers) as pool:
-            results = list(pool.map(lambda image: tess.image_to_data(image.data, **config), composites))
-
-        remaining: list[PgsSubtitleItem] = []
-        for index, (full_image, result) in enumerate(zip(composites, results, strict=True)):
-            data = TsvData(result, confidence=confidence)
-            if self.keep_temp_files:
-                results_file = os.path.join(self.pgs.temp_folder, f'{prefix}-{index}-{confidence}.json')
-                logger.debug('Writing temporary results file %s', results_file)
-                with open(results_file, mode='w', encoding='utf8') as f:
-                    json.dump([i.__dict__ for i in data.items], f, indent=2, ensure_ascii=False)
-
-            # item.place is relative to the composite the item was drawn in: match it against that one only.
-            for item in full_image.items:
-                text = self.accept(data, item, confidence)
-                if text is None:
-                    remaining.append(item)
-                    continue
-
-                if post_process:
-                    text = post_process(text)
-                if text:
-                    sub_item = SubRipItem(0, item.start, item.end, text)
-                    subs.append(sub_item)
-
-        return remaining
-
-    @classmethod
-    def accept(cls, data: TsvData, item: PgsSubtitleItem, confidence: int) -> str | None:
-        rows = data.select(item.place) if item.place else []
-        lines: list[str] = []
-        words: list[str] = []
-        last_row: TsvDataItem | None = None
-        for row in rows:
-            if row.conf < confidence:
-                if not data.has_word(row.text):
-                    return None
-
-            if (
-                last_row is not None
-                and (
-                    last_row.page_num < row.page_num
-                    or last_row.block_num < row.block_num
-                    or last_row.par_num < row.par_num
-                    or last_row.line_num < row.line_num
-                )
-                and len(words) > 0
-            ):
-                lines.append(' '.join(words))
-                words.clear()
-            words.append(row.text)
-            last_row = row
-
-        if len(words) > 0:
-            lines.append(' '.join(words))
-            words.clear()
-
-        item.text = '\n'.join(lines).strip()
-        return item.text
-
-    def rip(self, post_process: typing.Callable[[str], str]) -> SubRipFile:
         subs = SubRipFile(path=str(self.pgs.media_path.translate(extension='srt')))
-        oem, psm, confidence, max_width = self.oem, self.psm, self.confidence, self.max_tess_width
         # an item with no ink has no text to read
         items = [item for item in self.pgs.items if item.height]
-        previous_size = len(items)
-        while previous_size > 0:
-            items = self.process(subs, items, post_process, confidence, max_width, oem, psm)
-            if not items:
+        for engine in self.engines:
+            pending = [(item, item.text, item.doubtful) for item in items if item.text is None or item.doubtful]
+            if not pending:
                 break
 
-            current_size = len(items)
-            if current_size < 20:
-                max_width = min(sum([item.width + self.gap[1] for item in items]), self.max_tess_width)
-                confidence = 0
-                remaining_items = self.process(subs, items, post_process, confidence, max_width, oem, psm)
-                if remaining_items:
-                    logger.warning('Subtitles were not ripped: %r', remaining_items)
-                break
-            elif current_size > previous_size * 0.8:
-                last_pass = (confidence, max_width)
-                max_width = min(sum([item.width + self.gap[1] for item in items]), self.max_tess_width) // 2
-                confidence = max(0, confidence - 5)
-                # the same pass on the same items reads nothing new: the remaining items stay unread
-                if (confidence, max_width) == last_pass:
-                    logger.warning('Subtitles were not ripped: %r', items)
-                    break
-            previous_size = current_size
+            for item, _, _ in pending:
+                item.text, item.doubtful = None, False
+            engine.recognize(self.pgs, [item for item, _, _ in pending])
+            # an engine that reads nothing does not remove the text of the engine before it
+            for item, text, doubtful in pending:
+                if not item.text and text:
+                    item.text, item.doubtful = text, doubtful
+
+        unresolved = [item for item in items if item.text is None]
+        if unresolved:
+            logger.warning('Subtitles were not ripped: %r', unresolved)
+
+        for item in items:
+            text = item.text
+            if text is None:
+                continue
+
+            if post_process:
+                text = post_process(text)
+            if text:
+                subs.append(SubRipItem(0, item.start, item.end, text))
 
         subs.clean_indexes()
 

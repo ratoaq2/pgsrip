@@ -1,6 +1,7 @@
 ---
 paths:
   - "pgsrip/ripper.py"
+  - "pgsrip/tesseract.py"
   - "pgsrip/tsv.py"
 ---
 

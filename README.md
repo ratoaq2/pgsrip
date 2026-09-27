@@ -153,8 +153,9 @@ pgsrip does not rip a subtitle again when the `.srt` file exists. Use `-f` to ri
 | `--one-per-language` | Rip only one track for each language. |
 | `-a`, `--age` | Rip only the videos that are newer than this age, for example `12h` or `1w2d`. |
 | `-e`, `--encoding` | Write the `.srt` files with this encoding. |
-| `-w`, `--max-workers` | Number of tesseract processes that run at the same time. The default is the number of CPUs, at most 4. |
-| `--no-tessdata-download` | Do not download language data. Use only the installed languages. |
+| `-w`, `--max-workers` | Number of OCR jobs that run at the same time, for example tesseract processes. The default is the number of CPUs, at most 4. `--tesseract-workers` overrides it for tesseract. |
+| `--no-tesseract-download` | Do not download language data. Use only the installed languages. |
+| `--engine NAME` | OCR engine: `tesseract` (default) or an engine of a plug-in. Use it more than one time for a [chain](docs/usage.md#ocr-engines). |
 | `--log-file FILE` | Write a debug log to this file. |
 
 Run `pgsrip --help` for all options. [docs/usage.md](docs/usage.md) gives more details.
@@ -164,13 +165,24 @@ Run `pgsrip --help` for all options. [docs/usage.md](docs/usage.md) gives more d
 A configuration file can contain the options of `pgsrip rip`. The keys are the option names, with `_` in
 place of `-`. For `--with` and `--without`, use `with_flags` and `without_flags`.
 
+A section groups the options with the same prefix. For example, `threshold` in the `tesseract` section is
+`--tesseract-threshold`.
+
 ```yaml
 language:
   - en
   - pt-BR
-max_workers: 2
+max_workers: 4
 without_flags:
   - commentary
+engine:
+  - tesseract
+tesseract:
+  workers: 2
+  threshold: 90
+  repository: fast
+  dir: /data/tessdata
+  download: false
 ```
 
 pgsrip reads the configuration files in this order. A later file overrides an earlier file.
@@ -183,6 +195,8 @@ pgsrip reads the configuration files in this order. A later file overrides an ea
 3. Each file that you give with `--config`, in the order of the command line.
 
 An option on the command line overrides the configuration files. An unknown key is an error.
+
+`pgsrip doctor` reads the same files. It uses only the OCR engine sections, for example `tesseract`.
 
 The cleanit rules file option is `--cleanit-config`.
 
@@ -207,6 +221,14 @@ from pgsrip import pgsrip, Mkv, Options
 media = Mkv('/subtitle/path/mymedia.mkv')
 options = Options(languages={Language('eng')}, overwrite=True)
 pgsrip.rip(media, options)
+```
+
+The OCR engines are an option too, in chain order. The default is `[TesseractEngine()]`:
+
+```python
+from pgsrip.tesseract import TesseractEngine
+
+options = Options(engines=[TesseractEngine(workers=2, threshold=90)])
 ```
 
 ## FAQ

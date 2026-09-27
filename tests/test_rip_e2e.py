@@ -22,7 +22,8 @@ from pgsrip.cli import pgsrip
 from pgsrip.media import PgsSubtitleItem
 from pgsrip.media_path import MediaPath
 from pgsrip.pgs import PgsReader
-from pgsrip.ripper import MAX_DEFAULT_WORKERS, MAX_TESS_DIMENSION, FullImage, PgsToSrtRipper, default_workers
+from pgsrip.tesseract import MAX_TESS_DIMENSION, FullImage, TesseractEngine
+from pgsrip.utils import MAX_DEFAULT_WORKERS, default_workers
 
 from . import from_yaml
 from .fabricate import (
@@ -54,7 +55,7 @@ def isolated_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: typing.Any) 
     temp_dir = tmp_path / 'temp'
     temp_dir.mkdir()
     monkeypatch.setattr(tempfile, 'tempdir', str(temp_dir))
-    monkeypatch.setenv('OMP_THREAD_LIMIT', '1')  # PgsToSrtRipper.process sets and never restores it
+    monkeypatch.setenv('OMP_THREAD_LIMIT', '1')  # TesseractEngine.process sets and never restores it
 
 
 @pytest.fixture
@@ -65,9 +66,9 @@ def toolnix() -> FakeMkvToolNix:
 @pytest.fixture
 def fake_ocr(toolnix: FakeMkvToolNix, monkeypatch: pytest.MonkeyPatch) -> FakeTesseract:
     ocr = FakeTesseract(toolnix)
-    monkeypatch.setattr(PgsToSrtRipper, 'process', ocr.wrap_process(PgsToSrtRipper.process))
+    monkeypatch.setattr(TesseractEngine, 'process', ocr.wrap_process(TesseractEngine.process))
     monkeypatch.setattr(FullImage, 'from_items', ocr.wrap_from_items(FullImage.from_items))
-    monkeypatch.setattr('pgsrip.ripper.tess.image_to_data', ocr.image_to_data)
+    monkeypatch.setattr('pgsrip.tesseract.tess.image_to_data', ocr.image_to_data)
     return ocr
 
 
@@ -336,27 +337,21 @@ def test_the_default_worker_count_is_capped(monkeypatch: pytest.MonkeyPatch) -> 
 def test_the_retry_passes_stop_when_a_pass_would_repeat_the_last_one(monkeypatch: pytest.MonkeyPatch) -> None:
     # 20 or more items that no pass can read: the passes must stop, not repeat the same pass forever
     items: typing.Any = [types.SimpleNamespace(height=50, width=500) for _ in range(25)]
-    ripper = PgsToSrtRipper.__new__(PgsToSrtRipper)
-    ripper.pgs = typing.cast(typing.Any, types.SimpleNamespace(items=items, media_path=MediaPath('movie.en.sup')))
-    ripper.oem, ripper.psm, ripper.confidence = None, None, 65
-    ripper.max_tess_width, ripper.gap = 4000, (10, 10)
+    pgs: typing.Any = types.SimpleNamespace(items=items, language=None)
+    engine = TesseractEngine()
+    monkeypatch.setattr(engine.tessdata, 'ensure', lambda *args, **kwargs: None)
     passes: list[tuple[int, int]] = []
 
     def process(
-        subs: typing.Any,
-        items: list[typing.Any],
-        post_process: typing.Any,
-        confidence: int,
-        max_width: int,
-        *args: typing.Any,
+        pgs: typing.Any, items: list[typing.Any], confidence: int, max_width: int, *args: typing.Any
     ) -> typing.Any:
         passes.append((confidence, max_width))
         assert len(passes) <= 20, f'the passes do not stop: {passes[-3:]}'
         return items
 
-    monkeypatch.setattr(ripper, 'process', process)
+    monkeypatch.setattr(engine, 'process', process)
 
-    ripper.rip(lambda text: text)
+    engine.recognize(pgs, items)
 
     assert len(passes) == len(set(passes))
 
@@ -484,6 +479,7 @@ def test_the_command_line_wins_over_the_config_file(
     'name, content, error',
     [
         ('config.yml', 'languages: [de]\npath: movie.mkv\n', 'Unknown option in'),
+        ('config.yml', 'tesseract:\n  treshold: 90\n', 'tesseract_treshold'),
         ('config.toml', 'language = ["de"]\n', 'is not a .json, .yml or .yaml file'),
         ('config.yml', '- de\n', 'must contain option names and values'),
         ('config.json', '{"language": ', 'Cannot read'),

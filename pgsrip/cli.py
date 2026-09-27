@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib.metadata
 import json
 import logging
 import os
@@ -13,14 +14,16 @@ import yaml
 from appdirs import AppDirs
 from babelfish import Error as BabelfishError
 from babelfish import Language
+from click.core import ParameterSource
 
 from pgsrip import Pgs, __url__, __version__, api
 from pgsrip.core import get_reason
-from pgsrip.diagnostics import format_checks, run_checks
+from pgsrip.diagnostics import Check, format_checks, run_checks
 from pgsrip.media import Media
 from pgsrip.options import Options
+from pgsrip.ripper import OcrEngine, OcrEngineFactory, OcrError
 from pgsrip.scrub import Redaction, output_path, scrub_data
-from pgsrip.tessdata import REPOSITORIES, Tessdata, TessdataError, get_required_codes
+from pgsrip.tesseract import TesseractEngine
 from pgsrip.track_flags import FLAG_CHOICES
 
 if typing.TYPE_CHECKING:
@@ -99,9 +102,114 @@ class RangeParamType(click.ParamType[frozenset[int], str]):
         return frozenset(range(start, end + 1))
 
 
+ENGINES: dict[str, type[OcrEngineFactory]] = {'tesseract': TesseractEngine}
+#: other packages add an OCR engine with an entry point in this group. See docs/usage.md.
+ENGINE_ENTRY_POINTS = 'pgsrip.engines'
+
+
+def plugin_engines() -> dict[str, importlib.metadata.EntryPoint]:
+    """The OCR engines of other packages, by name. A built-in engine wins over a plug-in with the same name."""
+    return {ep.name: ep for ep in importlib.metadata.entry_points(group=ENGINE_ENTRY_POINTS) if ep.name not in ENGINES}
+
+
+def load_engines() -> dict[str, type[OcrEngineFactory]]:
+    """The built-in OCR engines, then the plug-in engines. A plug-in that cannot be loaded is left out."""
+    engines = dict(ENGINES)
+    for name, entry_point in plugin_engines().items():
+        try:
+            engines[name] = entry_point.load()
+        except Exception as e:
+            # a broken plug-in must not stop the other engines
+            logger.warning('Cannot load the OCR engine %s: <%s> %s', name, type(e).__name__, e)
+
+    return engines
+
+
+def installed_engines(ctx: click.Context | None) -> dict[str, type[OcrEngineFactory]]:
+    """The OCR engines, loaded one time for each run of a command."""
+    if ctx is None:
+        return load_engines()
+    if 'pgsrip.engines' not in ctx.meta:
+        ctx.meta['pgsrip.engines'] = load_engines()
+
+    return typing.cast(dict[str, type[OcrEngineFactory]], ctx.meta['pgsrip.engines'])
+
+
+def param_name(engine: str, name: str) -> str:
+    """The click parameter name of an engine option, e.g. tesseract_threshold."""
+    return f'{engine}_{name}'.replace('-', '_')
+
+
+def option_flag(engine: str, name: str) -> str:
+    """The command line flag of an engine option, e.g. --tesseract-threshold."""
+    return f'--{engine}-{name}'.replace('_', '-')
+
+
+def engine_options(engines: dict[str, type[OcrEngineFactory]]) -> list[click.Option]:
+    """The --<engine>-<name> options of each engine, and its --<engine>-workers option."""
+    options: list[click.Option] = []
+    for engine, factory in engines.items():
+        for option in factory.options:
+            flag = option_flag(engine, option.name)
+            options.append(
+                click.Option(
+                    [f'{flag}/--no-{flag[2:]}', param_name(engine, option.name)]
+                    if option.flag
+                    else [flag, param_name(engine, option.name)],
+                    type=None if option.flag else option.type,
+                    default=bool(option.default) if option.flag else option.default,
+                    help=option.help,
+                    envvar=option.envvar,
+                    show_envvar=bool(option.envvar),
+                )
+            )
+        options.append(
+            click.Option(
+                [option_flag(engine, 'workers'), param_name(engine, 'workers')],
+                type=click.IntRange(1, 50),
+                help=f'Number of {engine} jobs to run in parallel. Default: -w.',
+            )
+        )
+
+    return options
+
+
+class EngineCommand(click.Command):
+    """A command with the options of every OCR engine. The plug-ins are known only when the command runs."""
+
+    def get_params(self, ctx: click.Context) -> list[click.Parameter]:
+        params = super().get_params(ctx)
+        if 'pgsrip.engine_options' not in ctx.meta:
+            ctx.meta['pgsrip.engine_options'] = engine_options(installed_engines(ctx))
+        # after --engine, or before --help
+        index = next((i + 1 for i, p in enumerate(params) if p.name == 'engine'), len(self.params))
+
+        return [*params[:index], *ctx.meta['pgsrip.engine_options'], *params[index:]]
+
+
+def engine_settings(
+    engine: str, factory: type[OcrEngineFactory], params: dict[str, typing.Any]
+) -> dict[str, typing.Any]:
+    """The option values of one engine, by option name."""
+    return {option.name: params[param_name(engine, option.name)] for option in factory.options}
+
+
+class EngineParamType(click.ParamType[str, str]):
+    name = 'engine'
+
+    def convert(self, value: str, param: click.Parameter | None, ctx: click.Context | None) -> str:
+        # not a click.Choice: the plug-ins are known only when the command runs
+        names = list(installed_engines(ctx))
+        if value not in names:
+            self.fail(f'{click.style(value, bold=True)} is not an OCR engine. Choose from: {", ".join(names)}')
+
+        return value
+
+
 LANGUAGE = LanguageParamType()
 AGE = AgeParamType()
 RANGE = RangeParamType()
+ENGINE = EngineParamType()
 
 
 def merge_ranges(values: tuple[frozenset[int], ...]) -> set[int]:
@@ -127,7 +235,11 @@ def echo_failures(failures: list[tuple[Pgs, Exception]], log_file: str | None) -
     for pgs, error in failures[:MAX_REPORTED_PATHS]:
         click.echo(f'  {pgs}: <{type(error).__name__}> [{error}]')
 
-    sources = sorted({str(pgs.source_path) for pgs, _ in failures})
+    # a scrubbed sample cannot reproduce an OCR engine failure, e.g. missing tesseract data
+    sources = sorted({str(pgs.source_path) for pgs, error in failures if not isinstance(error, OcrError)})
+    if not sources:
+        return
+
     click.echo('To report this, run:')
     for source in sources[:MAX_REPORTED_PATHS]:
         click.echo(f'  {click.style(f"pgsrip scrub {quote(source)}", bold=True)}')
@@ -174,29 +286,78 @@ def configure_logging(debug: bool, log_file: str | None) -> None:
         logger.addHandler(file_handler)
 
 
-def log_environment(options: Options) -> None:
-    """Record the installed versions at the top of the debug log."""
+def engine_checks(ctx: click.Context, names: typing.Iterable[str]) -> list[Check]:
+    """The checks of these OCR engines, with the option values of the command."""
+    installed = installed_engines(ctx)
+    checks: list[Check] = []
+    for name in names:
+        check = getattr(installed[name], 'check', None)
+        if not check:
+            continue
+        try:
+            checks += check(engine_settings(name, installed[name], ctx.params))
+        except Exception as e:
+            # a broken check of a plug-in must not hide the other checks
+            logger.debug('Cannot check the OCR engine %s', name, exc_info=True)
+            checks.append(Check(name, f'check failed: <{type(e).__name__}> {e}', ok=False))
+
+    return checks
+
+
+def log_environment(ctx: click.Context | None = None) -> None:
+    """Record the installed versions, and the checks of the selected OCR engines, at the top of the debug log."""
     if not logger.isEnabledFor(logging.DEBUG):
         return
 
-    for line in format_checks(run_checks(options)).splitlines():
+    for line in format_checks(run_checks(engine_checks(ctx, ctx.params['engine']) if ctx else None)).splitlines():
         logger.info(line)
 
 
-def download_tessdata(pgs_medias: list[Pgs], options: Options) -> None:
-    """Download the tesseract data every collected subtitle needs, before any ripping starts."""
+def create_engines(ctx: click.Context) -> list[OcrEngine]:
+    """Create the chain of OCR engines that the user selected, in order. Reject the options of the other engines."""
+    params = ctx.params
+    names: tuple[str, ...] = params['engine']
+    if len(set(names)) < len(names):
+        raise click.UsageError('use each --engine only one time')
+
+    installed = installed_engines(ctx)
+    for engine, factory in installed.items():
+        # only the command line: a config file or an environment variable can hold the options of an unused engine
+        option_names = [param_name(engine, option.name) for option in factory.options] + [param_name(engine, 'workers')]
+        if engine not in names and any(
+            ctx.get_parameter_source(n) == ParameterSource.COMMANDLINE for n in option_names
+        ):
+            raise click.UsageError(f'the --{engine}-* options need --engine {engine}')
+
+    engines: list[OcrEngine] = []
+    for name in names:
+        factory = installed[name]
+        settings = engine_settings(name, factory, params)
+        for option in factory.options:
+            if option.required and settings[option.name] is None:
+                raise click.UsageError(f'--engine {name} needs {option_flag(name, option.name)}')
+        workers = params[param_name(name, 'workers')] or params['max_workers']
+        try:
+            engines.append(factory.from_settings(settings, workers))
+        except OcrError as e:
+            raise click.UsageError(str(e)) from e
+
+    return engines
+
+
+def prepare_engines(pgs_medias: list[Pgs], options: Options) -> bool:
+    """Get the OCR engines ready for every collected subtitle, before any ripping starts."""
     if not pgs_medias:
-        return
+        return True
 
-    def report(code: str) -> None:
-        click.echo(f'Downloading tesseract data for {click.style(code, bold=True)}...')
-
-    psm_value = options.tesseract_psm.value if options.tesseract_psm else None
-    codes = get_required_codes([pgs.language for pgs in pgs_medias], psm_value)
     try:
-        Tessdata.from_options(options).ensure(codes, reporter=report)
-    except TessdataError as e:
+        for engine in options.engines:
+            engine.prepare([pgs.language for pgs in pgs_medias], reporter=click.echo)
+    except OcrError as e:
         click.echo(click.style(str(e), fg='red'))
+        return False
+
+    return True
 
 
 CONFIG_EXTENSIONS = ('.json', '.yml', '.yaml')
@@ -219,7 +380,15 @@ def read_config(path: str) -> dict[str, typing.Any]:
     if not isinstance(values, dict):
         raise click.BadParameter(f'{path} must contain option names and values')
 
-    return values
+    # a section groups the options with the same prefix: `tesseract: {threshold: 90}` is `tesseract_threshold: 90`
+    flat: dict[str, typing.Any] = {}
+    for key, value in values.items():
+        if isinstance(value, dict):
+            flat.update({f'{key}_{name}': section_value for name, section_value in value.items()})
+        else:
+            flat[key] = value
+
+    return flat
 
 
 def set_default_config(ctx: click.Context, param: click.Parameter, configs: tuple[str, ...]) -> None:
@@ -229,7 +398,8 @@ def set_default_config(ctx: click.Context, param: click.Parameter, configs: tupl
         for folder, name in ((AppDirs('pgsrip').user_config_dir, 'config'), (os.getcwd(), 'pgsrip'))
         for extension in CONFIG_EXTENSIONS
     ]
-    names = {p.name for p in ctx.command.params if isinstance(p, click.Option) and p is not param}
+    # the files hold rip options: a command with fewer options, e.g. doctor, reads only its own
+    names = {p.name for p in rip.get_params(ctx) if isinstance(p, click.Option) and p.name != param.name}
     default_map: dict[str, typing.Any] = {}
     for path in [p for p in found if os.path.isfile(p)] + list(configs):
         values = read_config(path)
@@ -261,8 +431,7 @@ def pgsrip() -> None:
     """Rip your PGS subtitles."""
 
 
-@pgsrip.command()
-@click.option(
+config_option = click.option(
     '--config',
     type=click.Path(exists=True, dir_okay=False),
     multiple=True,
@@ -271,6 +440,10 @@ def pgsrip() -> None:
     expose_value=False,
     help='pgsrip configuration file (.json, .yml or .yaml) with default option values (can be used multiple times).',
 )
+
+
+@pgsrip.command(cls=EngineCommand)
+@config_option
 @click.option('--cleanit-config', type=click.Path(), help='cleanit configuration path to be used')
 @click.option(
     '-l',
@@ -328,24 +501,17 @@ def pgsrip() -> None:
     '--max-workers',
     type=click.IntRange(1, 50),
     default=None,
-    help='Number of tesseract processes to run in parallel. Default: the number of CPUs, at most 4.',
+    help='Number of OCR jobs to run in parallel, e.g. tesseract processes. Default: the number of CPUs, at most 4.',
 )
 @click.option(
-    '--tessdata-dir',
-    type=click.Path(),
-    help='Directory where tesseract data is stored. Defaults to TESSDATA_PREFIX or a user cache directory.',
-)
-@click.option(
-    '--tessdata-repository',
-    type=click.Choice(sorted(REPOSITORIES)),
-    default=None,
-    help='Repository to download missing tesseract data from.',
-)
-@click.option(
-    '--no-tessdata-download',
-    is_flag=True,
-    default=False,
-    help='Do not download missing tesseract data, only use what is already installed.',
+    '--engine',
+    type=ENGINE,
+    multiple=True,
+    default=('tesseract',),
+    show_default=True,
+    help='OCR engine that reads the subtitle images: tesseract, or an engine of an installed plug-in. '
+    'Use it more than one time for a chain: each engine reads the cues that the engines before it '
+    'could not read or are not sure of.',
 )
 @click.option(
     '--keep-temp-files',
@@ -362,7 +528,10 @@ def pgsrip() -> None:
 )
 @click.option('-v', '--verbose', count=True, help='Display debug messages')
 @click.argument('path', type=click.Path(), required=True, nargs=-1)
+@click.pass_context
 def rip(
+    ctx: click.Context,
+    /,
     cleanit_config: str | None,
     language: tuple[Language] | None,
     tag: tuple[str] | None,
@@ -377,12 +546,11 @@ def rip(
     debug: bool,
     log_file: str | None,
     max_workers: int | None,
-    tessdata_dir: str | None,
-    tessdata_repository: str | None,
-    no_tessdata_download: bool,
+    engine: tuple[str, ...],
     keep_temp_files: bool,
     verbose: int,
     path: tuple[str],
+    **engine_params: typing.Any,
 ) -> None:
     """Rip the PGS subtitles of each media PATH into SRT."""
     try:
@@ -406,15 +574,12 @@ def rip(
         include_flags=frozenset(with_flags),
         exclude_flags=frozenset(without_flags),
         keep_temp_files=keep_temp_files,
-        max_workers=max_workers,
-        tessdata_dir=tessdata_dir,
-        tessdata_repository=tessdata_repository,
-        download_tessdata=not no_tessdata_download,
+        engines=create_engines(ctx),
         age=age,
         srt_age=srt_age,
     )
 
-    log_environment(options)
+    log_environment(ctx)
 
     rules = options.cleanit_config.select_rules(tags=options.tags, languages=options.languages)
     if not rules:
@@ -466,7 +631,8 @@ def rip(
         )
     click.echo(report)
 
-    download_tessdata(collected_pgs_medias, options)
+    if not prepare_engines(collected_pgs_medias, options):
+        raise SystemExit(1)
 
     pgs_progressbar = DebugProgressBar(
         debug or verbose > 1,
@@ -497,21 +663,12 @@ def rip(
     echo_failures(failures, log_file)
 
 
-@pgsrip.command()
-@click.option(
-    '--tessdata-dir',
-    type=click.Path(),
-    help='Directory where tesseract data is stored. Defaults to TESSDATA_PREFIX or a user cache directory.',
-)
-@click.option(
-    '--tessdata-repository',
-    type=click.Choice(sorted(REPOSITORIES)),
-    default=None,
-    help='Repository to download missing tesseract data from.',
-)
-def doctor(tessdata_dir: str | None, tessdata_repository: str | None) -> None:
+@pgsrip.command(cls=EngineCommand)
+@config_option
+@click.pass_context
+def doctor(ctx: click.Context, /, **engine_params: typing.Any) -> None:
     """Check that everything pgsrip needs is installed. Add the output to a bug report."""
-    checks = run_checks(Options(tessdata_dir=tessdata_dir, tessdata_repository=tessdata_repository))
+    checks = run_checks(engine_checks(ctx, installed_engines(ctx)))
     click.echo(format_checks(checks))
 
     failed = [check for check in checks if not check.ok]
@@ -604,7 +761,7 @@ def scrub(
 
     redaction = Redaction(redact)
     options = Options(languages=set(language or []), one_per_lang=not every_track, overwrite=True)
-    log_environment(options)
+    log_environment()
 
     collected_medias: list[Media] = []
     discarded_paths: list[str] = []
