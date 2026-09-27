@@ -2,7 +2,7 @@
 
 ## 1. Context
 
-`ripper.py`/`sources/mkv.py`'s core decode/OCR path had no regression coverage: `test_core.py` asserted
+`ripper.py`/`sources/mkvtoolnix.py`'s core decode/OCR path had no regression coverage: `test_core.py` asserted
 `srt_path` strings without ever ripping, `test_samples.py` decoded PGS without ever OCRing,
 `test_cli.py` was a 13-line `--help` smoke test. Nothing wrote an `.srt` and looked at it.
 
@@ -17,19 +17,19 @@ real.
   `mkvmerge`/`mkvextract` are only ever read from. `tests/samples/placeholder.en.sup` (a committed,
   non-copyrighted, synthetic 3-cue PGS stream) plus `scrub_display_sets(..., only=...)` is the payload;
   the container around it is fabricated.
-- `--all --one-per-language` silently ignores `--one-per-language`: `sources/mkv.py`'s dedup key is gated on
+- `--all --one-per-language` silently ignores `--one-per-language`: `sources/base.py`'s dedup key is gated on
   `options.one_per_lang`, and `--all` sets `one_per_lang = False`, so the `one_per_language` collapsing
   branch never runs. Pinned as-is in `test_all_silently_disables_one_per_language`, not fixed here.
-- `MkvPgs.__init__` creates a temp folder for every *candidate* track but `rip_pgs` only enters (and
-  therefore only cleans up) the ones it actually rips. The happy path leaves nothing behind; a track
-  that gets filtered, deduped, or excluded leaks its temp folder. `tempfile.tempdir` redirection (below)
-  keeps this from touching the real system temp dir; `test_no_temporary_folder_is_left_behind` only
-  covers the happy path.
+- A `Pgs` makes its temp folder on first use (`Pgs.temp_folder`), in the temp folder of the run
+  (`Options.temp_folder`). `rip_pgs` removes the track folder, and the CLI removes the run folder. A track that
+  gets filtered, deduped, or excluded makes no temp folder. `test_no_temporary_folder_is_left_behind`
+  covers the happy path, and `tests/test_core.py` covers a skipped track. `tempfile.tempdir` redirection
+  (below) keeps the tests from touching the real system temp dir.
 
 ## 3. Target design
 
 - **Hybrid media backend**, one fabrication API: `fake` (default) monkeypatches
-  `pgsrip.sources.mkv.check_output`; `real` actually muxes with `mkvmerge`. The same YAML scenarios run through
+  `pgsrip.sources.mkvtoolnix.check_output`; `real` actually muxes with `mkvmerge`. The same YAML scenarios run through
   both via `--media-backend {fake,real,both}` (`pytest_addoption`/`pytest_generate_tests` in
   `tests/conftest.py`).
 - **`tests/fabricate.py`**: the fabrication API, pytest-free (builds bytes, dicts and argv lists, so it
@@ -41,7 +41,7 @@ real.
   `TrackSpec.texts`/`confidences` for the items of the composite it receives (matched by identity, not
   pixels: the sample cues are identical bitmaps) instead of running tesseract; `mkvmerge_version`/`mkvmerge_args`/`fabricate_real` drive the real backend.
 - **YAML scenarios** (`tests/test_rip_e2e.yml`), loaded with the existing `from_yaml()` helper and fed
-  to `@pytest.mark.parametrize`, the `tests/test_mkvtrack.py` pattern. Each scenario asserts both the
+  to `@pytest.mark.parametrize`, the `tests/test_track.py` pattern. Each scenario asserts both the
   set of files written and their content (cue count, timings, text), and that nothing else appeared in
   the directory (catches stray `.sup` extracts and leftover temp files).
 - **No autouse fixtures in `conftest.py`.** `tesseract_data`/`isolated_environment` are module-local to
@@ -116,5 +116,4 @@ pre-existing gap) and nothing in the repo still claims the OCR path is untested.
 - No `TIMING_TOLERANCE_MS` was needed: `mkvextract`'s regenerated display sets produced the same
   timings as the fake backend for the one scenario compared directly
   (`pytest tests/test_rip_e2e.py --media-backend both -k "single and english and track"`).
-- `--all --one-per-language` and the `MkvPgs` temp-folder leak on non-happy paths are pinned/noted as
-  found, not fixed, per the plan.
+- `--all --one-per-language` is pinned as found, not fixed, per the plan.

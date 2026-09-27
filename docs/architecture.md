@@ -11,8 +11,17 @@
 - `postprocessors/cleanit.py` — `CleanitPostProcessor`, the default post-processor: the cleanit rules of the track language.
 - `media.py` — `Pgs`/`PgsSubtitleItem`: per-item bookkeeping (timing, offsets,
   image cropped to its ink), corrupted-data auto-fix (see `docs/corrupted_data.md`).
-- `sources/base.py` — `Media`: the abstract media container.
-- `sources/mkv.py` / `sources/sup.py` — `Media` subclasses for `.mkv`/`.mks` (`mkvmerge`/`mkvextract`) and `.sup`.
+- `sources/base.py` — `Track`, the `Source` protocol, and `Media`. A source is a tool that reads the PGS tracks of
+  some file extensions. `Track.create` merges the container facts with the guess from the track name. `Media`
+  picks the source and has the track selection (languages, flags, one per language, `.track<n>`) for all sources.
+  `Extraction`: on the first read of a track, one call of the source extracts all the selected tracks of the
+  file, each one into the temp folder of its `Pgs`. When the call fails, each track raises the same error.
+- `sources/__init__.py` — `SOURCES`: the built-in sources, in order of preference. `Media` uses the first one that
+  reads the file. `source_checks` gives the lines of `pgsrip doctor`.
+- `sources/mkvtoolnix.py` — `MkvToolNixSource` for `.mkv`/`.mks`: `mkvmerge` finds the tracks, `mkvextract` writes
+  them.
+- `sources/raw.py` — `RawSource` for `.sup`: the file is the data of its only track. The file name gives the
+  language and the flags.
 - `media_path.py` — filename parsing/generation (language, track number, extension).
 - `formats/pgs.py` — binary PGS segment format: PDS/ODS/PCS/WDS/END parsing, RLE image decoding. Format-spec-heavy;
   malformed input is the norm (see `docs/corrupted_data.md`).
@@ -33,12 +42,13 @@
   RapidOCR checks, but they are not failures.
 - `engines/tsv.py` — typed wrapper over pytesseract TSV (`TsvData`/`TsvDataItem`).
 - `options.py` — `Options` config object threaded through the pipeline. `Options.engines` holds the OCR
-  engines, and `Options.post_processors` the post-processors, in chain order.
+  engines, and `Options.post_processors` the post-processors, in chain order. `Options.temp_folder` is the
+  temporary folder of the run. Its `with` block removes the folder at the end.
 - `engines/tessdata.py` — tesseract language codes and `.traineddata` lookup/download (`Tessdata`). `available` tells
   if tesseract has or can get a model (`TesseractEngine.supports`).
 - `track_flags.py` — `TrackFlags`: track flags (forced, SDH, commentary, ...), their filename tokens and the
   `--with`/`--without` filter.
 - `formats/scrub.py` — makes a small, redacted copy of a PGS track so a reporter can share a bug sample.
-- `diagnostics.py` — environment checks (MKVToolNix, package versions) for bug reports. Each OCR engine and
+- `diagnostics.py` — environment checks (package versions) for bug reports. Each source, OCR engine, and
   post-processor adds its own checks with a `check` classmethod, e.g. `TesseractEngine.check`.
 - `utils.py` — binary/time helpers (`from_hex`, `safe_get`, `to_time`, `pairwise`), `default_workers`, `split_lines`.

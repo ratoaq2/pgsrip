@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import shutil
+import tempfile
 import typing
 from types import TracebackType
 
@@ -17,6 +18,9 @@ from pgsrip.formats.pgs import DisplaySet, Palette, PgsImage, PgsReader
 from pgsrip.media_path import MediaPath
 from pgsrip.options import Options
 from pgsrip.utils import pairwise
+
+if typing.TYPE_CHECKING:
+    from pgsrip.sources.base import Track
 
 logger = logging.getLogger(__name__)
 
@@ -166,19 +170,37 @@ class PgsSubtitleItem:
 
 class Pgs:
     def __init__(
-        self, media_path: MediaPath, options: Options, data_reader: typing.Callable[[], bytes], temp_folder: str
+        self,
+        media_path: MediaPath,
+        options: Options,
+        data_reader: typing.Callable[[], bytes],
+        temp_folder: str | None = None,
+        track: Track | None = None,
     ):
         self.media_path = media_path
         # the file to point a bug report at, which is not the media path of an extracted track
         self.source_path = media_path
         self.options = options
         self.data_reader = data_reader
-        self.temp_folder = temp_folder
+        self._temp_folder = temp_folder
+        self.track = track
         self._items: list[PgsSubtitleItem] | None = None
 
     @property
     def language(self) -> Language:
         return self.media_path.language
+
+    @property
+    def temp_folder(self) -> str:
+        """The folder for the extracted track and the debug files, in the temporary folder of the run.
+
+        It is made on first use. The unique suffix prevents a clash between 2 files with the same name.
+        """
+        if self._temp_folder is None:
+            name = os.path.splitext(os.path.basename(str(self.media_path)))[0]
+            self._temp_folder = tempfile.mkdtemp(prefix=f'{name}-', dir=self.options.temp_folder)
+            logger.debug('%s is using temporary folder %s', self, self._temp_folder)
+        return self._temp_folder
 
     @property
     def srt_path(self) -> MediaPath:
@@ -224,6 +246,10 @@ class Pgs:
         return f'<{self.__class__.__name__} [{self}]>'
 
     def __str__(self) -> str:
+        # a track of a container: the file name, the track id, and the language
+        if self.track is not None and str(self.source_path) != str(self.media_path):
+            return f'{self.media_path.translate(language=Language("und"))} [{self.track.id}:{self.language}]'
+
         return str(self.media_path)
 
     def __enter__(self) -> Pgs:
@@ -233,8 +259,8 @@ class Pgs:
         self, exc_type: type[BaseException] | None, exc: BaseException | None, traceback: TracebackType | None
     ) -> None:
         self._items = None
-        if self.options.keep_temp_files:
-            logger.info('Keeping temporary files in %s', self.temp_folder)
-        else:
-            logger.debug('Removing temporary files in %s', self.temp_folder)
-            shutil.rmtree(self.temp_folder)
+        if self._temp_folder is None or self.options.keep_temp_files:
+            return
+
+        logger.debug('Removing temporary files in %s', self._temp_folder)
+        shutil.rmtree(self._temp_folder)

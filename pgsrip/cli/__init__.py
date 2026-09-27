@@ -36,6 +36,7 @@ from pgsrip.engines.auto import check_auto
 from pgsrip.engines.base import OcrError
 from pgsrip.formats.scrub import Redaction, output_path, scrub_data
 from pgsrip.options import Options
+from pgsrip.sources import source_checks
 from pgsrip.sources.base import Media
 from pgsrip.track_flags import FLAG_CHOICES
 
@@ -199,13 +200,13 @@ def log_environment(ctx: click.Context | None = None) -> None:
     if not logger.isEnabledFor(logging.DEBUG):
         return
 
-    checks = (
-        plugin_checks(ctx, ENGINE_KIND, engine_names(ctx.params))
-        + ([check_auto()] if ctx.params['engine'] == (AUTO,) else [])
-        + plugin_checks(ctx, POST_PROCESSOR_KIND, post_processor_names(ctx.params))
-        if ctx
-        else None
-    )
+    checks = source_checks()
+    if ctx:
+        checks += (
+            plugin_checks(ctx, ENGINE_KIND, engine_names(ctx.params))
+            + ([check_auto()] if ctx.params['engine'] == (AUTO,) else [])
+            + plugin_checks(ctx, POST_PROCESSOR_KIND, post_processor_names(ctx.params))
+        )
     for line in format_checks(run_checks(checks)).splitlines():
         logger.info(line)
 
@@ -433,19 +434,22 @@ def rip(
         click.echo(click.style(f'Cannot write the log file: {e}', fg='red'))
         return
 
-    options = Options(
-        languages=set(language or []),
-        encoding=encoding,
-        overwrite=force,
-        one_per_lang=not all,
-        one_per_language=one_per_language,
-        include_flags=frozenset(with_flags),
-        exclude_flags=frozenset(without_flags),
-        keep_temp_files=keep_temp_files,
-        engines=create_engines(ctx),
-        post_processors=create_post_processors(ctx),
-        age=age,
-        srt_age=srt_age,
+    # the temporary folder of the run is removed when the command ends, also on an error
+    options = ctx.with_resource(
+        Options(
+            languages=set(language or []),
+            encoding=encoding,
+            overwrite=force,
+            one_per_lang=not all,
+            one_per_language=one_per_language,
+            include_flags=frozenset(with_flags),
+            exclude_flags=frozenset(without_flags),
+            keep_temp_files=keep_temp_files,
+            engines=create_engines(ctx),
+            post_processors=create_post_processors(ctx),
+            age=age,
+            srt_age=srt_age,
+        )
     )
 
     log_environment(ctx)
@@ -541,6 +545,7 @@ def doctor(ctx: click.Context, /, **plugin_params: typing.Any) -> None:
     other_engines = [name for name in installed_plugins(ctx, ENGINE_KIND) if name not in AUTO_ENGINES]
     checks = run_checks(
         [
+            *source_checks(),
             *auto_checks,
             auto,
             *plugin_checks(ctx, ENGINE_KIND, other_engines),
@@ -638,7 +643,9 @@ def scrub(
         return
 
     redaction = Redaction(redact)
-    options = Options(languages=set(language or []), one_per_lang=not every_track, overwrite=True)
+    options = click.get_current_context().with_resource(
+        Options(languages=set(language or []), one_per_lang=not every_track, overwrite=True)
+    )
     log_environment()
 
     collected_medias: list[Media] = []

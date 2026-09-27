@@ -68,6 +68,8 @@ def test_run_checks_reports_the_versions_and_the_engine_checks():
     assert checks['pgsrip'].ok
     assert 'python' in checks
     assert not checks['myocr'].ok
+    # the sources add their own checks
+    assert 'mkvmerge' not in checks
 
 
 def test_format_checks_aligns_the_values():

@@ -69,6 +69,7 @@ A subtitle track can have flags. pgsrip knows these flags, in this order: `force
 - `--without FLAG` does not rip a track that has one of the given flags.
 - When a track matches both options, `--without` has priority.
 - You can use each option more than one time.
+- For a `.sup` file, the flags come from the file name, for example `mymedia.en.forced.sup`.
 
 ```bash
 pgsrip --with forced --with full mymedia.mkv
@@ -313,7 +314,9 @@ cleanit:
 
 ### The cues as JSON
 
-With `--keep-temp-files`, pgsrip writes 2 files in the temporary folder of each track:
+Each run has one temporary folder `pgsrip-XXXX` in the system temporary directory. It holds one folder for each
+track, for example `mymedia.en-XXXX`. With `--keep-temp-files`, pgsrip keeps them, and it writes 2 files in the
+folder of each track:
 
 - `ocr.json`: the cues after the chain of OCR engines.
 - `cues.json`: the cues after the chain of post-processors.

@@ -122,7 +122,7 @@ def track_json(spec: TrackSpec, track_id: int) -> dict[str, typing.Any]:
 class FakeMkvToolNix:
     """Answers `mkvmerge`/`mkvextract` invocations for registered media.
 
-    It takes the place of `pgsrip.sources.mkv.check_output`.
+    It takes the place of `pgsrip.sources.mkvtoolnix.check_output`.
     """
 
     def __init__(self) -> None:
@@ -142,13 +142,14 @@ class FakeMkvToolNix:
 
         if cmd[0] == 'mkvextract':
             spec = self._spec(cmd[1])
-            # `MkvPgs.read_data` builds `f'{id}:{sup_file}'`; on Windows `sup_file` starts with `C:\`, so
+            # `mkvextract <path> tracks id:sup_file ...`; on Windows `sup_file` starts with `C:\`, so
             # partition instead of split.
-            id_str, _, out_file = cmd[-1].partition(':')
-            track_id = int(id_str)
-            track = next(t for i, t in enumerate(spec.tracks) if _track_id(t, i) == track_id)
-            with open(out_file, mode='wb') as f:
-                f.write(payload(track.cues))
+            for target in cmd[3:]:
+                id_str, _, out_file = target.partition(':')
+                track_id = int(id_str)
+                track = next(t for i, t in enumerate(spec.tracks) if _track_id(t, i) == track_id)
+                with open(out_file, mode='wb') as f:
+                    f.write(payload(track.cues))
             return b''
 
         raise ValueError(f'Unexpected command: {cmd}')
@@ -157,8 +158,8 @@ class FakeMkvToolNix:
 def fabricate_fake(
     media_dir: str, media_specs: list[MediaSpec], toolnix: FakeMkvToolNix, monkeypatch: typing.Any
 ) -> None:
-    """Register every media under media_dir with toolnix, and point `pgsrip.sources.mkv.check_output` at it."""
-    monkeypatch.setattr('pgsrip.sources.mkv.check_output', toolnix.check_output)
+    """Register every media under media_dir with toolnix, and point `pgsrip.sources.mkvtoolnix.check_output` at it."""
+    monkeypatch.setattr('pgsrip.sources.mkvtoolnix.check_output', toolnix.check_output)
     for spec in media_specs:
         path = os.path.join(media_dir, spec.name)
         # `core.scan_path` calls `os.path.isfile`, so a real (empty) file has to exist on disk.
@@ -216,7 +217,7 @@ class FakeTesseract:
 
     def _track_spec_for(self, pgs: typing.Any) -> TrackSpec:
         spec = self.toolnix._spec(str(pgs.source_path))
-        track_id = pgs.track_id
+        track_id = pgs.track.id
         for i, t in enumerate(spec.tracks):
             if _track_id(t, i) == track_id:
                 return t

@@ -1,4 +1,10 @@
+from __future__ import annotations
+
+import logging
+import shutil
+import tempfile
 from datetime import timedelta
+from types import TracebackType
 
 from babelfish import Language
 
@@ -7,8 +13,12 @@ from pgsrip.engines.base import OcrEngine
 from pgsrip.postprocessors.base import PostProcessor
 from pgsrip.postprocessors.cleanit import CleanitPostProcessor
 
+logger = logging.getLogger(__name__)
+
 
 class Options:
+    """The options of one run. Use it in a `with` block to remove the temporary folder of the run at the end."""
+
     def __init__(
         self,
         languages: set[Language] | None = None,
@@ -40,6 +50,31 @@ class Options:
         )
         self.age = age
         self.srt_age = srt_age
+        self._temp_folder: str | None = None
+
+    @property
+    def temp_folder(self) -> str:
+        """The temporary folder of the run: it holds one folder for each track. It is made on first use."""
+        if self._temp_folder is None:
+            self._temp_folder = tempfile.mkdtemp(prefix='pgsrip-')
+            logger.debug('Using temporary folder %s', self._temp_folder)
+        return self._temp_folder
+
+    def __enter__(self) -> Options:
+        return self
+
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc: BaseException | None, traceback: TracebackType | None
+    ) -> None:
+        if self._temp_folder is None:
+            return
+
+        if self.keep_temp_files:
+            logger.info('Keeping temporary files in %s', self._temp_folder)
+        else:
+            logger.debug('Removing temporary files in %s', self._temp_folder)
+            shutil.rmtree(self._temp_folder)
+        self._temp_folder = None
 
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__} [{self}]>'

@@ -1,17 +1,13 @@
 from __future__ import annotations
 
-import logging
 import os
 import re
-import tempfile
 from copy import copy
 from datetime import datetime, timedelta
 
 from babelfish import Language
 
 from pgsrip.track_flags import TrackFlags
-
-logger = logging.getLogger(__name__)
 
 #: trailing `.track<n>` token: a 1-based ordinal (2, 3, ...) among colliding tracks, breaking a naming
 #: collision; the first (lowest-id) track of a group stays unlabeled.
@@ -72,12 +68,6 @@ class MediaPath:
     @property
     def m_age(self) -> timedelta:
         return datetime.utcnow() - datetime.utcfromtimestamp(os.path.getmtime(str(self)))
-
-    def create_temp_folder(self) -> str:
-        base_name = os.path.basename(str(self))
-        temp_folder = tempfile.mkdtemp(prefix=base_name, suffix='.pgsrip')
-        logger.debug('%s is using temporary folder %s', self, temp_folder)
-        return temp_folder
 
     def get_data(self) -> bytes:
         with open(str(self), 'rb') as f:

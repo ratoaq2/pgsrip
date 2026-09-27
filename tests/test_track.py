@@ -1,6 +1,6 @@
 import pytest
 
-from pgsrip.sources.mkv import MkvTrack
+from pgsrip.sources.mkvtoolnix import track_from_json
 from pgsrip.track_flags import TrackFlags
 
 from . import from_yaml
@@ -18,7 +18,7 @@ def test_scenarios(track, expected):
     # given
 
     # when
-    actual = MkvTrack(track)
+    actual = track_from_json(track)
 
     # then
     assert actual.to_dict() == expected
@@ -41,18 +41,18 @@ def _pgs_track(**properties):
 
 
 def test_flags_builds_a_track_flags_from_container_and_guessed_attributes():
-    track = MkvTrack(_pgs_track(flag_hearing_impaired=True, flag_commentary=True, track_name='English'))
+    track = track_from_json(_pgs_track(flag_hearing_impaired=True, flag_commentary=True, track_name='English'))
 
     assert track.flags == TrackFlags(hearing_impaired=True, commentary=True)
 
 
 def test_flags_prefers_the_container_flag_over_a_conflicting_name_guess():
-    track = MkvTrack(_pgs_track(forced_track=False, track_name='Forced'))
+    track = track_from_json(_pgs_track(forced_track=False, track_name='Forced'))
 
     assert track.flags == TrackFlags(forced=True)
 
 
 def test_flags_is_empty_when_nothing_is_set():
-    track = MkvTrack(_pgs_track(track_name='English'))
+    track = track_from_json(_pgs_track(track_name='English'))
 
     assert track.flags == TrackFlags()

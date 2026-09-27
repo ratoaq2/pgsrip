@@ -75,6 +75,20 @@
     `PostProcessor` and `PostProcessorFactory` from
     `pgsrip.postprocessors.base`. The OCR engines are in `pgsrip.engines`, and
     the post-processors are in `pgsrip.postprocessors`
+  - Breaking: library: `Mkv` and `Sup` are removed. Use
+    `Media('/path/mymedia.mkv')`: it finds the source that reads the file.
+    `Media.get_pgs_medias` returns a list
+  - Changed: `--with` and `--without` also apply to `.sup` files. The flags
+    come from the file name, for example `mymedia.en.forced.sup`
+  - Changed: pgsrip extracts all the selected tracks of a file with one
+    `mkvextract` call. Before, each track read the full file again
+  - Fix: a track that pgsrip did not rip left its temporary folder
+  - Changed: one temporary folder `pgsrip-XXXX` for each run, with one folder
+    for each track in it. Library: use `with Options(...) as options:` to
+    remove it at the end
+  - Changed: `-l/--language` looks only at the languages of the PGS tracks of
+    a media, not at the audio and video tracks. A media with no PGS track in
+    the selected languages is now filtered out, with its reason
   - Fix: a track with 20 or more cues that tesseract could not read made the
     rip run forever
   - Fixed: `pgsrip` requires click 8.5.0 or later, so `click.ParamType` stays
