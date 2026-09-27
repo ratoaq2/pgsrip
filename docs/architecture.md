@@ -18,7 +18,8 @@
 - `ripper.py` — `OcrEngine` protocol, `OcrEngineFactory` protocol and `PluginOption` (the options that an
   engine or a post-processor declares for the CLI), `Cue`, `create_srt`, and `PgsToSrtRipper`: asks a chain
   of OCR engines for the text of each item, and returns the cues. Each engine gets the items that the
-  engines before it left unread or doubtful. It does not know which engines run.
+  engines before it left unread or doubtful. It skips the engines that cannot read the language of the track.
+  It does not know which engines run.
 - `tesseract.py` — `TesseractEngine`, the default engine: OCR batching (see `docs/ocr_batching.md`), tesseract
   TSV → item text and confidence (`accept`).
 - `tsv.py` — typed wrapper over pytesseract TSV (`TsvData`/`TsvDataItem`).

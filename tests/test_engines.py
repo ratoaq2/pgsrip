@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import importlib.metadata
 import shutil
 import tempfile
@@ -10,23 +11,23 @@ import typing
 
 import pysrt
 import pytest
+from babelfish import Language
 from click.testing import CliRunner
 
 from pgsrip.cli import ENGINE_ENTRY_POINTS, pgsrip
 from pgsrip.diagnostics import Check
-from pgsrip.ripper import PluginOption
+from pgsrip.options import Options
+from pgsrip.ripper import OcrEngine, PgsToSrtRipper, PluginOption
 from pgsrip.tesseract import TesseractEngine
 from pgsrip.tsv import TsvData
 
 from .fabricate import SAMPLE
 
 if typing.TYPE_CHECKING:
-    from babelfish import Language
-
     from pgsrip.media import Pgs, PgsSubtitleItem
 
 
-class PluginEngine:
+class PluginEngine(OcrEngine):
     """An engine of another package: it reads every cue as 'Plugin <index>'."""
 
     #: the item indexes of each recognize call
@@ -49,6 +50,9 @@ class PluginEngine:
     ) -> None:
         pass
 
+    def supports(self, language: Language) -> bool:
+        return True
+
     def recognize(self, pgs: Pgs, items: list[PgsSubtitleItem]) -> None:
         PluginEngine.calls.append([item.index for item in items])
         for item in items:
@@ -60,6 +64,24 @@ class BlindEngine(PluginEngine):
 
     def recognize(self, pgs: Pgs, items: list[PgsSubtitleItem]) -> None:
         PluginEngine.calls.append([item.index for item in items])
+
+
+class EnglishEngine(PluginEngine):
+    """An engine of another package that reads only English, as 'English <index>'."""
+
+    def supports(self, language: Language) -> bool:
+        return bool(language == Language('eng'))
+
+    def recognize(self, pgs: Pgs, items: list[PgsSubtitleItem]) -> None:
+        for item in items:
+            item.text = f'English {item.index}'
+
+
+class RoutingEngine(BlindEngine):
+    """An engine that gives the plug-in engine for each language, and reads nothing itself."""
+
+    def engine_for(self, language: Language) -> PluginEngine:
+        return PluginEngine()
 
 
 class TunedEngine(PluginEngine):
@@ -114,6 +136,7 @@ def plugins(monkeypatch: pytest.MonkeyPatch) -> None:
     entry_points = [
         importlib.metadata.EntryPoint('plugin', f'{__name__}:PluginEngine', ENGINE_ENTRY_POINTS),
         importlib.metadata.EntryPoint('blind', f'{__name__}:BlindEngine', ENGINE_ENTRY_POINTS),
+        importlib.metadata.EntryPoint('english', f'{__name__}:EnglishEngine', ENGINE_ENTRY_POINTS),
         importlib.metadata.EntryPoint('tuned', f'{__name__}:TunedEngine', ENGINE_ENTRY_POINTS),
         importlib.metadata.EntryPoint('remote', f'{__name__}:RemoteEngine', ENGINE_ENTRY_POINTS),
         importlib.metadata.EntryPoint('broken', f'{__name__}:MissingEngine', ENGINE_ENTRY_POINTS),
@@ -153,8 +176,15 @@ def rip(*args: str) -> typing.Any:
     return CliRunner().invoke(pgsrip, ['rip', *args])
 
 
-def read_texts(media_dir: typing.Any) -> list[str]:
-    return [item.text for item in pysrt.open(str(media_dir / 'placeholder.en.srt'), encoding='utf-8')]
+def read_texts(media_dir: typing.Any, name: str = 'placeholder.en.srt') -> list[str]:
+    return [item.text for item in pysrt.open(str(media_dir / name), encoding='utf-8')]
+
+
+@pytest.fixture
+def hebrew_track(media_dir: typing.Any) -> typing.Any:
+    """A second track of the placeholder sample, in Hebrew."""
+    shutil.copy(SAMPLE, media_dir / 'placeholder.he.sup')
+    return media_dir / 'placeholder.he.srt'
 
 
 def test_a_plugin_engine_rips_the_cues(media_dir: typing.Any) -> None:
@@ -204,11 +234,68 @@ def test_a_plugin_cannot_replace_a_built_in_engine(media_dir: typing.Any) -> Non
     assert read_texts(media_dir) == ['Plugin 0', 'Plugin 1', 'Plugin 2']
 
 
+def test_the_chain_skips_an_engine_that_cannot_read_the_language(
+    media_dir: typing.Any, hebrew_track: typing.Any
+) -> None:
+    result = rip('--engine', 'english', '--engine', 'plugin', str(media_dir))
+
+    # the plug-in engine has no supports method: it reads all languages
+    assert result.exit_code == 0, result.output
+    assert 'EnglishEngine cannot read he' in result.output
+    assert read_texts(media_dir) == ['English 0', 'English 1', 'English 2']
+    assert read_texts(media_dir, hebrew_track.name) == ['Plugin 0', 'Plugin 1', 'Plugin 2']
+
+
+def test_a_track_that_no_engine_can_read_fails_and_the_other_tracks_rip(
+    media_dir: typing.Any, hebrew_track: typing.Any
+) -> None:
+    result = rip('--engine', 'english', str(media_dir))
+
+    assert 'No OCR engine of the chain can read he' in result.output
+    assert read_texts(media_dir) == ['English 0', 'English 1', 'English 2']
+    assert not hebrew_track.exists()
+
+
+def test_the_last_engine_keeps_its_doubtful_cues_when_the_next_engine_cannot_read_the_language(
+    media_dir: typing.Any, hebrew_track: typing.Any, fake_tesseract: list[int]
+) -> None:
+    fake_tesseract.extend([0, 1, 2])
+
+    result = rip('--engine', 'tesseract', '--engine', 'english', str(media_dir))
+
+    assert result.exit_code == 0, result.output
+    assert read_texts(media_dir) == ['English 0', 'English 1', 'English 2']
+    assert read_texts(media_dir, hebrew_track.name) == ['Tesseract 0', 'Tesseract 1', 'Tesseract 2']
+
+
+@dataclasses.dataclass(eq=False)
+class FakeItem:
+    """A subtitle item with ink, for the ripper."""
+
+    index: int = 0
+    start: None = None
+    end: None = None
+    height: int = 1
+    text: str | None = None
+    doubtful: bool = False
+    confidence: float | None = None
+
+
+def test_the_chain_uses_the_engine_that_engine_for_gives() -> None:
+    item = FakeItem()
+    pgs: typing.Any = types.SimpleNamespace(items=[item], language=Language('eng'))
+
+    cues = PgsToSrtRipper(pgs, Options(engines=[RoutingEngine()])).rip()
+
+    assert [(cue.text, cue.engine) for cue in cues] == [('Plugin 0', 'PluginEngine')]
+    assert PluginEngine.calls == [[0]]
+
+
 def test_an_unknown_engine_is_rejected(media_dir: typing.Any) -> None:
     result = rip('--engine', 'nope', str(media_dir))
 
     assert result.exit_code == 2
-    assert 'nope is not an OCR engine. Choose from: tesseract, plugin, blind, tuned, remote' in result.output
+    assert 'nope is not an OCR engine. Choose from: tesseract, plugin, blind, english, tuned, remote' in result.output
 
 
 def test_an_engine_is_rejected_the_second_time(media_dir: typing.Any) -> None:

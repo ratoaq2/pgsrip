@@ -17,7 +17,7 @@ import numpy.typing as npt
 import pytesseract as tess
 
 from pgsrip.diagnostics import Check
-from pgsrip.ripper import PluginOption
+from pgsrip.ripper import OcrEngine, PluginOption
 from pgsrip.tessdata import (
     REPOSITORIES,
     Tessdata,
@@ -244,7 +244,7 @@ def check_tessdata(tessdata: Tessdata) -> list[Check]:
     return checks
 
 
-class TesseractEngine:
+class TesseractEngine(OcrEngine):
     """The default OCR engine. One engine reads all the tracks of a rip."""
 
     options: typing.ClassVar[tuple[PluginOption, ...]] = (
@@ -332,6 +332,9 @@ class TesseractEngine:
         except TessdataError as e:
             if reporter:
                 reporter(str(e))
+
+    def supports(self, language: Language) -> bool:
+        return True
 
     def recognize(self, pgs: Pgs, items: list[PgsSubtitleItem]) -> None:
         max_height = max([item.height for item in pgs.items]) // 2

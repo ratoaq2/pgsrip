@@ -447,12 +447,18 @@ def prepare_engines(pgs_medias: list[Pgs], options: Options) -> bool:
     if not pgs_medias:
         return True
 
+    languages = list(dict.fromkeys(pgs.language for pgs in pgs_medias))
     try:
         for engine in options.engines:
-            engine.prepare([pgs.language for pgs in pgs_medias], reporter=click.echo)
+            engine.prepare(languages, reporter=click.echo)
     except OcrError as e:
         click.echo(click.style(str(e), fg='red'))
         return False
+
+    for engine in options.engines:
+        unsupported = sorted(str(language) for language in languages if engine.engine_for(language) is None)
+        if unsupported:
+            click.echo(f'{type(engine).__name__} cannot read {", ".join(unsupported)}')
 
     return True
 

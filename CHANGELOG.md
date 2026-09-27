@@ -9,7 +9,9 @@
   - New: other packages can add an OCR engine with a `pgsrip.engines` entry
     point. The engine declares its options: pgsrip adds them to `rip` as
     `--<engine>-*` options and reads them from the `<engine>` section of the
-    configuration file
+    configuration file. The engine tells the languages that it can read
+    (`supports`). The chain skips an engine that cannot read the language of
+    a track. When no engine can read it, the track fails
   - New: `doctor` shows the checks of every OCR engine. It accepts `--config`
     and the `--<engine>-*` options
   - New: `--tesseract-workers` sets the number of tesseract processes. It

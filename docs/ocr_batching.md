@@ -32,6 +32,11 @@ item: the per-call cost (process start, model load) is what batching avoids.
 first engine. Each next engine gets only the items that are still unread (`item.text is None`) or doubtful
 (`item.doubtful`). An engine failure (`OcrError`) fails the track.
 
+- Before the first engine, the ripper replaces each engine with `engine.engine_for(pgs.language)`, and removes
+  the `None` results. By default, `engine_for` gives the engine itself when `supports` is `True`, else `None`.
+  When no engine is left, the track fails with `OcrError`. The cues and the times use the name of the returned
+  engine.
+- A doubtful cue keeps its text when no next engine reads it, also when the ripper removed the next engines.
 - `TesseractEngine.accept` marks a cue as doubtful when its lowest word confidence is below `threshold`
   (`--tesseract-threshold`, default 80). The retry passes do not use this threshold. It also sets
   `item.confidence` to this lowest word confidence divided by 100.

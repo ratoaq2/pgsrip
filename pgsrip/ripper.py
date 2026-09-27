@@ -21,7 +21,10 @@ class OcrError(Exception):
 
 
 class OcrEngine(typing.Protocol):
-    """Reads the text of subtitle bitmaps: `pgsrip.tesseract.TesseractEngine` is the default engine."""
+    """Reads the text of subtitle bitmaps: `pgsrip.tesseract.TesseractEngine` is the default engine.
+
+    Subclass it to get the default `engine_for`.
+    """
 
     def prepare(
         self, languages: typing.Iterable[Language], reporter: typing.Callable[[str], None] | None = None
@@ -30,6 +33,17 @@ class OcrEngine(typing.Protocol):
 
         Raise OcrError only when the engine cannot rip at all: the rip then stops before it starts.
         """
+
+    def supports(self, language: Language) -> bool:
+        """True when the engine can read this language. pgsrip calls it after `prepare`."""
+
+    def engine_for(self, language: Language) -> OcrEngine | None:
+        """The engine that reads a track in this language, or None when no engine can read it.
+
+        The default is this engine when it supports the language. An engine that sends each language to another
+        engine overrides it.
+        """
+        return self if self.supports(language) else None
 
     def recognize(self, pgs: Pgs, items: list[PgsSubtitleItem]) -> None:
         """Set the text of each item, or leave it None when it cannot be read. Raise OcrError on failure.
@@ -117,10 +131,15 @@ class PgsToSrtRipper:
             # a track with no image is corrupted: do not write an empty srt as if it was ripped
             raise ValueError(f'No subtitle image in {self.pgs}')
 
+        language = self.pgs.language
+        chain = [e for e in (engine.engine_for(language) for engine in self.engines) if e is not None]
+        if not chain:
+            raise OcrError(f'No OCR engine of the chain can read {language}')
+
         # an item with no ink has no text to read
         items = [item for item in self.pgs.items if item.height]
         engines: dict[PgsSubtitleItem, str] = {}
-        for engine in self.engines:
+        for engine in chain:
             pending = [
                 (item, item.text, item.doubtful, item.confidence)
                 for item in items
