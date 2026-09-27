@@ -77,6 +77,8 @@
     the post-processors are in `pgsrip.postprocessors`
   - Fix: a track with 20 or more cues that tesseract could not read made the
     rip run forever
+  - Fixed: `pgsrip` requires click 8.5.0 or later, so `click.ParamType` stays
+    subscriptable
 
 ## 0.2.1
 
