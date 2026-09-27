@@ -140,6 +140,8 @@ class Tessdata:
         self.timeout = timeout
         self._target_dir: str | None = None
         self._installed_codes: set[str] | None = None
+        #: tesseract was asked for its languages: a failure is not asked again
+        self._queried = False
 
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__} [{self}]>'
@@ -158,16 +160,15 @@ class Tessdata:
     @property
     def installed_codes(self) -> set[str] | None:
         """Models tesseract already finds on its own, or None when tesseract cannot be queried."""
-        if self._installed_codes is None:
+        if not self._queried:
+            self._queried = True
             try:
-                codes: set[str] = set(tess.get_languages())
+                self._installed_codes = set(tess.get_languages())
             except Exception as e:
                 # tesseract itself is missing or broken: downloading data would not help
                 logger.warning('Cannot list installed tesseract languages: <%s> %s', type(e).__name__, e)
-                return None
-
-            logger.debug('Tesseract has %d languages installed', len(codes))
-            self._installed_codes = codes
+            else:
+                logger.debug('Tesseract has %d languages installed', len(self._installed_codes))
 
         return self._installed_codes
 
