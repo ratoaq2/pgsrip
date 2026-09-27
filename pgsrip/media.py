@@ -38,6 +38,8 @@ class PgsSubtitleItem:
         self.text: str | None = None
         # the OCR engine is not sure of the text: the next engine of the chain reads the item again
         self.doubtful = False
+        # from 0 to 1, None when the OCR engine gives no confidence
+        self.confidence: float | None = None
         self.place: tuple[int, int, int, int] | None = None
 
     @staticmethod

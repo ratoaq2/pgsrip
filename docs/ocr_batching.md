@@ -33,9 +33,13 @@ first engine. Each next engine gets only the items that are still unread (`item.
 (`item.doubtful`). An engine failure (`OcrError`) fails the track.
 
 - `TesseractEngine.accept` marks a cue as doubtful when its lowest word confidence is below `threshold`
-  (`--tesseract-threshold`, default 80). The retry passes do not use this threshold.
+  (`--tesseract-threshold`, default 80). The retry passes do not use this threshold. It also sets
+  `item.confidence` to this lowest word confidence divided by 100.
 - Before the next engine, the ripper clears the text of the items that it gives to that engine. When the
-  engine gives no text for an item, the ripper puts back the text of the engine before it. No text is lost.
+  engine gives no text for an item, the ripper puts back the text, the doubtful flag, and the confidence of the
+  engine before it. No text is lost.
+- `PgsToSrtRipper.rip` returns a `Cue` for each item, with the engine that gave its text. The post-processors
+  run after the whole chain (see `docs/usage.md`, "Post-processors").
 - Measured on 2 real tracks: a lowest word confidence below 80 is 8.5 % and 4.5 % of the cues. It finds
   some tesseract errors, not all: tesseract can be wrong with a high confidence.
 - Do not use a floor on the retry passes for this. The last pass accepts every word with a confidence of 1

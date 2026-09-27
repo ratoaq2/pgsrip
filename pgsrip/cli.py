@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import importlib.metadata
 import json
 import logging
@@ -17,10 +18,12 @@ from babelfish import Language
 from click.core import ParameterSource
 
 from pgsrip import Pgs, __url__, __version__, api
+from pgsrip.cleanit import CleanitPostProcessor
 from pgsrip.core import get_reason
 from pgsrip.diagnostics import Check, format_checks, run_checks
 from pgsrip.media import Media
 from pgsrip.options import Options
+from pgsrip.postprocess import PostProcessor, PostProcessorFactory
 from pgsrip.ripper import OcrEngine, OcrEngineFactory, OcrError
 from pgsrip.scrub import Redaction, output_path, scrub_data
 from pgsrip.tesseract import TesseractEngine
@@ -102,106 +105,161 @@ class RangeParamType(click.ParamType[frozenset[int], str]):
         return frozenset(range(start, end + 1))
 
 
-ENGINES: dict[str, type[OcrEngineFactory]] = {'tesseract': TesseractEngine}
+Factory = type[OcrEngineFactory] | type[PostProcessorFactory]
+
+ENGINES: dict[str, Factory] = {'tesseract': TesseractEngine}
 #: other packages add an OCR engine with an entry point in this group. See docs/usage.md.
 ENGINE_ENTRY_POINTS = 'pgsrip.engines'
+POST_PROCESSORS: dict[str, Factory] = {'cleanit': CleanitPostProcessor}
+#: other packages add a post-processor with an entry point in this group. See docs/usage.md.
+POST_PROCESSOR_ENTRY_POINTS = 'pgsrip.postprocessors'
 
 
-def plugin_engines() -> dict[str, importlib.metadata.EntryPoint]:
-    """The OCR engines of other packages, by name. A built-in engine wins over a plug-in with the same name."""
-    return {ep.name: ep for ep in importlib.metadata.entry_points(group=ENGINE_ENTRY_POINTS) if ep.name not in ENGINES}
+@dataclasses.dataclass(frozen=True)
+class PluginKind:
+    """OCR engines or post-processors: the two kinds of plug-in share the option mechanism."""
+
+    #: e.g. OCR engine
+    label: str
+    #: the article of the label, e.g. an
+    article: str
+    builtins: dict[str, Factory]
+    #: the entry point group of the plug-ins of other packages
+    group: str
+    #: the click parameter name of the chain, e.g. engine
+    chain: str
+    #: each plug-in gets a --<plugin>-workers option
+    workers: bool
+
+    @property
+    def flag(self) -> str:
+        """The command line flag of the chain, e.g. --engine."""
+        return f'--{self.chain}'.replace('_', '-')
 
 
-def load_engines() -> dict[str, type[OcrEngineFactory]]:
-    """The built-in OCR engines, then the plug-in engines. A plug-in that cannot be loaded is left out."""
-    engines = dict(ENGINES)
-    for name, entry_point in plugin_engines().items():
+ENGINE_KIND = PluginKind('OCR engine', 'an', ENGINES, ENGINE_ENTRY_POINTS, 'engine', workers=True)
+POST_PROCESSOR_KIND = PluginKind(
+    'post-processor', 'a', POST_PROCESSORS, POST_PROCESSOR_ENTRY_POINTS, 'post_processor', workers=False
+)
+KINDS = (ENGINE_KIND, POST_PROCESSOR_KIND)
+
+
+def plugin_entry_points(kind: PluginKind) -> dict[str, importlib.metadata.EntryPoint]:
+    """The plug-ins of other packages, by name. A built-in engine or post-processor wins over a plug-in with the
+    same name: the two kinds share the --<name>- options."""
+    builtins = {name for k in KINDS for name in k.builtins}
+    return {ep.name: ep for ep in importlib.metadata.entry_points(group=kind.group) if ep.name not in builtins}
+
+
+def load_plugins(ctx: click.Context | None, kind: PluginKind) -> dict[str, Factory]:
+    """The built-in plug-ins, then the plug-ins of other packages. A plug-in that cannot be loaded is left out."""
+    plugins = dict(kind.builtins)
+    # an OCR engine wins over a post-processor with the same name
+    engines = installed_plugins(ctx, ENGINE_KIND) if kind is POST_PROCESSOR_KIND else {}
+    for name, entry_point in plugin_entry_points(kind).items():
+        if name in engines:
+            logger.warning('The post-processor %s is ignored: an OCR engine has the same name', name)
+            continue
         try:
-            engines[name] = entry_point.load()
+            plugins[name] = entry_point.load()
         except Exception as e:
-            # a broken plug-in must not stop the other engines
-            logger.warning('Cannot load the OCR engine %s: <%s> %s', name, type(e).__name__, e)
+            # a broken plug-in must not stop the other plug-ins
+            logger.warning('Cannot load the %s %s: <%s> %s', kind.label, name, type(e).__name__, e)
 
-    return engines
+    return plugins
 
 
-def installed_engines(ctx: click.Context | None) -> dict[str, type[OcrEngineFactory]]:
-    """The OCR engines, loaded one time for each run of a command."""
+def installed_plugins(ctx: click.Context | None, kind: PluginKind) -> dict[str, Factory]:
+    """The plug-ins of a kind, loaded one time for each run of a command."""
     if ctx is None:
-        return load_engines()
-    if 'pgsrip.engines' not in ctx.meta:
-        ctx.meta['pgsrip.engines'] = load_engines()
+        return load_plugins(ctx, kind)
+    if kind.group not in ctx.meta:
+        ctx.meta[kind.group] = load_plugins(ctx, kind)
 
-    return typing.cast(dict[str, type[OcrEngineFactory]], ctx.meta['pgsrip.engines'])
-
-
-def param_name(engine: str, name: str) -> str:
-    """The click parameter name of an engine option, e.g. tesseract_threshold."""
-    return f'{engine}_{name}'.replace('-', '_')
+    return typing.cast(dict[str, Factory], ctx.meta[kind.group])
 
 
-def option_flag(engine: str, name: str) -> str:
-    """The command line flag of an engine option, e.g. --tesseract-threshold."""
-    return f'--{engine}-{name}'.replace('_', '-')
+def param_name(plugin: str, name: str) -> str:
+    """The click parameter name of a plug-in option, e.g. tesseract_threshold."""
+    return f'{plugin}_{name}'.replace('-', '_')
 
 
-def engine_options(engines: dict[str, type[OcrEngineFactory]]) -> list[click.Option]:
-    """The --<engine>-<name> options of each engine, and its --<engine>-workers option."""
+def option_flag(plugin: str, name: str) -> str:
+    """The command line flag of a plug-in option, e.g. --tesseract-threshold."""
+    return f'--{plugin}-{name}'.replace('_', '-')
+
+
+def plugin_options(kind: PluginKind, plugins: dict[str, Factory]) -> list[click.Option]:
+    """The --<plugin>-<name> options of each plug-in, and the --<engine>-workers option of each engine."""
     options: list[click.Option] = []
-    for engine, factory in engines.items():
+    for plugin, factory in plugins.items():
         for option in factory.options:
-            flag = option_flag(engine, option.name)
+            flag = option_flag(plugin, option.name)
             options.append(
                 click.Option(
-                    [f'{flag}/--no-{flag[2:]}', param_name(engine, option.name)]
-                    if option.flag
-                    else [flag, param_name(engine, option.name)],
+                    [
+                        *option.aliases,
+                        f'{flag}/--no-{flag[2:]}' if option.flag else flag,
+                        param_name(plugin, option.name),
+                    ],
                     type=None if option.flag else option.type,
                     default=bool(option.default) if option.flag else option.default,
+                    multiple=option.multiple,
                     help=option.help,
                     envvar=option.envvar,
                     show_envvar=bool(option.envvar),
                 )
             )
-        options.append(
-            click.Option(
-                [option_flag(engine, 'workers'), param_name(engine, 'workers')],
-                type=click.IntRange(1, 50),
-                help=f'Number of {engine} jobs to run in parallel. Default: -w.',
+        if kind.workers:
+            options.append(
+                click.Option(
+                    [option_flag(plugin, 'workers'), param_name(plugin, 'workers')],
+                    type=click.IntRange(1, 50),
+                    help=f'Number of {plugin} jobs to run in parallel. Default: -w.',
+                )
             )
-        )
 
     return options
 
 
-class EngineCommand(click.Command):
-    """A command with the options of every OCR engine. The plug-ins are known only when the command runs."""
+class PluginCommand(click.Command):
+    """A command with the options of every OCR engine and post-processor. The plug-ins are known only when the
+    command runs."""
 
     def get_params(self, ctx: click.Context) -> list[click.Parameter]:
         params = super().get_params(ctx)
-        if 'pgsrip.engine_options' not in ctx.meta:
-            ctx.meta['pgsrip.engine_options'] = engine_options(installed_engines(ctx))
-        # after --engine, or before --help
-        index = next((i + 1 for i, p in enumerate(params) if p.name == 'engine'), len(self.params))
+        for kind in KINDS:
+            key = f'{kind.group}.options'
+            if key not in ctx.meta:
+                ctx.meta[key] = plugin_options(kind, installed_plugins(ctx, kind))
+            # after the chain option, or before --help
+            index = next(
+                (i + 1 for i, p in enumerate(params) if p.name == kind.chain),
+                next((i for i, p in enumerate(params) if p.name == 'help'), len(params)),
+            )
+            params = [*params[:index], *ctx.meta[key], *params[index:]]
 
-        return [*params[:index], *ctx.meta['pgsrip.engine_options'], *params[index:]]
+        return params
 
 
-def engine_settings(
-    engine: str, factory: type[OcrEngineFactory], params: dict[str, typing.Any]
-) -> dict[str, typing.Any]:
-    """The option values of one engine, by option name."""
-    return {option.name: params[param_name(engine, option.name)] for option in factory.options}
+def plugin_settings(plugin: str, factory: Factory, params: dict[str, typing.Any]) -> dict[str, typing.Any]:
+    """The option values of one plug-in, by option name."""
+    return {option.name: params[param_name(plugin, option.name)] for option in factory.options}
 
 
-class EngineParamType(click.ParamType[str, str]):
-    name = 'engine'
+class PluginParamType(click.ParamType[str, str]):
+    def __init__(self, kind: PluginKind):
+        self.kind = kind
+        self.name = kind.label
 
     def convert(self, value: str, param: click.Parameter | None, ctx: click.Context | None) -> str:
         # not a click.Choice: the plug-ins are known only when the command runs
-        names = list(installed_engines(ctx))
+        names = list(installed_plugins(ctx, self.kind))
         if value not in names:
-            self.fail(f'{click.style(value, bold=True)} is not an OCR engine. Choose from: {", ".join(names)}')
+            self.fail(
+                f'{click.style(value, bold=True)} is not {self.kind.article} {self.kind.label}. '
+                f'Choose from: {", ".join(names)}'
+            )
 
         return value
 
@@ -209,7 +267,8 @@ class EngineParamType(click.ParamType[str, str]):
 LANGUAGE = LanguageParamType()
 AGE = AgeParamType()
 RANGE = RangeParamType()
-ENGINE = EngineParamType()
+ENGINE = PluginParamType(ENGINE_KIND)
+POST_PROCESSOR = PluginParamType(POST_PROCESSOR_KIND)
 
 
 def merge_ranges(values: tuple[frozenset[int], ...]) -> set[int]:
@@ -286,63 +345,101 @@ def configure_logging(debug: bool, log_file: str | None) -> None:
         logger.addHandler(file_handler)
 
 
-def engine_checks(ctx: click.Context, names: typing.Iterable[str]) -> list[Check]:
-    """The checks of these OCR engines, with the option values of the command."""
-    installed = installed_engines(ctx)
+def plugin_checks(ctx: click.Context, kind: PluginKind, names: typing.Iterable[str]) -> list[Check]:
+    """The checks of these plug-ins, with the option values of the command."""
+    installed = installed_plugins(ctx, kind)
     checks: list[Check] = []
     for name in names:
         check = getattr(installed[name], 'check', None)
         if not check:
             continue
         try:
-            checks += check(engine_settings(name, installed[name], ctx.params))
+            checks += check(plugin_settings(name, installed[name], ctx.params))
         except Exception as e:
             # a broken check of a plug-in must not hide the other checks
-            logger.debug('Cannot check the OCR engine %s', name, exc_info=True)
+            logger.debug('Cannot check the %s %s', kind.label, name, exc_info=True)
             checks.append(Check(name, f'check failed: <{type(e).__name__}> {e}', ok=False))
 
     return checks
 
 
+def post_processor_names(params: dict[str, typing.Any]) -> tuple[str, ...]:
+    """The chain of post-processors that the user selected, in order."""
+    return () if params['no_post_process'] else typing.cast(tuple[str, ...], params['post_processor'])
+
+
 def log_environment(ctx: click.Context | None = None) -> None:
-    """Record the installed versions, and the checks of the selected OCR engines, at the top of the debug log."""
+    """Record the installed versions, and the checks of the selected plug-ins, at the top of the debug log."""
     if not logger.isEnabledFor(logging.DEBUG):
         return
 
-    for line in format_checks(run_checks(engine_checks(ctx, ctx.params['engine']) if ctx else None)).splitlines():
+    checks = (
+        plugin_checks(ctx, ENGINE_KIND, ctx.params['engine'])
+        + plugin_checks(ctx, POST_PROCESSOR_KIND, post_processor_names(ctx.params))
+        if ctx
+        else None
+    )
+    for line in format_checks(run_checks(checks)).splitlines():
         logger.info(line)
 
 
-def create_engines(ctx: click.Context) -> list[OcrEngine]:
-    """Create the chain of OCR engines that the user selected, in order. Reject the options of the other engines."""
-    params = ctx.params
-    names: tuple[str, ...] = params['engine']
+def selected_plugins(
+    ctx: click.Context, kind: PluginKind, names: tuple[str, ...]
+) -> list[tuple[str, Factory, dict[str, typing.Any]]]:
+    """The name, the class, and the settings of each selected plug-in, in order. Reject the options of the
+    other plug-ins."""
     if len(set(names)) < len(names):
-        raise click.UsageError('use each --engine only one time')
+        raise click.UsageError(f'use each {kind.flag} only one time')
 
-    installed = installed_engines(ctx)
-    for engine, factory in installed.items():
-        # only the command line: a config file or an environment variable can hold the options of an unused engine
-        option_names = [param_name(engine, option.name) for option in factory.options] + [param_name(engine, 'workers')]
-        if engine not in names and any(
+    installed = installed_plugins(ctx, kind)
+    for plugin, factory in installed.items():
+        # only the command line: a config file or an environment variable can hold the options of an unused plug-in
+        option_names = [param_name(plugin, option.name) for option in factory.options]
+        if kind.workers:
+            option_names.append(param_name(plugin, 'workers'))
+        if plugin not in names and any(
             ctx.get_parameter_source(n) == ParameterSource.COMMANDLINE for n in option_names
         ):
-            raise click.UsageError(f'the --{engine}-* options need --engine {engine}')
+            raise click.UsageError(f'the --{plugin}-* options need {kind.flag} {plugin}')
 
-    engines: list[OcrEngine] = []
+    selected = []
     for name in names:
         factory = installed[name]
-        settings = engine_settings(name, factory, params)
+        settings = plugin_settings(name, factory, ctx.params)
         for option in factory.options:
             if option.required and settings[option.name] is None:
-                raise click.UsageError(f'--engine {name} needs {option_flag(name, option.name)}')
-        workers = params[param_name(name, 'workers')] or params['max_workers']
+                raise click.UsageError(f'{kind.flag} {name} needs {option_flag(name, option.name)}')
+        selected.append((name, factory, settings))
+
+    return selected
+
+
+def create_engines(ctx: click.Context) -> list[OcrEngine]:
+    """Create the chain of OCR engines that the user selected, in order."""
+    engines: list[OcrEngine] = []
+    for name, factory, settings in selected_plugins(ctx, ENGINE_KIND, ctx.params['engine']):
+        workers = ctx.params[param_name(name, 'workers')] or ctx.params['max_workers']
         try:
-            engines.append(factory.from_settings(settings, workers))
+            engines.append(typing.cast(type[OcrEngineFactory], factory).from_settings(settings, workers))
         except OcrError as e:
             raise click.UsageError(str(e)) from e
 
     return engines
+
+
+def create_post_processors(ctx: click.Context) -> list[PostProcessor]:
+    """Create the chain of post-processors that the user selected, in order."""
+    if ctx.params['no_post_process'] and ctx.get_parameter_source('post_processor') == ParameterSource.COMMANDLINE:
+        raise click.UsageError('use --post-processor or --no-post-process, not both')
+
+    post_processors: list[PostProcessor] = []
+    for _, factory, settings in selected_plugins(ctx, POST_PROCESSOR_KIND, post_processor_names(ctx.params)):
+        try:
+            post_processors.append(typing.cast(type[PostProcessorFactory], factory).from_settings(settings))
+        except ValueError as e:
+            raise click.UsageError(str(e)) from e
+
+    return post_processors
 
 
 def prepare_engines(pgs_medias: list[Pgs], options: Options) -> bool:
@@ -442,22 +539,14 @@ config_option = click.option(
 )
 
 
-@pgsrip.command(cls=EngineCommand)
+@pgsrip.command(cls=PluginCommand)
 @config_option
-@click.option('--cleanit-config', type=click.Path(), help='cleanit configuration path to be used')
 @click.option(
     '-l',
     '--language',
     type=LANGUAGE,
     multiple=True,
     help='Language as IETF code, e.g. en, pt-BR (can be used multiple times).',
-)
-@click.option(
-    '-t',
-    '--tag',
-    required=False,
-    multiple=True,
-    help='Rule tags to be used, e.g. ocr, tidy, no-sdh, no-style, no-lyrics, no-spam (can be used multiple times). ',
 )
 @click.option('-e', '--encoding', help='Save subtitles using the following encoding.')
 @click.option('-a', '--age', type=AGE, help='Filter videos newer than AGE, e.g. 12h, 1w2d.')
@@ -514,6 +603,16 @@ config_option = click.option(
     'could not read or are not sure of.',
 )
 @click.option(
+    '--post-processor',
+    type=POST_PROCESSOR,
+    multiple=True,
+    default=('cleanit',),
+    show_default=True,
+    help='Post-processor that changes the text after the OCR engines: cleanit, or a post-processor of an installed '
+    'plug-in. Use it more than one time for a chain: each post-processor gets the result of the one before it.',
+)
+@click.option('--no-post-process', is_flag=True, help='Do not change the text after the OCR engines.')
+@click.option(
     '--keep-temp-files',
     is_flag=True,
     help='Do not delete temporary files created, '
@@ -532,9 +631,7 @@ config_option = click.option(
 def rip(
     ctx: click.Context,
     /,
-    cleanit_config: str | None,
     language: tuple[Language] | None,
-    tag: tuple[str] | None,
     encoding: str | None,
     age: timedelta | None,
     srt_age: timedelta | None,
@@ -547,10 +644,12 @@ def rip(
     log_file: str | None,
     max_workers: int | None,
     engine: tuple[str, ...],
+    post_processor: tuple[str, ...],
+    no_post_process: bool,
     keep_temp_files: bool,
     verbose: int,
     path: tuple[str],
-    **engine_params: typing.Any,
+    **plugin_params: typing.Any,
 ) -> None:
     """Rip the PGS subtitles of each media PATH into SRT."""
     try:
@@ -559,14 +658,8 @@ def rip(
         click.echo(click.style(f'Cannot write the log file: {e}', fg='red'))
         return
 
-    if cleanit_config and (not os.path.isfile(cleanit_config) or os.path.isdir(cleanit_config)):
-        click.echo(f'Invalid cleanit configuration is defined: {click.style(cleanit_config, bold=True)}')
-        return
-
     options = Options(
-        cleanit_config=cleanit_config,
         languages=set(language or []),
-        tags=set(tag or []),
         encoding=encoding,
         overwrite=force,
         one_per_lang=not all,
@@ -575,17 +668,12 @@ def rip(
         exclude_flags=frozenset(without_flags),
         keep_temp_files=keep_temp_files,
         engines=create_engines(ctx),
+        post_processors=create_post_processors(ctx),
         age=age,
         srt_age=srt_age,
     )
 
     log_environment(ctx)
-
-    rules = options.cleanit_config.select_rules(tags=options.tags, languages=options.languages)
-    if not rules:
-        values = tuple(options.tags) + tuple(str(lang) for lang in options.languages)
-        click.echo(f'No rules defined for {click.style(", ".join(values), bold=True)}')
-        return
 
     collected_medias: list[Media] = []
     filtered_out_paths: list[str] = []
@@ -663,12 +751,12 @@ def rip(
     echo_failures(failures, log_file)
 
 
-@pgsrip.command(cls=EngineCommand)
+@pgsrip.command(cls=PluginCommand)
 @config_option
 @click.pass_context
-def doctor(ctx: click.Context, /, **engine_params: typing.Any) -> None:
+def doctor(ctx: click.Context, /, **plugin_params: typing.Any) -> None:
     """Check that everything pgsrip needs is installed. Add the output to a bug report."""
-    checks = run_checks(engine_checks(ctx, installed_engines(ctx)))
+    checks = run_checks([check for kind in KINDS for check in plugin_checks(ctx, kind, installed_plugins(ctx, kind))])
     click.echo(format_checks(checks))
 
     failed = [check for check in checks if not check.ok]

@@ -14,7 +14,7 @@ from click.testing import CliRunner
 
 from pgsrip.cli import ENGINE_ENTRY_POINTS, pgsrip
 from pgsrip.diagnostics import Check
-from pgsrip.ripper import EngineOption
+from pgsrip.ripper import PluginOption
 from pgsrip.tesseract import TesseractEngine
 from pgsrip.tsv import TsvData
 
@@ -34,7 +34,7 @@ class PluginEngine:
     #: the engines that the plug-in factory created
     created: typing.ClassVar[list[PluginEngine]] = []
 
-    options: typing.ClassVar[tuple[EngineOption, ...]] = ()
+    options: typing.ClassVar[tuple[PluginOption, ...]] = ()
 
     def __init__(self, workers: int | None = None):
         self.workers = workers
@@ -66,9 +66,9 @@ class TunedEngine(PluginEngine):
     """An engine of another package with its own options."""
 
     options = (
-        EngineOption('model', help='Model of the tuned engine.'),
-        EngineOption('size', int, default=1, envvar='PGSRIP_TUNED_SIZE'),
-        EngineOption('fast', flag=True, default=True),
+        PluginOption('model', help='Model of the tuned engine.'),
+        PluginOption('size', int, default=1, envvar='PGSRIP_TUNED_SIZE'),
+        PluginOption('fast', flag=True, default=True),
     )
     #: the settings of each created engine
     settings: typing.ClassVar[list[dict[str, typing.Any]]] = []
@@ -86,7 +86,7 @@ class TunedEngine(PluginEngine):
 class RemoteEngine(PluginEngine):
     """An engine of another package that cannot work without its url, and has a broken check."""
 
-    options = (EngineOption('url', required=True),)
+    options = (PluginOption('url', required=True),)
 
     @classmethod
     def check(cls, settings: dict[str, typing.Any]) -> list[Check]:
@@ -280,12 +280,14 @@ def test_a_cue_with_a_word_below_the_threshold_is_doubtful(threshold: int | None
     rows = [(5, 1, 1, 1, 1, 1, 10, 10, 20, 20, 96, 'Hello'), (5, 1, 1, 1, 1, 2, 40, 10, 20, 20, 70, 'there')]
     keys = (*columns, 'left', 'top', 'width', 'height', 'conf', 'text')
     data = TsvData({key: [row[i] for row in rows] for i, key in enumerate(keys)}, confidence=65)
-    item: typing.Any = types.SimpleNamespace(place=(0, 0, 100, 100), text=None, doubtful=False)
+    item: typing.Any = types.SimpleNamespace(place=(0, 0, 100, 100), text=None, doubtful=False, confidence=None)
 
     text = TesseractEngine(threshold=threshold).accept(data, item, 65)
 
     assert text == 'Hello there'
     assert item.doubtful is doubtful
+    # the lowest word confidence, from 0 to 1
+    assert item.confidence == 0.7
 
 
 def test_a_config_file_sets_the_engine_chain_and_the_tesseract_section(
