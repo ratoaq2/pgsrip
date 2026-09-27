@@ -7,7 +7,9 @@
     sure of. `--tesseract-threshold` (default 80) sets which tesseract cues go
     to the next engine
   - New: other packages can add an OCR engine with a `pgsrip.engines` entry
-    point
+    point. The engine declares its options: pgsrip adds them to `rip` as
+    `--<engine>-*` options and reads them from the `<engine>` section of the
+    configuration file
   - New: `--tesseract-workers` sets the number of tesseract processes. It
     overrides `-w/--max-workers` for tesseract only
   - Breaking: the tessdata options of `rip` and `doctor` are now

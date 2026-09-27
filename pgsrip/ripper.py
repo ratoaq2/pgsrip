@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import logging
 import typing
 
@@ -35,6 +36,35 @@ class OcrEngine(typing.Protocol):
         Set `item.doubtful` when the text can be wrong. The next engine of the chain gets the items that are
         still None or doubtful.
         """
+
+
+@dataclasses.dataclass(frozen=True)
+class EngineOption:
+    """One setting of an OCR engine: `--<engine>-<name>` on the command line, `<name>` in the `<engine>` section."""
+
+    name: str
+    #: a Python type or a click type, e.g. `click.IntRange(0, 100)`
+    type: typing.Any = str
+    default: typing.Any = None
+    help: str = ''
+    #: an on/off option: `--<engine>-<name>/--no-<engine>-<name>`
+    flag: bool = False
+    #: the engine cannot work without it
+    required: bool = False
+    envvar: str | None = None
+
+
+class OcrEngineFactory(typing.Protocol):
+    """An OCR engine that the CLI can create. Its class is the value of a `pgsrip.engines` entry point.
+
+    The class can also have a `check(settings) -> list[Check]` classmethod for `pgsrip doctor`.
+    """
+
+    options: typing.ClassVar[tuple[EngineOption, ...]]
+
+    @classmethod
+    def from_settings(cls, settings: dict[str, typing.Any], workers: int | None) -> OcrEngine:
+        """Create the engine. `settings` has a value for each option, by name. `workers` is None for the default."""
 
 
 class PgsToSrtRipper:

@@ -13,6 +13,7 @@ import pytest
 from click.testing import CliRunner
 
 from pgsrip.cli import ENGINE_ENTRY_POINTS, pgsrip
+from pgsrip.ripper import EngineOption
 from pgsrip.tesseract import TesseractEngine
 from pgsrip.tsv import TsvData
 
@@ -32,9 +33,15 @@ class PluginEngine:
     #: the engines that the plug-in factory created
     created: typing.ClassVar[list[PluginEngine]] = []
 
+    options: typing.ClassVar[tuple[EngineOption, ...]] = ()
+
     def __init__(self, workers: int | None = None):
         self.workers = workers
         PluginEngine.created.append(self)
+
+    @classmethod
+    def from_settings(cls, settings: dict[str, typing.Any], workers: int | None) -> PluginEngine:
+        return cls(workers=workers)
 
     def prepare(
         self, languages: typing.Iterable[Language], reporter: typing.Callable[[str], None] | None = None
@@ -54,6 +61,29 @@ class BlindEngine(PluginEngine):
         PluginEngine.calls.append([item.index for item in items])
 
 
+class TunedEngine(PluginEngine):
+    """An engine of another package with its own options."""
+
+    options = (
+        EngineOption('model', help='Model of the tuned engine.'),
+        EngineOption('size', int, default=1, envvar='PGSRIP_TUNED_SIZE'),
+        EngineOption('fast', flag=True, default=True),
+    )
+    #: the settings of each created engine
+    settings: typing.ClassVar[list[dict[str, typing.Any]]] = []
+
+    @classmethod
+    def from_settings(cls, settings: dict[str, typing.Any], workers: int | None) -> PluginEngine:
+        TunedEngine.settings.append(settings)
+        return cls(workers=workers)
+
+
+class RemoteEngine(PluginEngine):
+    """An engine of another package that cannot work without its url."""
+
+    options = (EngineOption('url', required=True),)
+
+
 @pytest.fixture
 def media_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: typing.Any) -> typing.Any:
     """A directory with the placeholder sample (3 cues), and a temporary folder of its own."""
@@ -70,9 +100,14 @@ def media_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: typing.Any) -> typing.A
 def plugins(monkeypatch: pytest.MonkeyPatch) -> None:
     PluginEngine.calls = []
     PluginEngine.created = []
+    TunedEngine.settings = []
+    monkeypatch.delenv('PGSRIP_TUNED_SIZE', raising=False)
     entry_points = [
         importlib.metadata.EntryPoint('plugin', f'{__name__}:PluginEngine', ENGINE_ENTRY_POINTS),
         importlib.metadata.EntryPoint('blind', f'{__name__}:BlindEngine', ENGINE_ENTRY_POINTS),
+        importlib.metadata.EntryPoint('tuned', f'{__name__}:TunedEngine', ENGINE_ENTRY_POINTS),
+        importlib.metadata.EntryPoint('remote', f'{__name__}:RemoteEngine', ENGINE_ENTRY_POINTS),
+        importlib.metadata.EntryPoint('broken', f'{__name__}:MissingEngine', ENGINE_ENTRY_POINTS),
         importlib.metadata.EntryPoint('tesseract', f'{__name__}:PluginEngine', ENGINE_ENTRY_POINTS),
     ]
     monkeypatch.setattr(
@@ -164,7 +199,7 @@ def test_an_unknown_engine_is_rejected(media_dir: typing.Any) -> None:
     result = rip('--engine', 'nope', str(media_dir))
 
     assert result.exit_code == 2
-    assert 'nope is not an OCR engine. Choose from: tesseract, plugin, blind' in result.output
+    assert 'nope is not an OCR engine. Choose from: tesseract, plugin, blind, tuned, remote' in result.output
 
 
 def test_an_engine_is_rejected_the_second_time(media_dir: typing.Any) -> None:
@@ -260,3 +295,105 @@ def test_a_config_file_sets_the_engine_chain_and_the_tesseract_section(
     assert [(e.threshold, e.workers, e.tessdata.repository) for e in blind_tesseract] == [(50, 2, 'fast')]
     assert [engine.workers for engine in PluginEngine.created] == [3]
     assert read_texts(media_dir) == ['Plugin 0', 'Plugin 1', 'Plugin 2']
+
+
+def test_the_options_of_a_plugin_engine_are_in_the_help() -> None:
+    result = rip('--help')
+
+    assert result.exit_code == 0, result.output
+    for option in (
+        '--tuned-model',
+        '--tuned-size',
+        '--tuned-fast / --no-tuned-fast',
+        '--tuned-workers',
+        '--remote-url',
+    ):
+        assert option in result.output
+    assert 'PGSRIP_TUNED_SIZE' in result.output
+
+
+def test_the_options_of_a_plugin_engine_go_to_its_settings(media_dir: typing.Any) -> None:
+    result = rip('--engine', 'tuned', '--tuned-model', 'small', '--no-tuned-fast', str(media_dir))
+
+    assert result.exit_code == 0, result.output
+    assert TunedEngine.settings == [{'model': 'small', 'size': 1, 'fast': False}]
+
+
+def test_a_config_file_section_sets_the_options_of_a_plugin_engine(media_dir: typing.Any, tmp_path: typing.Any) -> None:
+    config = tmp_path / 'config.yml'
+    config.write_text('engine: [tuned]\ntuned:\n  model: small\n  size: 3\n  workers: 2\n', encoding='utf-8')
+
+    result = rip('--config', str(config), str(media_dir))
+
+    assert result.exit_code == 0, result.output
+    assert TunedEngine.settings == [{'model': 'small', 'size': 3, 'fast': True}]
+    assert [engine.workers for engine in PluginEngine.created] == [2]
+
+
+@pytest.mark.parametrize('options, size', [([], 5), (['--tuned-size', '7'], 7)])
+def test_the_command_line_wins_over_the_environment_variable_of_an_option(
+    options: list[str], size: int, media_dir: typing.Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv('PGSRIP_TUNED_SIZE', '5')
+
+    result = rip('--engine', 'tuned', *options, str(media_dir))
+
+    assert result.exit_code == 0, result.output
+    assert [settings['size'] for settings in TunedEngine.settings] == [size]
+
+
+@pytest.mark.parametrize('options, workers', [([], None), (['-w', '3'], 3), (['-w', '3', '--tuned-workers', '2'], 2)])
+def test_the_workers_of_a_plugin_engine_default_to_the_workers_of_the_chain(
+    options: list[str], workers: int | None, media_dir: typing.Any
+) -> None:
+    result = rip('--engine', 'tuned', *options, str(media_dir))
+
+    assert result.exit_code == 0, result.output
+    assert [engine.workers for engine in PluginEngine.created] == [workers]
+
+
+def test_a_required_option_is_needed_when_the_engine_is_used(media_dir: typing.Any) -> None:
+    result = rip('--engine', 'remote', str(media_dir))
+
+    assert result.exit_code == 2
+    assert '--engine remote needs --remote-url' in result.output
+
+
+@pytest.mark.parametrize('option', [['--tuned-model', 'small'], ['--tuned-workers', '2'], ['--no-tuned-fast']])
+def test_the_options_of_a_plugin_engine_need_the_engine(option: list[str], media_dir: typing.Any) -> None:
+    result = rip('--engine', 'plugin', *option, str(media_dir))
+
+    assert result.exit_code == 2
+    assert 'the --tuned-* options need --engine tuned' in result.output
+
+
+def test_a_config_file_section_of_an_unused_engine_is_accepted(media_dir: typing.Any, tmp_path: typing.Any) -> None:
+    config = tmp_path / 'config.yml'
+    config.write_text('tuned:\n  model: small\n', encoding='utf-8')
+
+    result = rip('--config', str(config), '--engine', 'plugin', str(media_dir))
+
+    assert result.exit_code == 0, result.output
+    assert TunedEngine.settings == []
+
+
+def test_a_config_file_section_of_an_engine_that_is_not_installed_is_rejected(
+    media_dir: typing.Any, tmp_path: typing.Any
+) -> None:
+    config = tmp_path / 'config.yml'
+    config.write_text('nope:\n  model: small\n', encoding='utf-8')
+
+    result = rip('--config', str(config), str(media_dir))
+
+    assert result.exit_code == 2
+    assert 'Unknown option' in result.output
+    assert 'nope_model' in result.output
+
+
+def test_a_plugin_that_cannot_be_loaded_does_not_stop_the_other_engines(
+    media_dir: typing.Any, caplog: pytest.LogCaptureFixture
+) -> None:
+    result = rip('--engine', 'plugin', str(media_dir))
+
+    assert result.exit_code == 0, result.output
+    assert 'Cannot load the OCR engine broken' in caplog.text

@@ -9,12 +9,15 @@ import os
 import typing
 from concurrent.futures import ThreadPoolExecutor
 
+import click
 import cv2
 import numpy as np
 import numpy.typing as npt
 import pytesseract as tess
 
+from pgsrip.ripper import EngineOption
 from pgsrip.tessdata import (
+    REPOSITORIES,
     Tessdata,
     TessdataError,
     get_config_arg,
@@ -195,6 +198,34 @@ class FullImage:
 
 class TesseractEngine:
     """The default OCR engine. One engine reads all the tracks of a rip."""
+
+    options: typing.ClassVar[tuple[EngineOption, ...]] = (
+        EngineOption(
+            'threshold',
+            click.IntRange(0, 100),
+            help=f'A cue with a word below this tesseract confidence goes to the next --engine. '
+            f'Default: {DEFAULT_THRESHOLD}.',
+        ),
+        EngineOption(
+            'dir',
+            click.Path(),
+            help='Directory where tesseract data is stored. Defaults to TESSDATA_PREFIX or a user cache directory.',
+        ),
+        EngineOption(
+            'repository', click.Choice(sorted(REPOSITORIES)), help='Repository to download missing tesseract data from.'
+        ),
+        EngineOption(
+            'download',
+            flag=True,
+            default=True,
+            help='Download missing tesseract data. With --no-tesseract-download, use only the installed data.',
+        ),
+    )
+
+    @classmethod
+    def from_settings(cls, settings: dict[str, typing.Any], workers: int | None) -> TesseractEngine:
+        tessdata = Tessdata(directory=settings['dir'], repository=settings['repository'], download=settings['download'])
+        return cls(workers=workers, tessdata=tessdata, threshold=settings['threshold'])
 
     def __init__(
         self,

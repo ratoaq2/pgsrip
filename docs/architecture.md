@@ -1,7 +1,8 @@
 # Project map
 
 - `cli.py` — Click entry point. Args, configuration files (`--config`), progress bars, reporting. Builds the
-  OCR engine chain, with the plug-in engines of the `pgsrip.engines` entry points.
+  OCR engine chain, with the plug-in engines of the `pgsrip.engines` entry points. `EngineCommand` adds the
+  `--<engine>-*` options that each engine declares.
 - `api.py` — public API over `core.py` (`scan_path`, `rip`, `rip_pgs`).
 - `core.py` — path scanning/filtering, top-level rip loop. No OCR logic.
 - `media.py` — `Media`/`Pgs`/`PgsSubtitleItem`: media abstraction, per-item bookkeeping (timing, offsets,
@@ -10,7 +11,8 @@
 - `media_path.py` — filename parsing/generation (language, track number, extension).
 - `pgs.py` — binary PGS segment format: PDS/ODS/PCS/WDS/END parsing, RLE image decoding. Format-spec-heavy;
   malformed input is the norm (see `docs/corrupted_data.md`).
-- `ripper.py` — `OcrEngine` protocol and `PgsToSrtRipper`: asks a chain of OCR engines for the text of each
+- `ripper.py` — `OcrEngine` protocol, `OcrEngineFactory` protocol and `EngineOption` (the options that an
+  engine declares for the CLI), and `PgsToSrtRipper`: asks a chain of OCR engines for the text of each
   item, then builds the SRT. Each engine gets the items that the engines before it left unread or doubtful.
   It does not know which engines run.
 - `tesseract.py` — `TesseractEngine`, the default engine: OCR batching (see `docs/ocr_batching.md`), tesseract

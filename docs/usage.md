@@ -144,13 +144,52 @@ tesseract:
 
 ### Add an OCR engine
 
-A Python package can add an OCR engine. Declare an entry point in the `pgsrip.engines` group. Its value is a
-callable that takes `workers` (the `-w` value, or `None`) and returns the engine:
+A Python package can add an OCR engine. Declare an entry point in the `pgsrip.engines` group. Its value is the
+engine class:
 
 ```toml
 [project.entry-points."pgsrip.engines"]
 myocr = "myocr.engine:MyEngine"
 ```
+
+The class declares its options, and creates the engine from their values (see `OcrEngineFactory` in
+`pgsrip/ripper.py`):
+
+```python
+import click
+
+from pgsrip.ripper import EngineOption
+
+
+class MyEngine:
+    options = (
+        EngineOption('model', click.Choice(['small', 'large']), default='small', help='Model to use.'),
+        EngineOption('url', required=True, envvar='MYOCR_URL', help='URL of the server.'),
+        EngineOption('gpu', flag=True, help='Use the GPU.'),
+    )
+
+    @classmethod
+    def from_settings(cls, settings, workers):
+        return cls(settings['model'], settings['url'], settings['gpu'], workers=workers)
+```
+
+pgsrip makes a command line option from each declared option, with the engine name as prefix:
+`--myocr-model`, `--myocr-url`, and `--myocr-gpu/--no-myocr-gpu`. Each engine also gets `--myocr-workers`.
+`workers` is its value, or the `-w` value, or `None`. A configuration file sets the options in a section:
+
+```yaml
+myocr:
+  model: large
+  url: http://127.0.0.1:8080
+```
+
+- The value of a `required` option is necessary only when the engine is in `--engine`.
+- An `envvar` option also reads this environment variable.
+- The `--myocr-*` options on the command line need `--engine myocr`.
+
+pgsrip loads every plug-in class when it starts, also for `pgsrip --help`. Import the large libraries of the
+engine (for example onnxruntime) only in its methods. A plug-in that cannot be loaded is left out, with a
+warning.
 
 The engine has 2 methods (see `OcrEngine` in `pgsrip/ripper.py`):
 
@@ -160,5 +199,4 @@ The engine has 2 methods (see `OcrEngine` in `pgsrip/ripper.py`):
   engine of the chain. Set `item.doubtful` when the text can be wrong. Raise `OcrError` when the engine fails:
   pgsrip then writes no `.srt` file for that track.
 
-The engine reads its own settings, for example from environment variables. Use it by name, alone or in a
-chain. A plug-in cannot replace `tesseract`.
+Use the engine by name, alone or in a chain. A plug-in cannot replace `tesseract`.
