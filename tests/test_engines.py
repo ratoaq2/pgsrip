@@ -255,6 +255,8 @@ def test_a_track_that_no_engine_can_read_fails_and_the_other_tracks_rip(
 ) -> None:
     result = rip('--engine', 'english', str(media_dir))
 
+    # a failed track is a failed rip, also when the other tracks rip
+    assert result.exit_code == 1
     assert 'No OCR engine of the chain can read he' in result.output
     assert read_texts(media_dir) == ['English 0', 'English 1', 'English 2']
     assert not hebrew_track.exists()
