@@ -21,7 +21,7 @@ class OcrError(Exception):
 
 
 class OcrEngine(typing.Protocol):
-    """Reads the text of subtitle bitmaps: `pgsrip.tesseract.TesseractEngine` is the default engine.
+    """Reads the text of subtitle bitmaps: `pgsrip.auto.AutoEngine` is the default engine.
 
     Subclass it to get the default `engine_for`.
     """

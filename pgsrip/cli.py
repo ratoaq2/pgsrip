@@ -18,6 +18,7 @@ from babelfish import Language
 from click.core import ParameterSource
 
 from pgsrip import Pgs, __url__, __version__, api
+from pgsrip.auto import AutoEngine, check_auto
 from pgsrip.cleanit import CleanitPostProcessor
 from pgsrip.core import get_reason
 from pgsrip.diagnostics import Check, format_checks, run_checks
@@ -109,6 +110,9 @@ class RangeParamType(click.ParamType[frozenset[int], str]):
 Factory = type[OcrEngineFactory] | type[PostProcessorFactory]
 
 ENGINES: dict[str, Factory] = {'tesseract': TesseractEngine, 'rapidocr': RapidOcrEngine}
+#: a reserved engine name, not a plug-in: tesseract for each language that it can read, else rapidocr
+AUTO = 'auto'
+AUTO_ENGINES = ('tesseract', 'rapidocr')
 #: other packages add an OCR engine with an entry point in this group. See docs/usage.md.
 ENGINE_ENTRY_POINTS = 'pgsrip.engines'
 POST_PROCESSORS: dict[str, Factory] = {'cleanit': CleanitPostProcessor}
@@ -147,8 +151,8 @@ KINDS = (ENGINE_KIND, POST_PROCESSOR_KIND)
 
 def plugin_entry_points(kind: PluginKind) -> dict[str, importlib.metadata.EntryPoint]:
     """The plug-ins of other packages, by name. A built-in engine or post-processor wins over a plug-in with the
-    same name: the two kinds share the --<name>- options."""
-    builtins = {name for k in KINDS for name in k.builtins}
+    same name: the two kinds share the --<name>- options. No plug-in can be named auto."""
+    builtins = {AUTO, *(name for k in KINDS for name in k.builtins)}
     return {ep.name: ep for ep in importlib.metadata.entry_points(group=kind.group) if ep.name not in builtins}
 
 
@@ -255,7 +259,7 @@ class PluginParamType(click.ParamType[str, str]):
 
     def convert(self, value: str, param: click.Parameter | None, ctx: click.Context | None) -> str:
         # not a click.Choice: the plug-ins are known only when the command runs
-        names = list(installed_plugins(ctx, self.kind))
+        names = [*([AUTO] if self.kind is ENGINE_KIND else []), *installed_plugins(ctx, self.kind)]
         if value not in names:
             self.fail(
                 f'{click.style(value, bold=True)} is not {self.kind.article} {self.kind.label}. '
@@ -364,6 +368,17 @@ def plugin_checks(ctx: click.Context, kind: PluginKind, names: typing.Iterable[s
     return checks
 
 
+def engine_names(params: dict[str, typing.Any]) -> tuple[str, ...]:
+    """The OCR engines that the user selected, in order. auto gives the engines that it uses."""
+    names = typing.cast(tuple[str, ...], params['engine'])
+    if AUTO not in names:
+        return names
+    if len(names) > 1:
+        raise click.UsageError(f'use --engine {AUTO} alone')
+
+    return AUTO_ENGINES
+
+
 def post_processor_names(params: dict[str, typing.Any]) -> tuple[str, ...]:
     """The chain of post-processors that the user selected, in order."""
     return () if params['no_post_process'] else typing.cast(tuple[str, ...], params['post_processor'])
@@ -375,7 +390,8 @@ def log_environment(ctx: click.Context | None = None) -> None:
         return
 
     checks = (
-        plugin_checks(ctx, ENGINE_KIND, ctx.params['engine'])
+        plugin_checks(ctx, ENGINE_KIND, engine_names(ctx.params))
+        + ([check_auto()] if ctx.params['engine'] == (AUTO,) else [])
         + plugin_checks(ctx, POST_PROCESSOR_KIND, post_processor_names(ctx.params))
         if ctx
         else None
@@ -418,12 +434,16 @@ def selected_plugins(
 def create_engines(ctx: click.Context) -> list[OcrEngine]:
     """Create the chain of OCR engines that the user selected, in order."""
     engines: list[OcrEngine] = []
-    for name, factory, settings in selected_plugins(ctx, ENGINE_KIND, ctx.params['engine']):
+    for name, factory, settings in selected_plugins(ctx, ENGINE_KIND, engine_names(ctx.params)):
         workers = ctx.params[param_name(name, 'workers')] or ctx.params['max_workers']
         try:
             engines.append(typing.cast(type[OcrEngineFactory], factory).from_settings(settings, workers))
         except OcrError as e:
             raise click.UsageError(str(e)) from e
+
+    if ctx.params['engine'] == (AUTO,):
+        tesseract, rapidocr = engines
+        return [AutoEngine(typing.cast(TesseractEngine, tesseract), typing.cast(RapidOcrEngine, rapidocr))]
 
     return engines
 
@@ -603,9 +623,10 @@ config_option = click.option(
     '--engine',
     type=ENGINE,
     multiple=True,
-    default=('tesseract',),
+    default=(AUTO,),
     show_default=True,
-    help='OCR engine that reads the subtitle images: tesseract, or an engine of an installed plug-in. '
+    help='OCR engine that reads the subtitle images: tesseract, rapidocr, or an engine of an installed plug-in. '
+    'auto uses tesseract for each language that it can read, else rapidocr. '
     'Use it more than one time for a chain: each engine reads the cues that the engines before it '
     'could not read or are not sure of.',
 )
@@ -763,7 +784,20 @@ def rip(
 @click.pass_context
 def doctor(ctx: click.Context, /, **plugin_params: typing.Any) -> None:
     """Check that everything pgsrip needs is installed. Add the output to a bug report."""
-    checks = run_checks([check for kind in KINDS for check in plugin_checks(ctx, kind, installed_plugins(ctx, kind))])
+    auto = check_auto()
+    auto_checks = plugin_checks(ctx, ENGINE_KIND, AUTO_ENGINES)
+    if auto.ok:
+        # pgsrip can rip: a problem of one engine of auto is not a failure
+        auto_checks = [check._replace(ok=True) for check in auto_checks]
+    other_engines = [name for name in installed_plugins(ctx, ENGINE_KIND) if name not in AUTO_ENGINES]
+    checks = run_checks(
+        [
+            *auto_checks,
+            auto,
+            *plugin_checks(ctx, ENGINE_KIND, other_engines),
+            *plugin_checks(ctx, POST_PROCESSOR_KIND, installed_plugins(ctx, POST_PROCESSOR_KIND)),
+        ]
+    )
     click.echo(format_checks(checks))
 
     failed = [check for check in checks if not check.ok]

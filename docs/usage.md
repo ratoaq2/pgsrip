@@ -32,8 +32,8 @@ pgsrip never downloads a language that tesseract already has. Tesseract always u
 finds for a language.
 
 Tesseract cannot read a language when the tesseract program is not found, or when the data is not installed
-and cannot be downloaded. The download is off, or it failed. The [engine chain](#a-chain-of-ocr-engines) then skips
-tesseract for the tracks in this language.
+and cannot be downloaded. The download is off, or it failed. The [default engine](#the-default-engine-auto) then
+uses RapidOCR for the tracks in this language, and the [engine chain](#a-chain-of-ocr-engines) skips tesseract.
 
 ### Download options
 
@@ -116,9 +116,26 @@ tesseract only. For example, `-w 1 --tesseract-workers 4` runs 4 tesseract proce
 
 ## OCR engines
 
-pgsrip reads the text of the subtitle images with an OCR engine. The default engine is tesseract. pgsrip also
-has the [RapidOCR](#rapidocr) engine. Other Python packages can add an engine (see
-[Add an OCR engine](#add-an-ocr-engine)).
+pgsrip reads the text of the subtitle images with an OCR engine. pgsrip has 2 engines: tesseract and
+[RapidOCR](#rapidocr). Other Python packages can add an engine (see [Add an OCR engine](#add-an-ocr-engine)).
+
+### The default engine: auto
+
+With no `--engine`, pgsrip uses `--engine auto`. For each language, auto uses tesseract when tesseract can read
+the language. Else it uses RapidOCR. Tesseract can read a language when the tesseract program is found, and the
+data is installed or can be downloaded. Auto is not a [chain](#a-chain-of-ocr-engines): one engine reads all the
+cues of a track, and a doubtful cue keeps its text.
+
+When auto uses RapidOCR, pgsrip shows one line before the rip starts:
+
+```text
+tesseract not found: rapidocr reads en, de
+Install tesseract-ocr and make sure that it is in the PATH
+```
+
+The `--tesseract-*` and `--rapidocr-*` options are valid with auto. Use `auto` alone: `--engine auto --engine
+myocr` is an error. Plug-in engines are never part of auto. `pgsrip doctor` shows the engine of auto in the
+`auto` line. When auto has an engine, a problem of tesseract or RapidOCR is not a `doctor` failure.
 
 ### RapidOCR
 

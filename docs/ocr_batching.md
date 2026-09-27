@@ -56,7 +56,7 @@ first engine. Each next engine gets only the items that are still unread (`item.
 - Before the first engine, the ripper replaces each engine with `engine.engine_for(pgs.language)`, and removes
   the `None` results. By default, `engine_for` gives the engine itself when `supports` is `True`, else `None`.
   When no engine is left, the track fails with `OcrError`. The cues and the times use the name of the returned
-  engine.
+  engine. `AutoEngine`, the default, returns tesseract or RapidOCR: one engine for the track, not a chain.
 - A doubtful cue keeps its text when no next engine reads it, also when the ripper removed the next engines.
 - `TesseractEngine.accept` marks a cue as doubtful when its lowest word confidence is below `threshold`
   (`--tesseract-threshold`, default 80). The retry passes do not use this threshold. It also sets

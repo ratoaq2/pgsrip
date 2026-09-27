@@ -22,6 +22,11 @@
     `--rapidocr-threshold`, `--rapidocr-model`, `--rapidocr-border`,
     `--rapidocr-batch`, `--rapidocr-dir`, `--no-rapidocr-download` and
     `--rapidocr-workers`
+  - Changed: the default OCR engine is `auto`. For each language, it uses
+    tesseract when tesseract can read the language, else RapidOCR. pgsrip
+    can now rip with no tesseract program on the system. `doctor` shows the
+    engine of auto. A missing tesseract is not a `doctor` failure when
+    RapidOCR can rip
   - New: `doctor` shows the checks of every OCR engine. It accepts `--config`
     and the `--<engine>-*` options
   - New: `--tesseract-workers` sets the number of tesseract processes. It

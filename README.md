@@ -15,8 +15,9 @@ Convert image-based Blu-ray subtitles (PGS) in `.mkv`, `.mks`, and `.sup` files 
 Blu-ray subtitles use the PGS format. A PGS subtitle is an image, not text. Many players, TVs, and subtitle
 editors cannot show or edit these images.
 
-pgsrip reads the text in the images with [tesseract](https://github.com/tesseract-ocr/tesseract) OCR. Then it
-writes a `.srt` file next to your video. It downloads the tesseract language data that it needs automatically.
+pgsrip reads the text in the images with [tesseract](https://github.com/tesseract-ocr/tesseract) OCR. When
+tesseract is not installed, it uses [RapidOCR](docs/usage.md#rapidocr). Then it writes a `.srt` file next to your
+video. It downloads the language data that it needs automatically.
 
 ## Quick start
 
@@ -55,6 +56,9 @@ To upgrade, use `uv tool upgrade pgsrip` or `pipx upgrade pgsrip`.
 ### Install MKVToolNix and tesseract
 
 pgsrip needs 2 programs: MKVToolNix and tesseract. uv, pipx, and pip do not install them.
+
+Tesseract is optional on the platforms where pgsrip installs [RapidOCR](docs/usage.md#rapidocr). Without
+tesseract, pgsrip uses RapidOCR for all languages.
 
 **Ubuntu, Debian, and WSL**
 
@@ -155,7 +159,7 @@ pgsrip does not rip a subtitle again when the `.srt` file exists. Use `-f` to ri
 | `-e`, `--encoding` | Write the `.srt` files with this encoding. |
 | `-w`, `--max-workers` | Number of OCR jobs that run at the same time, for example tesseract processes. The default is the number of CPUs, at most 4. `--tesseract-workers` overrides it for tesseract. |
 | `--no-tesseract-download` | Do not download language data. Use only the installed languages. |
-| `--engine NAME` | OCR engine: `tesseract` (default), [`rapidocr`](docs/usage.md#rapidocr), or an engine of a plug-in. Use it more than one time for a [chain](docs/usage.md#ocr-engines). |
+| `--engine NAME` | OCR engine: [`auto`](docs/usage.md#the-default-engine-auto) (default: tesseract, else RapidOCR), `tesseract`, [`rapidocr`](docs/usage.md#rapidocr), or an engine of a plug-in. Use it more than one time for a [chain](docs/usage.md#ocr-engines). |
 | `--log-file FILE` | Write a debug log to this file. |
 
 Run `pgsrip --help` for all options. [docs/usage.md](docs/usage.md) gives more details.
@@ -227,7 +231,8 @@ options = Options(languages={Language('eng')}, overwrite=True)
 pgsrip.rip(media, options)
 ```
 
-The OCR engines are an option too, in chain order. The default is `[TesseractEngine()]`:
+The OCR engines are an option too, in chain order. The default is `[AutoEngine()]` (`pgsrip.auto`): tesseract,
+else RapidOCR, for each language. This example uses tesseract only:
 
 ```python
 from pgsrip.tesseract import TesseractEngine

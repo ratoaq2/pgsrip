@@ -245,7 +245,7 @@ def check_tessdata(tessdata: Tessdata) -> list[Check]:
 
 
 class TesseractEngine(OcrEngine):
-    """The default OCR engine. One engine reads all the tracks of a rip."""
+    """The first engine of auto. One engine reads all the tracks of a rip."""
 
     options: typing.ClassVar[tuple[PluginOption, ...]] = (
         PluginOption(
