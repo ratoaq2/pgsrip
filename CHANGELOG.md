@@ -12,6 +12,9 @@
     configuration file. The engine tells the languages that it can read
     (`supports`). The chain skips an engine that cannot read the language of
     a track. When no engine can read it, the track fails
+  - New: tesseract cannot read a language when the tesseract program is not
+    found, or when its data is not installed and cannot be downloaded. A
+    failed download does not stop the downloads of the other languages
   - New: `doctor` shows the checks of every OCR engine. It accepts `--config`
     and the `--<engine>-*` options
   - New: `--tesseract-workers` sets the number of tesseract processes. It

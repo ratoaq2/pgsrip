@@ -31,6 +31,10 @@ pgsrip uses the first directory in this list that it can write to:
 pgsrip never downloads a language that tesseract already has. Tesseract always uses the first data that it
 finds for a language.
 
+Tesseract cannot read a language when the tesseract program is not found, or when the data is not installed
+and cannot be downloaded. The download is off, or it failed. The [engine chain](#a-chain-of-ocr-engines) then skips
+tesseract for the tracks in this language.
+
 ### Download options
 
 | Option | Environment variable | What it does |

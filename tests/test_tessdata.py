@@ -13,6 +13,7 @@ from pgsrip.tessdata import (
     get_tesseract_code,
     tessdata_env,
 )
+from pgsrip.tesseract import TesseractEngine
 
 
 @pytest.fixture
@@ -219,6 +220,57 @@ def test_ensure_fails_when_download_is_empty(installed, monkeypatch, tmp_path):
         Tessdata(directory=str(tmp_path)).ensure({'por'})
 
     assert not list(tmp_path.iterdir())
+
+
+def test_tesseract_supports_no_language_when_tesseract_cannot_be_queried(monkeypatch, tmp_path):
+    def unavailable():
+        raise OSError('tesseract is not installed')
+
+    monkeypatch.setattr('pgsrip.tessdata.tess.get_languages', unavailable)
+
+    assert not TesseractEngine(tessdata=Tessdata(directory=str(tmp_path))).supports(Language('eng'))
+
+
+@pytest.mark.parametrize(
+    'download, downloaded, supported',
+    [
+        pytest.param(True, False, True, id='download on'),
+        pytest.param(False, False, False, id='download off and no data'),
+        pytest.param(False, True, True, id='download off and data downloaded before'),
+    ],
+)
+def test_tesseract_supports_a_language_that_it_has_or_can_get(installed, tmp_path, download, downloaded, supported):
+    installed('eng')
+    if downloaded:
+        (tmp_path / 'por.traineddata').write_bytes(b'traineddata')
+    engine = TesseractEngine(tessdata=Tessdata(directory=str(tmp_path), download=download))
+
+    assert engine.supports(Language('eng'))
+    assert engine.supports(Language('por')) is supported
+
+
+def test_tesseract_does_not_support_a_language_whose_download_failed(installed, monkeypatch, tmp_path):
+    installed()
+
+    def urlopen(request, timeout=None):
+        if 'por' in request.full_url:
+            raise urllib.error.URLError('offline')
+        return io.BytesIO(b'traineddata')
+
+    monkeypatch.setattr('pgsrip.tessdata.urllib.request.urlopen', urlopen)
+    engine = TesseractEngine(tessdata=Tessdata(directory=str(tmp_path)))
+    reported = []
+
+    engine.prepare([Language('por'), Language('eng')], reporter=reported.append)
+
+    # the failed download does not stop the next one
+    assert reported == [
+        'Downloading tesseract data for eng...',
+        'Downloading tesseract data for por...',
+        'Cannot download tesseract data for por: offline',
+    ]
+    assert engine.supports(Language('eng'))
+    assert not engine.supports(Language('por'))
 
 
 def test_target_dir_falls_back_when_directory_is_not_writable(tmp_path, monkeypatch):

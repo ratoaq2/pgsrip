@@ -190,6 +190,24 @@ class Tessdata:
 
         return self._target_dir
 
+    def path(self, code: str) -> str:
+        """The file of a downloaded model."""
+        return os.path.join(self.target_dir, f'{code}{TRAINED_DATA_EXTENSION}')
+
+    def available(self, code: str) -> bool:
+        """True when tesseract runs and has the model, or `ensure` can give it: downloaded before, or download on."""
+        installed = self.installed_codes
+        if installed is None:
+            return False
+        if code in installed or self.download:
+            return True
+
+        try:
+            return os.path.isfile(self.path(code))
+        except TessdataError:
+            # no writable directory: nothing was downloaded before
+            return False
+
     def ensure(self, codes: typing.Iterable[str], reporter: typing.Callable[[str], None] | None = None) -> str | None:
         """Make the given models available to tesseract, calling reporter before each actual download.
 
@@ -205,7 +223,7 @@ class Tessdata:
 
         directory = self.target_dir
         for code in missing:
-            path = os.path.join(directory, f'{code}{TRAINED_DATA_EXTENSION}')
+            path = self.path(code)
             if os.path.isfile(path):
                 logger.debug('Using previously downloaded tesseract data %s', path)
                 continue

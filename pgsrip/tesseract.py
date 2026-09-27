@@ -300,6 +300,8 @@ class TesseractEngine(OcrEngine):
         self.oem = oem or TesseractEngineMode.NEURAL
         self.psm = psm or TesseractPageSegmentationMode.SINGLE_UNIFORM_BLOCK_OF_TEXT
         self.tessdata = tessdata or Tessdata()
+        #: the tesseract data that `prepare` could not download
+        self.failed_codes: set[str] = set()
 
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__} [{self}]>'
@@ -327,14 +329,21 @@ class TesseractEngine(OcrEngine):
             if reporter:
                 reporter(f'Downloading tesseract data for {code}...')
 
-        try:
-            self.tessdata.ensure(get_required_codes(languages, self.psm.value), reporter=report)
-        except TessdataError as e:
-            if reporter:
-                reporter(str(e))
+        # one code at a time: a failed download does not stop the downloads of the other codes
+        for code in sorted(get_required_codes(languages, self.psm.value)):
+            try:
+                self.tessdata.ensure({code}, reporter=report)
+            except TessdataError as e:
+                self.failed_codes.add(code)
+                if reporter:
+                    reporter(str(e))
 
     def supports(self, language: Language) -> bool:
-        return True
+        """True when tesseract runs, and has or can get the data of the language."""
+        return all(
+            code not in self.failed_codes and self.tessdata.available(code)
+            for code in get_required_codes([language], self.psm.value)
+        )
 
     def recognize(self, pgs: Pgs, items: list[PgsSubtitleItem]) -> None:
         max_height = max([item.height for item in pgs.items]) // 2

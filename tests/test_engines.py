@@ -159,6 +159,7 @@ def fake_tesseract(monkeypatch: pytest.MonkeyPatch) -> list[int]:
             item.doubtful = item.index in doubtful
 
     monkeypatch.setattr(TesseractEngine, 'prepare', lambda *args, **kwargs: None)
+    monkeypatch.setattr(TesseractEngine, 'supports', lambda *args: True)
     monkeypatch.setattr(TesseractEngine, 'recognize', recognize)
     return doubtful
 
@@ -168,6 +169,7 @@ def blind_tesseract(monkeypatch: pytest.MonkeyPatch) -> list[TesseractEngine]:
     """Tesseract reads nothing. The list gets each tesseract engine that recognize was called on."""
     engines: list[TesseractEngine] = []
     monkeypatch.setattr(TesseractEngine, 'prepare', lambda *args, **kwargs: None)
+    monkeypatch.setattr(TesseractEngine, 'supports', lambda *args: True)
     monkeypatch.setattr(TesseractEngine, 'recognize', lambda engine, *args: engines.append(engine))
     return engines
 

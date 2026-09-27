@@ -25,7 +25,8 @@
 - `tsv.py` — typed wrapper over pytesseract TSV (`TsvData`/`TsvDataItem`).
 - `options.py` — `Options` config object threaded through the pipeline. `Options.engines` holds the OCR
   engines, and `Options.post_processors` the post-processors, in chain order.
-- `tessdata.py` — tesseract language codes and `.traineddata` lookup/download (`Tessdata`).
+- `tessdata.py` — tesseract language codes and `.traineddata` lookup/download (`Tessdata`). `available` tells
+  if tesseract has or can get a model (`TesseractEngine.supports`).
 - `track_flags.py` — `TrackFlags`: track flags (forced, SDH, commentary, ...), their filename tokens and the
   `--with`/`--without` filter.
 - `scrub.py` — makes a small, redacted copy of a PGS track so a reporter can share a bug sample.
