@@ -69,6 +69,7 @@ A subtitle track can have flags. pgsrip knows these flags, in this order: `force
 - `--without FLAG` does not rip a track that has one of the given flags.
 - When a track matches both options, `--without` has priority.
 - You can use each option more than one time.
+- For a `.sup` file, the flags come from the file name, for example `mymedia.en.forced.sup`.
 
 ```bash
 pgsrip --with forced --with full mymedia.mkv

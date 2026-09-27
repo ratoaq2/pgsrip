@@ -18,6 +18,9 @@ from pgsrip.media_path import MediaPath
 from pgsrip.options import Options
 from pgsrip.utils import pairwise
 
+if typing.TYPE_CHECKING:
+    from pgsrip.sources.base import Track
+
 logger = logging.getLogger(__name__)
 
 
@@ -166,7 +169,12 @@ class PgsSubtitleItem:
 
 class Pgs:
     def __init__(
-        self, media_path: MediaPath, options: Options, data_reader: typing.Callable[[], bytes], temp_folder: str
+        self,
+        media_path: MediaPath,
+        options: Options,
+        data_reader: typing.Callable[[], bytes],
+        temp_folder: str,
+        track: Track | None = None,
     ):
         self.media_path = media_path
         # the file to point a bug report at, which is not the media path of an extracted track
@@ -174,6 +182,7 @@ class Pgs:
         self.options = options
         self.data_reader = data_reader
         self.temp_folder = temp_folder
+        self.track = track
         self._items: list[PgsSubtitleItem] | None = None
 
     @property
@@ -224,6 +233,10 @@ class Pgs:
         return f'<{self.__class__.__name__} [{self}]>'
 
     def __str__(self) -> str:
+        # a track of a container: the file name, the track id, and the language
+        if self.track is not None and str(self.source_path) != str(self.media_path):
+            return f'{self.media_path.translate(language=Language("und"))} [{self.track.id}:{self.language}]'
+
         return str(self.media_path)
 
     def __enter__(self) -> Pgs:

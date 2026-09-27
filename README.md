@@ -229,9 +229,9 @@ For the rules, see [File names](docs/usage.md#file-names).
 
 ```python
 from babelfish import Language
-from pgsrip import pgsrip, Mkv, Options
+from pgsrip import pgsrip, Media, Options
 
-media = Mkv('/subtitle/path/mymedia.mkv')
+media = Media('/subtitle/path/mymedia.mkv')
 options = Options(languages={Language('eng')}, overwrite=True)
 pgsrip.rip(media, options)
 ```

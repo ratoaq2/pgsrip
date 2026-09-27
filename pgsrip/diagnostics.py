@@ -16,9 +16,7 @@ from pgsrip.engines.tessdata import is_writable
 
 logger = logging.getLogger(__name__)
 
-MKVTOOLNIX_EXECUTABLES = ('mkvmerge', 'mkvextract')
 REPORTED_PACKAGES = ('click', 'numpy', 'opencv-python', 'pytesseract', 'pysrt', 'babelfish', 'cleanit', 'trakit')
-MKVTOOLNIX_HINT = 'Install MKVToolNix: https://mkvtoolnix.download/downloads.html'
 COMMAND_TIMEOUT = 10
 
 
@@ -73,15 +71,14 @@ def check_temp_directory() -> Check:
     return Check('temporary directory', directory)
 
 
-def run_checks(engine_checks: list[Check] | None = None) -> list[Check]:
-    """Collect everything that is worth knowing about this installation, with the checks of the OCR engines."""
+def run_checks(tool_checks: list[Check] | None = None) -> list[Check]:
+    """Collect everything that is worth knowing about this installation, with the checks of the sources and engines."""
     checks = [
         Check('pgsrip', __version__),
         Check('python', f'{platform.python_version()} ({sys.executable})'),
         Check('platform', platform.platform()),
     ]
-    checks += [check_executable(name, MKVTOOLNIX_HINT) for name in MKVTOOLNIX_EXECUTABLES]
-    checks += engine_checks or []
+    checks += tool_checks or []
     checks.append(check_temp_directory())
     checks += check_packages()
 

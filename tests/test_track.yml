@@ -17,8 +17,6 @@
     type: subtitles
   expected:
     id: 0
-    type: subtitles
-    codec: HDMV PGS
     language: en
 - track:
     codec: HEVC/H.265/MPEG-H
@@ -43,8 +41,6 @@
     type: video
   expected:
     id: 0
-    type: video
-    codec: HEVC/H.265/MPEG-H
     language: en
 
 - track:
@@ -67,8 +63,6 @@
     type: audio
   expected:
     id: 1
-    type: audio
-    codec: TrueHD Atmos
     default: true
     language: en
 - track:
@@ -92,8 +86,6 @@
     type: audio
   expected:
     id: 2
-    type: audio
-    codec: AC-3 Dolby Surround EX
     language: en
 
 - track:
@@ -117,8 +109,6 @@
     type: audio
   expected:
     id: 3
-    type: audio
-    codec: AC-3
     language: de
 
 - track:
@@ -143,8 +133,6 @@
     type: audio
   expected:
     id: 4
-    type: audio
-    codec: DTS
     language: pt-BR
 
 - track:
@@ -165,8 +153,6 @@
     type: subtitles
   expected:
     id: 5
-    type: subtitles
-    codec: HDMV PGS
     language: en
 
 - track:
@@ -187,8 +173,6 @@
     type: subtitles
   expected:
     id: 6
-    type: subtitles
-    codec: HDMV PGS
     language: de
 
 - track:
@@ -209,8 +193,6 @@
     type: subtitles
   expected:
     id: 7
-    type: subtitles
-    codec: HDMV PGS
     language: pt-BR
 
 - track:
@@ -230,8 +212,6 @@
     type: subtitles
   expected:
     id: 8
-    type: subtitles
-    codec: HDMV PGS
     name: English
     language: en
     hearing_impaired: true
@@ -252,8 +232,6 @@
     type: subtitles
   expected:
     id: 9
-    type: subtitles
-    codec: HDMV PGS
     name: Forced
     language: en
     forced: true
@@ -274,8 +252,6 @@
     type: subtitles
   expected:
     id: 10
-    type: subtitles
-    codec: HDMV PGS
     name: English
     language: en
     forced: true
@@ -295,8 +271,6 @@
     type: subtitles
   expected:
     id: 11
-    type: subtitles
-    codec: HDMV PGS
     language: es-419
 
 - track:
@@ -314,8 +288,6 @@
     type: subtitles
   expected:
     id: 12
-    type: subtitles
-    codec: HDMV PGS
     language: zh-Hans
 
 - track:
@@ -333,8 +305,6 @@
     type: subtitles
   expected:
     id: 13
-    type: subtitles
-    codec: HDMV PGS
     language: en-US
 
 - track:
@@ -352,8 +322,6 @@
     type: subtitles
   expected:
     id: 14
-    type: subtitles
-    codec: HDMV PGS
     language: de
 
 - track:
@@ -371,7 +339,5 @@
     type: subtitles
   expected:
     id: 15
-    type: subtitles
-    codec: HDMV PGS
     language: en
     disabled: true

@@ -10,7 +10,7 @@ from pgsrip.core import get_reason
 from pgsrip.media import Pgs
 from pgsrip.media_path import MediaPath
 from pgsrip.options import Options
-from pgsrip.sources.mkv import Mkv
+from pgsrip.sources.base import Media
 
 
 @pytest.fixture
@@ -21,7 +21,7 @@ def mkvmerge(monkeypatch):
                 raise error
             return json.dumps({'tracks': list(tracks)}).encode()
 
-        monkeypatch.setattr('pgsrip.sources.mkv.check_output', check_output)
+        monkeypatch.setattr('pgsrip.sources.mkvtoolnix.check_output', check_output)
 
     return use
 
@@ -72,13 +72,33 @@ def test_scan_path_discards_when_mkvmerge_is_missing(tmp_path, mkvmerge):
 
 
 def test_scan_path_discards_when_mkvmerge_fails(tmp_path, mkvmerge):
-    mkvmerge(error=CalledProcessError(2, 'mkvmerge'))
+    mkvmerge(error=CalledProcessError(2, ['mkvmerge', '-i', '-F', 'json']))
     path = create_file(tmp_path, 'mymedia.mkv')
 
     collected, _, discarded = scan_path(path)
 
     assert not collected
     assert get_reason(discarded[0]) == 'mkvmerge could not read the file (exit code 2)'
+
+
+def test_scan_path_collects_a_sup_with_no_tool(tmp_path, mkvmerge):
+    mkvmerge(error=FileNotFoundError('mkvmerge'))
+    path = create_file(tmp_path, 'mymedia.en.sup')
+
+    collected, filtered_out, discarded = scan_path(path)
+
+    assert [str(m.media_path) for m in collected] == [path]
+    assert not filtered_out
+    assert not discarded
+
+
+def test_sup_is_filtered_by_its_file_name_flags(tmp_path):
+    path = create_file(tmp_path, 'movie.en.forced.sup')
+
+    assert Media(path).get_pgs_medias(Options(exclude_flags=frozenset({'forced'}))) == []
+    (pgs,) = Media(path).get_pgs_medias(Options(include_flags=frozenset({'forced'})))
+    with pgs:
+        assert str(pgs.media_path) == path
 
 
 def test_scan_path_filters_out_other_languages(tmp_path, mkvmerge):
@@ -145,7 +165,7 @@ def test_get_pgs_medias_disambiguates_only_a_real_language_and_flags_collision(t
     )
     path = create_file(tmp_path, 'movie.mkv')
 
-    medias = list(Mkv(path).get_pgs_medias(Options(one_per_lang=False)))
+    medias = list(Media(path).get_pgs_medias(Options(one_per_lang=False)))
 
     assert sorted(os.path.basename(str(m.srt_path)) for m in medias) == sorted(
         ['movie.en.srt', 'movie.en.sdh.srt', 'movie.en.track2.srt', 'movie.de.srt']
@@ -161,7 +181,7 @@ def test_get_pgs_medias_keeps_different_flag_combinations_for_the_same_language_
     )
     path = create_file(tmp_path, 'movie.mkv')
 
-    medias = list(Mkv(path).get_pgs_medias(Options()))
+    medias = list(Media(path).get_pgs_medias(Options()))
 
     assert sorted(os.path.basename(str(m.srt_path)) for m in medias) == ['movie.en.sdh.srt', 'movie.en.srt']
 
@@ -175,7 +195,7 @@ def test_get_pgs_medias_track_id_is_stable_regardless_of_one_per_lang(tmp_path, 
     )
     path = create_file(tmp_path, 'movie.mkv')
 
-    medias = list(Mkv(path).get_pgs_medias(Options(one_per_lang=True)))
+    medias = list(Media(path).get_pgs_medias(Options(one_per_lang=True)))
 
     assert [os.path.basename(str(m.srt_path)) for m in medias] == ['movie.en.srt']
 
@@ -189,7 +209,7 @@ def test_get_pgs_medias_excludes_flagged_tracks(tmp_path, mkvmerge):
     )
     path = create_file(tmp_path, 'movie.mkv')
 
-    medias = list(Mkv(path).get_pgs_medias(Options(one_per_lang=False, exclude_flags=frozenset({'commentary'}))))
+    medias = list(Media(path).get_pgs_medias(Options(one_per_lang=False, exclude_flags=frozenset({'commentary'}))))
 
     assert [os.path.basename(str(m.srt_path)) for m in medias] == ['movie.en.srt']
 
@@ -204,7 +224,7 @@ def test_get_pgs_medias_includes_forced_or_full_tracks(tmp_path, mkvmerge):
     )
     path = create_file(tmp_path, 'movie.mkv')
 
-    medias = list(Mkv(path).get_pgs_medias(Options(one_per_lang=False, include_flags=frozenset({'forced', 'full'}))))
+    medias = list(Media(path).get_pgs_medias(Options(one_per_lang=False, include_flags=frozenset({'forced', 'full'}))))
 
     assert sorted(os.path.basename(str(m.srt_path)) for m in medias) == ['movie.en.forced.srt', 'movie.en.srt']
 
@@ -219,7 +239,7 @@ def test_get_pgs_medias_includes_sdh_for_the_selected_language_only(tmp_path, mk
     )
     path = create_file(tmp_path, 'movie.mkv')
 
-    medias = list(Mkv(path).get_pgs_medias(Options(languages={Language('eng')}, include_flags=frozenset({'sdh'}))))
+    medias = list(Media(path).get_pgs_medias(Options(languages={Language('eng')}, include_flags=frozenset({'sdh'}))))
 
     assert [os.path.basename(str(m.srt_path)) for m in medias] == ['movie.en.sdh.srt']
 
@@ -228,8 +248,8 @@ def test_get_pgs_medias_exclude_wins_over_include(tmp_path, mkvmerge):
     mkvmerge(tracks=[pgs_track(track_id=0, language='eng', forced_track=True, flag_commentary=True)])
     path = create_file(tmp_path, 'movie.mkv')
 
-    medias = list(
-        Mkv(path).get_pgs_medias(Options(include_flags=frozenset({'forced'}), exclude_flags=frozenset({'commentary'})))
+    medias = Media(path).get_pgs_medias(
+        Options(include_flags=frozenset({'forced'}), exclude_flags=frozenset({'commentary'}))
     )
 
     assert not medias
@@ -245,7 +265,7 @@ def test_get_pgs_medias_track_id_is_stable_regardless_of_with_without_filtering(
     )
     path = create_file(tmp_path, 'movie.mkv')
 
-    medias = list(Mkv(path).get_pgs_medias(Options(one_per_lang=False, exclude_flags=frozenset({'commentary'}))))
+    medias = list(Media(path).get_pgs_medias(Options(one_per_lang=False, exclude_flags=frozenset({'commentary'}))))
 
     assert sorted(os.path.basename(str(m.srt_path)) for m in medias) == ['movie.en.srt', 'movie.en.track2.srt']
 
@@ -259,6 +279,6 @@ def test_get_pgs_medias_one_per_language_ignores_flags(tmp_path, mkvmerge):
     )
     path = create_file(tmp_path, 'movie.mkv')
 
-    medias = list(Mkv(path).get_pgs_medias(Options(one_per_language=True)))
+    medias = list(Media(path).get_pgs_medias(Options(one_per_language=True)))
 
     assert [os.path.basename(str(m.srt_path)) for m in medias] == ['movie.en.srt']

@@ -36,6 +36,7 @@ from pgsrip.engines.auto import check_auto
 from pgsrip.engines.base import OcrError
 from pgsrip.formats.scrub import Redaction, output_path, scrub_data
 from pgsrip.options import Options
+from pgsrip.sources import source_checks
 from pgsrip.sources.base import Media
 from pgsrip.track_flags import FLAG_CHOICES
 
@@ -199,13 +200,13 @@ def log_environment(ctx: click.Context | None = None) -> None:
     if not logger.isEnabledFor(logging.DEBUG):
         return
 
-    checks = (
-        plugin_checks(ctx, ENGINE_KIND, engine_names(ctx.params))
-        + ([check_auto()] if ctx.params['engine'] == (AUTO,) else [])
-        + plugin_checks(ctx, POST_PROCESSOR_KIND, post_processor_names(ctx.params))
-        if ctx
-        else None
-    )
+    checks = source_checks()
+    if ctx:
+        checks += (
+            plugin_checks(ctx, ENGINE_KIND, engine_names(ctx.params))
+            + ([check_auto()] if ctx.params['engine'] == (AUTO,) else [])
+            + plugin_checks(ctx, POST_PROCESSOR_KIND, post_processor_names(ctx.params))
+        )
     for line in format_checks(run_checks(checks)).splitlines():
         logger.info(line)
 
@@ -541,6 +542,7 @@ def doctor(ctx: click.Context, /, **plugin_params: typing.Any) -> None:
     other_engines = [name for name in installed_plugins(ctx, ENGINE_KIND) if name not in AUTO_ENGINES]
     checks = run_checks(
         [
+            *source_checks(),
             *auto_checks,
             auto,
             *plugin_checks(ctx, ENGINE_KIND, other_engines),
