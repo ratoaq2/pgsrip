@@ -15,9 +15,9 @@ import numpy.typing as npt
 from babelfish import Language
 from pysrt import SubRipTime
 
+from pgsrip.formats.pgs import DisplaySet, Palette, PgsImage, PgsReader
 from pgsrip.media_path import MediaPath
 from pgsrip.options import Options
-from pgsrip.pgs import DisplaySet, Palette, PgsImage, PgsReader
 from pgsrip.utils import pairwise
 
 logger = logging.getLogger(__name__)

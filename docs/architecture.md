@@ -13,7 +13,7 @@
   image cropped to its ink), corrupted-data auto-fix (see `docs/corrupted_data.md`).
 - `mkv.py` / `sup.py` — `Media` subclasses for `.mkv`/`.mks` (`mkvmerge`/`mkvextract`) and `.sup`.
 - `media_path.py` — filename parsing/generation (language, track number, extension).
-- `pgs.py` — binary PGS segment format: PDS/ODS/PCS/WDS/END parsing, RLE image decoding. Format-spec-heavy;
+- `formats/pgs.py` — binary PGS segment format: PDS/ODS/PCS/WDS/END parsing, RLE image decoding. Format-spec-heavy;
   malformed input is the norm (see `docs/corrupted_data.md`).
 - `plugin.py` — `PluginOption`: the options that an engine or a post-processor declares for the CLI.
 - `ripper.py` — `Cue`, `create_srt`, and `PgsToSrtRipper`: asks a chain
@@ -37,7 +37,7 @@
   if tesseract has or can get a model (`TesseractEngine.supports`).
 - `track_flags.py` — `TrackFlags`: track flags (forced, SDH, commentary, ...), their filename tokens and the
   `--with`/`--without` filter.
-- `scrub.py` — makes a small, redacted copy of a PGS track so a reporter can share a bug sample.
+- `formats/scrub.py` — makes a small, redacted copy of a PGS track so a reporter can share a bug sample.
 - `diagnostics.py` — environment checks (MKVToolNix, package versions) for bug reports. Each OCR engine and
   post-processor adds its own checks with a `check` classmethod, e.g. `TesseractEngine.check`.
 - `utils.py` — binary/time helpers (`from_hex`, `safe_get`, `to_time`, `pairwise`), `default_workers`, `split_lines`.

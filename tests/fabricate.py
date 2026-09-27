@@ -16,9 +16,9 @@ import typing
 from babelfish import Language
 from trakit.api import trakit  # noqa: F401  registers the `cleanit` babelfish language converter
 
+from pgsrip.formats.pgs import PgsReader
+from pgsrip.formats.scrub import Redaction, scrub_display_sets
 from pgsrip.media_path import MediaPath
-from pgsrip.pgs import PgsReader
-from pgsrip.scrub import Redaction, scrub_display_sets
 
 if typing.TYPE_CHECKING:
     from pgsrip.engines.tesseract import FullImage

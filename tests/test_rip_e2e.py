@@ -20,9 +20,9 @@ from click.testing import CliRunner
 
 from pgsrip.cli import pgsrip
 from pgsrip.engines.tesseract import MAX_TESS_DIMENSION, FullImage, TesseractEngine
+from pgsrip.formats.pgs import PgsReader
 from pgsrip.media import PgsSubtitleItem
 from pgsrip.media_path import MediaPath
-from pgsrip.pgs import PgsReader
 from pgsrip.utils import MAX_DEFAULT_WORKERS, default_workers
 
 from . import from_yaml
