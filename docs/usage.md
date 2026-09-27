@@ -158,14 +158,14 @@ The class declares its options, and creates the engine from their values (see `O
 ```python
 import click
 
-from pgsrip.ripper import EngineOption
+from pgsrip.ripper import PluginOption
 
 
 class MyEngine:
     options = (
-        EngineOption('model', click.Choice(['small', 'large']), default='small', help='Model to use.'),
-        EngineOption('url', required=True, envvar='MYOCR_URL', help='URL of the server.'),
-        EngineOption('gpu', flag=True, help='Use the GPU.'),
+        PluginOption('model', click.Choice(['small', 'large']), default='small', help='Model to use.'),
+        PluginOption('url', required=True, envvar='MYOCR_URL', help='URL of the server.'),
+        PluginOption('gpu', flag=True, help='Use the GPU.'),
     )
 
     @classmethod
@@ -196,11 +196,100 @@ The engine has 2 methods (see `OcrEngine` in `pgsrip/ripper.py`):
 - `prepare(languages, reporter)`: get ready before the rip starts. Raise `pgsrip.ripper.OcrError` when the
   engine cannot rip at all.
 - `recognize(pgs, items)`: set `item.text` for each item that the engine can read. Leave `None` for the next
-  engine of the chain. Set `item.doubtful` when the text can be wrong. Raise `OcrError` when the engine fails:
-  pgsrip then writes no `.srt` file for that track.
+  engine of the chain. Set `item.doubtful` when the text can be wrong. Set `item.confidence` (0 to 1) when the
+  engine has one. Raise `OcrError` when the engine fails: pgsrip then writes no `.srt` file for that track.
 
 The class can also have a `check(settings)` classmethod. It returns a list of `pgsrip.diagnostics.Check`.
 `pgsrip doctor` shows the checks of all engines, and the debug log shows the checks of the engines in
 `--engine`. A check must not fail when an option has no value: show `not set`.
 
 Use the engine by name, alone or in a chain. A plug-in cannot replace `tesseract`.
+
+## Post-processors
+
+After the chain of OCR engines, a chain of post-processors changes the text of the cues of the track. The
+default post-processor is cleanit. It removes, for example, speaker labels, lyrics, and ads. Other Python
+packages can add a post-processor (see [Add a post-processor](#add-a-post-processor)).
+
+Use `--post-processor` more than one time to make a chain. Each post-processor gets the cues of the one before
+it:
+
+```bash
+pgsrip --post-processor cleanit --post-processor myfix mymedia.mkv
+```
+
+`--no-post-process` keeps the text of the OCR engines.
+
+pgsrip leaves out the cues that have no text at the end of the chain.
+
+### cleanit options
+
+- `--cleanit-config`: a cleanit rules file. Its rules are added to the default rules.
+- `-t`, `--tag`, or `--cleanit-tag`: the rule tags to use, e.g. `ocr`, `tidy`, `no-sdh`, `no-style`,
+  `no-lyrics`, `no-spam`. The default tag is `default`. Use it more than one time for more tags.
+
+A [configuration file](../README.md#configuration-file) can also set the chain and the cleanit options:
+
+```yaml
+post_processor:
+  - cleanit
+  - myfix
+cleanit:
+  config: /data/cleanit.yml
+  tag:
+    - no-sdh
+    - no-spam
+```
+
+### The cues as JSON
+
+With `--keep-temp-files`, pgsrip writes 2 files in the temporary folder of each track:
+
+- `ocr.json`: the cues after the chain of OCR engines.
+- `cues.json`: the cues after the chain of post-processors.
+
+Each cue has its `index`, `start`, `end`, `text`, `confidence` (0 to 1, or `null`), `doubtful`, and `engine`
+(the class name of the engine that read it). `seconds` gives the time of each OCR engine for the track.
+
+### Add a post-processor
+
+A Python package can add a post-processor. Declare an entry point in the `pgsrip.postprocessors` group. Its
+value is the post-processor class:
+
+```toml
+[project.entry-points."pgsrip.postprocessors"]
+myfix = "myfix.postprocessor:MyFix"
+```
+
+The class declares its options like an [OCR engine](#add-an-ocr-engine), with `PluginOption`. pgsrip makes
+the `--myfix-*` options and reads the `myfix` section of a configuration file. A post-processor has no
+`workers` option. `from_settings` gets only the settings (see `PostProcessorFactory` in
+`pgsrip/postprocess.py`). Raise `ValueError` when a value is wrong: pgsrip shows it as a usage error.
+
+```python
+from pgsrip.ripper import PluginOption
+
+
+class MyFix:
+    options = (PluginOption('model', default='small', help='Model to use.'),)
+
+    @classmethod
+    def from_settings(cls, settings):
+        return cls(settings['model'])
+
+    def process(self, pgs, cues):
+        for cue in cues:
+            if cue.text and cue.doubtful:
+                cue.text = self.fix(cue.text, cue.item.image)
+        return cues
+```
+
+`process(pgs, cues)` gets all the cues of one track, and returns the new list (see `PostProcessor` in
+`pgsrip/postprocess.py` and `Cue` in `pgsrip/ripper.py`). It can change, remove, add, or merge cues. A cue with
+`text=None` was not read by any engine. `cue.item` gives the subtitle image. An error stops the track: pgsrip
+then writes no `.srt` file for that track.
+
+The class can also have a `check(settings)` classmethod, like an OCR engine. `pgsrip doctor` shows the checks of
+all post-processors.
+
+A post-processor cannot replace `cleanit`, and cannot have the name of an OCR engine.

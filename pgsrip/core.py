@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
 import typing
@@ -8,7 +9,7 @@ from subprocess import CalledProcessError
 from pgsrip.media import Media, Pgs
 from pgsrip.mkv import Mkv
 from pgsrip.options import Options
-from pgsrip.ripper import PgsToSrtRipper
+from pgsrip.ripper import Cue, PgsToSrtRipper, create_srt
 from pgsrip.sup import Sup
 
 logger = logging.getLogger(__name__)
@@ -109,9 +110,16 @@ def rip_pgs(pgs: Pgs, options: Options, on_error: ErrorHandler | None = None) ->
             if not p.matches(options):
                 return False
 
-            rules = options.cleanit_config.select_rules(tags=options.tags, languages={p.language})
-            srt = PgsToSrtRipper(p, options).rip(lambda t: rules.apply(t, '')[0])
-            srt.save(encoding=options.encoding)
+            ripper = PgsToSrtRipper(p, options)
+            cues = ripper.rip()
+            if options.keep_temp_files:
+                dump_cues(p, 'ocr.json', cues, ripper.seconds)
+            for post_processor in options.post_processors:
+                cues = post_processor.process(p, cues)
+            if options.keep_temp_files:
+                dump_cues(p, 'cues.json', cues, ripper.seconds)
+
+            create_srt(str(p.media_path.translate(extension='srt')), cues).save(encoding=options.encoding)
             return True
     except Exception as e:
         logger.warning(
@@ -125,3 +133,9 @@ def rip_pgs(pgs: Pgs, options: Options, on_error: ErrorHandler | None = None) ->
             on_error(pgs, e)
 
     return False
+
+
+def dump_cues(pgs: Pgs, name: str, cues: list[Cue], seconds: dict[str, float]) -> None:
+    """Write the cues and the time of each OCR engine in the temporary folder, for debug and benchmarks."""
+    with open(os.path.join(pgs.temp_folder, name), mode='w', encoding='utf8') as f:
+        json.dump({'seconds': seconds, 'cues': [cue.to_json() for cue in cues]}, f, indent=2, ensure_ascii=False)

@@ -183,6 +183,9 @@ tesseract:
   repository: fast
   dir: /data/tessdata
   download: false
+cleanit:
+  tag:
+    - no-sdh
 ```
 
 pgsrip reads the configuration files in this order. A later file overrides an earlier file.
@@ -196,9 +199,10 @@ pgsrip reads the configuration files in this order. A later file overrides an ea
 
 An option on the command line overrides the configuration files. An unknown key is an error.
 
-`pgsrip doctor` reads the same files. It uses only the OCR engine sections, for example `tesseract`.
+`pgsrip doctor` reads the same files. It uses only the OCR engine and post-processor sections, for example
+`tesseract` and `cleanit`.
 
-The cleanit rules file option is `--cleanit-config`.
+For the cleanit options (`--cleanit-config`, `-t/--tag`), see [Post-processors](docs/usage.md#post-processors).
 
 ### Output file names
 

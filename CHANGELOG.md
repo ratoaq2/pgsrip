@@ -29,9 +29,22 @@
     `tesseract: {threshold: 90}` for `--tesseract-threshold`
   - Breaking: the cleanit rules file option `-c/--config` is now
     `--cleanit-config`. `--config` is now the pgsrip configuration file
-  - Breaking: library: `Options(config_path=...)` is now
-    `Options(cleanit_config=...)`, and `Options.config` is now
-    `Options.cleanit_config`
+  - New: a chain of post-processors changes the text after the OCR engines.
+    cleanit is the default post-processor. Use `--post-processor` more than
+    one time for a chain, and `--no-post-process` to keep the text of the OCR
+    engines. Other packages can add a post-processor with a
+    `pgsrip.postprocessors` entry point
+  - New: `--cleanit-tag` is the long name of `-t/--tag`. The `cleanit` section
+    of the configuration file sets `config` and `tag`
+  - New: `--keep-temp-files` also keeps `ocr.json` and `cues.json`: the text,
+    the confidence and the engine of each cue, before and after the
+    post-processors
+  - Breaking: library: `Options(config_path=..., tags=...)` is now
+    `Options(post_processors=[CleanitPostProcessor(config_path, tags)])`, from
+    `pgsrip.cleanit`. `Options.config` and `Options.tags` are removed.
+    `PgsToSrtRipper.rip()` returns the cues, and `pgsrip.ripper.create_srt`
+    makes the SRT from them
+  - Breaking: plug-ins: `pgsrip.ripper.EngineOption` is now `PluginOption`
   - Fix: a track with 20 or more cues that tesseract could not read made the
     rip run forever
 

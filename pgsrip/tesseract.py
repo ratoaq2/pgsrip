@@ -17,7 +17,7 @@ import numpy.typing as npt
 import pytesseract as tess
 
 from pgsrip.diagnostics import Check
-from pgsrip.ripper import EngineOption
+from pgsrip.ripper import PluginOption
 from pgsrip.tessdata import (
     REPOSITORIES,
     Tessdata,
@@ -247,22 +247,22 @@ def check_tessdata(tessdata: Tessdata) -> list[Check]:
 class TesseractEngine:
     """The default OCR engine. One engine reads all the tracks of a rip."""
 
-    options: typing.ClassVar[tuple[EngineOption, ...]] = (
-        EngineOption(
+    options: typing.ClassVar[tuple[PluginOption, ...]] = (
+        PluginOption(
             'threshold',
             click.IntRange(0, 100),
             help=f'A cue with a word below this tesseract confidence goes to the next --engine. '
             f'Default: {DEFAULT_THRESHOLD}.',
         ),
-        EngineOption(
+        PluginOption(
             'dir',
             click.Path(),
             help='Directory where tesseract data is stored. Defaults to TESSDATA_PREFIX or a user cache directory.',
         ),
-        EngineOption(
+        PluginOption(
             'repository', click.Choice(sorted(REPOSITORIES)), help='Repository to download missing tesseract data from.'
         ),
-        EngineOption(
+        PluginOption(
             'download',
             flag=True,
             default=True,
@@ -439,5 +439,7 @@ class TesseractEngine:
             words.clear()
 
         item.text = '\n'.join(lines).strip()
-        item.doubtful = min((row.conf for row in rows), default=100) < self.threshold
+        lowest = min((row.conf for row in rows), default=100)
+        item.doubtful = lowest < self.threshold
+        item.confidence = lowest / 100
         return item.text
