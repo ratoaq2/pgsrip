@@ -157,7 +157,8 @@ def test_scenarios(
     result = CliRunner().invoke(pgsrip, ['rip', *scenario.get('args', []), str(media_dir)])
 
     # then
-    assert result.exit_code == 0, result.output
+    # a failed track makes the rip exit with 1, also when the other tracks rip
+    assert result.exit_code == (1 if 'failures' in scenario else 0), result.output
     for text in scenario.get('output', []) + scenario.get('failures', []):
         assert text in result.output
 
@@ -220,8 +221,7 @@ def test_a_corrupt_track_is_reported_with_the_scrub_command_to_run(
 
     result = CliRunner().invoke(pgsrip, ['rip', str(media_dir)])
 
-    # `rip` never exits non-zero: failures are content, not exit code.
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == 1, result.output
     # the message text (`max() arg is an empty sequence`) differs across 3.11-3.14: match the type only.
     assert '<ValueError>' in result.output
     assert 'pgsrip scrub' in result.output

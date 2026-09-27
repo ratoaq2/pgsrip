@@ -777,6 +777,8 @@ def rip(
         click.echo(f'Debug log written to {click.style(log_file, bold=True)}')
 
     echo_failures(failures, log_file)
+    if failures:
+        raise SystemExit(1)
 
 
 @pgsrip.command(cls=PluginCommand)

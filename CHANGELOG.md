@@ -29,6 +29,7 @@
     RapidOCR can rip
   - New: the Docker image has the RapidOCR PP-OCRv6 small model, in the
     `/usr/src/rapidocr` volume (`PGSRIP_RAPIDOCR_DIR`)
+  - Fixed: `rip` exits with code 1 when a subtitle could not be ripped
   - New: `doctor` shows the checks of every OCR engine. It accepts `--config`
     and the `--<engine>-*` options
   - New: `--tesseract-workers` sets the number of tesseract processes. It
