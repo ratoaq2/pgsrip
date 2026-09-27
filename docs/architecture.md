@@ -23,7 +23,7 @@
 - `tesseract.py` — `TesseractEngine`: OCR batching (see `docs/ocr_batching.md`), tesseract
   TSV → item text and confidence (`accept`).
 - `rapidocr.py` — `RapidOcrEngine`: the PaddleOCR text line models on ONNX Runtime, with no system program.
-  It imports `rapidocr` only in its methods. Line batching and the lowest character score (see
+  It imports `rapidocr` only in its methods: `rapidocr` and `onnxruntime` come from the `rapidocr` extra. Line batching and the lowest character score (see
   `docs/ocr_batching.md`, "RapidOCR"). The models go to `PGSRIP_RAPIDOCR_DIR` or the user cache directory.
 - `auto.py` — `AutoEngine`, the default engine (`--engine auto`): for each language, tesseract when it can read
   it, else RapidOCR. It overrides `engine_for`, so the cues get the name of the real engine. Not a chain.

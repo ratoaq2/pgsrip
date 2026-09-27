@@ -17,7 +17,9 @@
     failed download does not stop the downloads of the other languages
   - New: the `rapidocr` OCR engine (`--engine rapidocr`). It reads the text
     with the PaddleOCR models on ONNX Runtime, and needs no program on the
-    system. pgsrip installs it on the platforms with ONNX Runtime wheels. It
+    system. Install it with the `rapidocr` extra:
+    `pip install "pgsrip[rapidocr]"`. The extra needs ONNX Runtime wheels:
+    it does not install on musl Linux. It
     downloads the model of each language before the rip starts. Options:
     `--rapidocr-threshold`, `--rapidocr-model`, `--rapidocr-border`,
     `--rapidocr-batch`, `--rapidocr-dir`, `--no-rapidocr-download` and

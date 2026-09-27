@@ -940,20 +940,25 @@ dependencies = [
     { name = "click" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-    { name = "onnxruntime", marker = "(platform_machine == 'arm64' and sys_platform == 'darwin') or (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32') or (platform_machine == 'ARM64' and sys_platform == 'win32')" },
     { name = "opencv-python" },
     { name = "pysrt" },
     { name = "pytesseract" },
-    { name = "python-bidi", marker = "(platform_machine == 'arm64' and sys_platform == 'darwin') or (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32') or (platform_machine == 'ARM64' and sys_platform == 'win32')" },
     { name = "pyyaml" },
-    { name = "rapidocr", marker = "(platform_machine == 'arm64' and sys_platform == 'darwin') or (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32') or (platform_machine == 'ARM64' and sys_platform == 'win32')" },
     { name = "setuptools" },
     { name = "trakit" },
+]
+
+[package.optional-dependencies]
+rapidocr = [
+    { name = "onnxruntime", marker = "(platform_machine == 'arm64' and sys_platform == 'darwin') or (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32') or (platform_machine == 'ARM64' and sys_platform == 'win32')" },
+    { name = "python-bidi", marker = "(platform_machine == 'arm64' and sys_platform == 'darwin') or (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32') or (platform_machine == 'ARM64' and sys_platform == 'win32')" },
+    { name = "rapidocr", marker = "(platform_machine == 'arm64' and sys_platform == 'darwin') or (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32') or (platform_machine == 'ARM64' and sys_platform == 'win32')" },
 ]
 
 [package.dev-dependencies]
 dev = [
     { name = "mypy" },
+    { name = "pgsrip", extra = ["rapidocr"] },
     { name = "pre-commit" },
     { name = "pytest" },
     { name = "pytest-cov" },
@@ -969,20 +974,22 @@ requires-dist = [
     { name = "cleanit", specifier = ">=0.5.1" },
     { name = "click", specifier = ">=8.2.1" },
     { name = "numpy", specifier = ">=2.2" },
-    { name = "onnxruntime", marker = "(platform_machine == 'arm64' and sys_platform == 'darwin') or (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32') or (platform_machine == 'ARM64' and sys_platform == 'win32')", specifier = ">=1.30" },
+    { name = "onnxruntime", marker = "(platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'rapidocr') or (platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'rapidocr') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'rapidocr') or (platform_machine == 'AMD64' and sys_platform == 'win32' and extra == 'rapidocr') or (platform_machine == 'ARM64' and sys_platform == 'win32' and extra == 'rapidocr')", specifier = ">=1.30" },
     { name = "opencv-python", specifier = ">=4.12.0" },
     { name = "pysrt", specifier = ">=1.1.2" },
     { name = "pytesseract", specifier = ">=0.3.10" },
-    { name = "python-bidi", marker = "(platform_machine == 'arm64' and sys_platform == 'darwin') or (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32') or (platform_machine == 'ARM64' and sys_platform == 'win32')", specifier = ">=0.6" },
+    { name = "python-bidi", marker = "(platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'rapidocr') or (platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'rapidocr') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'rapidocr') or (platform_machine == 'AMD64' and sys_platform == 'win32' and extra == 'rapidocr') or (platform_machine == 'ARM64' and sys_platform == 'win32' and extra == 'rapidocr')", specifier = ">=0.6" },
     { name = "pyyaml", specifier = ">=6.0" },
-    { name = "rapidocr", marker = "(platform_machine == 'arm64' and sys_platform == 'darwin') or (platform_machine == 'aarch64' and sys_platform == 'linux') or (platform_machine == 'x86_64' and sys_platform == 'linux') or (platform_machine == 'AMD64' and sys_platform == 'win32') or (platform_machine == 'ARM64' and sys_platform == 'win32')", specifier = ">=3.9,<3.10" },
+    { name = "rapidocr", marker = "(platform_machine == 'arm64' and sys_platform == 'darwin' and extra == 'rapidocr') or (platform_machine == 'aarch64' and sys_platform == 'linux' and extra == 'rapidocr') or (platform_machine == 'x86_64' and sys_platform == 'linux' and extra == 'rapidocr') or (platform_machine == 'AMD64' and sys_platform == 'win32' and extra == 'rapidocr') or (platform_machine == 'ARM64' and sys_platform == 'win32' and extra == 'rapidocr')", specifier = ">=3.9,<3.10" },
     { name = "setuptools", specifier = ">=70.1.0" },
     { name = "trakit", specifier = ">=0.2.3" },
 ]
+provides-extras = ["rapidocr"]
 
 [package.metadata.requires-dev]
 dev = [
     { name = "mypy", specifier = ">=1.17.0" },
+    { name = "pgsrip", extras = ["rapidocr"] },
     { name = "pre-commit" },
     { name = "pytest", specifier = ">=8.4.1" },
     { name = "pytest-cov", specifier = ">=6.2.1" },

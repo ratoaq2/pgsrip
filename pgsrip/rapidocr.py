@@ -15,6 +15,7 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 
+from pgsrip import __url__
 from pgsrip.diagnostics import Check
 from pgsrip.ripper import OcrEngine, OcrError, PluginOption
 from pgsrip.tessdata import get_user_cache_dir, is_writable
@@ -28,6 +29,9 @@ if typing.TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 MODEL_DIR_ENV = 'PGSRIP_RAPIDOCR_DIR'
+RAPIDOCR_HINT = (
+    f'Install pgsrip with RapidOCR: uv tool install "pgsrip[rapidocr]" (other ways: {__url__}#install-pgsrip)'
+)
 #: a cue with a character score below this value (0-100) is doubtful: the next engine of the chain reads it again.
 DEFAULT_THRESHOLD = 90
 MODELS = ('tiny', 'small', 'medium')
@@ -164,7 +168,7 @@ class RapidOcrEngine(OcrEngine):
             versions = [f'{name} {importlib.metadata.version(name)}' for name in ('rapidocr', 'onnxruntime')]
         except importlib.metadata.PackageNotFoundError as e:
             # not a failure: tesseract can still rip
-            return [Check('rapidocr', f'not installed: {e.name} is missing')]
+            return [Check('rapidocr', f'not installed: {e.name} is missing', hint=RAPIDOCR_HINT)]
 
         engine = cls.from_settings(settings, None)
         checks = [
@@ -293,6 +297,7 @@ class RapidOcrEngine(OcrEngine):
         except ImportError as e:
             if reporter:
                 reporter(f'RapidOCR is not installed: {e}')
+                reporter(RAPIDOCR_HINT)
             return
 
         # the RapidOCR logger writes to the console itself. Its import sets its level: set it after.

@@ -122,7 +122,7 @@ pgsrip reads the text of the subtitle images with an OCR engine. pgsrip has 2 en
 ### The default engine: auto
 
 With no `--engine`, pgsrip uses `--engine auto`. For each language, auto uses tesseract when tesseract can read
-the language. Else it uses RapidOCR. Tesseract can read a language when the tesseract program is found, and the
+the language. Else it uses RapidOCR, when pgsrip has the `rapidocr` extra. Tesseract can read a language when the tesseract program is found, and the
 data is installed or can be downloaded. Auto is not a [chain](#a-chain-of-ocr-engines): one engine reads all the
 cues of a track, and a doubtful cue keeps its text.
 
@@ -140,9 +140,13 @@ myocr` is an error. Plug-in engines are never part of auto. `pgsrip doctor` show
 ### RapidOCR
 
 `--engine rapidocr` reads the text with the PaddleOCR models of [RapidOCR](https://github.com/RapidAI/RapidOCR),
-on ONNX Runtime. It needs no program on the system. pgsrip installs it on Windows (x64 and ARM64), macOS (Apple
-silicon), and Linux with glibc (x86_64 and aarch64). These are the platforms with ONNX Runtime wheels. On the
-other platforms, `pgsrip doctor` shows `rapidocr not installed`.
+on ONNX Runtime. It needs no program on the system. The `rapidocr` extra installs it:
+`pip install "pgsrip[rapidocr]"`. The extra works on Windows (x64 and ARM64), macOS (Apple silicon), and Linux
+with glibc 2.28 or later (x86_64 and aarch64). These are the platforms with ONNX Runtime wheels. On other
+machines, for example macOS on Intel, the extra installs nothing. On musl Linux (Alpine) and older glibc, the install with the
+extra fails: install pgsrip without it. Without RapidOCR, `pgsrip doctor` shows `rapidocr not installed`.
+
+No environment marker can detect musl, so RapidOCR cannot be a normal dependency with a marker.
 
 The engine reads these languages:
 

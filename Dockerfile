@@ -68,7 +68,7 @@ RUN echo "deb https://notesalexp.org/tesseract-ocr5/trixie/ trixie main" >> /etc
 COPY --from=tesseract-image /data/tessdata ${TESSDATA_PREFIX}
 COPY --from=builder /app/dist /usr/src/dist
 
-RUN pip install /usr/src/dist/pgsrip-*.tar.gz
+RUN pip install "$(ls /usr/src/dist/pgsrip-*.tar.gz)[rapidocr]"
 
 # the PP-OCRv6 small model: the RapidOCR model of the Latin-script languages, Chinese and Japanese
 RUN python -c "from babelfish import Language; from pgsrip.rapidocr import RapidOcrEngine; \

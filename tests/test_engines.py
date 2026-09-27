@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import importlib.metadata
 import shutil
+import sys
 import tempfile
 import types
 import typing
@@ -18,7 +19,7 @@ from pgsrip.auto import AutoEngine
 from pgsrip.cli import ENGINE_ENTRY_POINTS, pgsrip
 from pgsrip.diagnostics import Check
 from pgsrip.options import Options
-from pgsrip.rapidocr import RapidOcrEngine
+from pgsrip.rapidocr import RAPIDOCR_HINT, RapidOcrEngine
 from pgsrip.ripper import OcrEngine, PgsToSrtRipper, PluginOption
 from pgsrip.tesseract import TESSERACT_HINT, TesseractEngine
 from pgsrip.tsv import TsvData
@@ -347,6 +348,21 @@ def test_auto_uses_rapidocr_when_tesseract_is_not_found(media_dir: typing.Any) -
     assert result.exit_code == 0, result.output
     assert f'tesseract not found: rapidocr reads en\n{TESSERACT_HINT}' in result.output
     assert read_texts(media_dir) == ['RapidOCR 0', 'RapidOCR 1', 'RapidOCR 2']
+
+
+@pytest.mark.usefixtures('missing_tesseract')
+def test_auto_tells_how_to_install_an_engine_when_there_is_none(
+    media_dir: typing.Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # pgsrip without the rapidocr extra
+    monkeypatch.setitem(sys.modules, 'onnxruntime', None)
+
+    result = rip(str(media_dir))
+
+    assert result.exit_code == 1
+    assert f'tesseract not found\n{TESSERACT_HINT}' in result.output
+    assert RAPIDOCR_HINT in result.output
+    assert 'AutoEngine cannot read en' in result.output
 
 
 @pytest.mark.usefixtures('fake_tesseract', 'fake_rapidocr')

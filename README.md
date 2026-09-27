@@ -16,7 +16,7 @@ Blu-ray subtitles use the PGS format. A PGS subtitle is an image, not text. Many
 editors cannot show or edit these images.
 
 pgsrip reads the text in the images with [tesseract](https://github.com/tesseract-ocr/tesseract) OCR. When
-tesseract is not installed, it uses [RapidOCR](docs/usage.md#rapidocr). Then it writes a `.srt` file next to your
+tesseract is not installed, it uses [RapidOCR](docs/usage.md#rapidocr) (`pgsrip[rapidocr]`). Then it writes a `.srt` file next to your
 video. It downloads the language data that it needs automatically.
 
 ## Quick start
@@ -25,7 +25,7 @@ video. It downloads the language data that it needs automatically.
 2. Install pgsrip:
 
    ```bash
-   uv tool install pgsrip
+   uv tool install "pgsrip[rapidocr]"
    ```
 
 3. Rip the subtitles of a video:
@@ -37,7 +37,7 @@ video. It downloads the language data that it needs automatically.
    3 PGS subtitles ripped from 1 file
    ```
 
-To try pgsrip without installing it, use `uvx pgsrip mymedia.mkv`.
+To try pgsrip without installing it, use `uvx --from "pgsrip[rapidocr]" pgsrip mymedia.mkv`.
 
 ## Installation
 
@@ -47,9 +47,13 @@ Use one of these commands:
 
 | Command | When to use it |
 | --- | --- |
-| `uv tool install pgsrip` | Recommended. [uv](https://docs.astral.sh/uv/getting-started/installation/) also installs Python if necessary. |
-| `pipx install pgsrip` | You already use [pipx](https://pipx.pypa.io/). |
-| `pip install pgsrip` | You want to use pgsrip as a Python library. Python 3.11 or later. |
+| `uv tool install "pgsrip[rapidocr]"` | Recommended. [uv](https://docs.astral.sh/uv/getting-started/installation/) also installs Python if necessary. |
+| `pipx install "pgsrip[rapidocr]"` | You already use [pipx](https://pipx.pypa.io/). |
+| `pip install "pgsrip[rapidocr]"` | You want to use pgsrip as a Python library. Python 3.11 or later. |
+
+`[rapidocr]` also installs the [RapidOCR](docs/usage.md#rapidocr) engine. Without it, pgsrip uses only tesseract.
+Remove `[rapidocr]` on a platform where ONNX Runtime has no wheel, for example Alpine Linux (musl) or an old
+Linux with glibc before 2.28. On these platforms, the install with `[rapidocr]` fails.
 
 To upgrade, use `uv tool upgrade pgsrip` or `pipx upgrade pgsrip`.
 
@@ -57,8 +61,8 @@ To upgrade, use `uv tool upgrade pgsrip` or `pipx upgrade pgsrip`.
 
 pgsrip needs 2 programs: MKVToolNix and tesseract. uv, pipx, and pip do not install them.
 
-Tesseract is optional on the platforms where pgsrip installs [RapidOCR](docs/usage.md#rapidocr). Without
-tesseract, pgsrip uses RapidOCR for all languages.
+Tesseract is optional when you installed pgsrip with `[rapidocr]`. Without tesseract, pgsrip uses RapidOCR for
+all languages.
 
 **Ubuntu, Debian, and WSL**
 

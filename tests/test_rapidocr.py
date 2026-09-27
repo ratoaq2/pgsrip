@@ -18,7 +18,7 @@ from click.testing import CliRunner
 
 from pgsrip.cli import pgsrip
 from pgsrip.diagnostics import Check
-from pgsrip.rapidocr import RapidOcrEngine, ctc, model_of
+from pgsrip.rapidocr import RAPIDOCR_HINT, RapidOcrEngine, ctc, model_of
 
 from .fabricate import SAMPLE
 
@@ -95,7 +95,7 @@ def test_supports_is_false_when_rapidocr_is_not_installed(monkeypatch: pytest.Mo
     engine.prepare([Language('eng')], reporter=reported.append)
 
     assert not engine.supports(Language('eng'))
-    assert reported == ['RapidOCR is not installed: import of onnxruntime halted; None in sys.modules']
+    assert reported == ['RapidOCR is not installed: import of onnxruntime halted; None in sys.modules', RAPIDOCR_HINT]
 
 
 @needs_rapidocr
@@ -119,7 +119,7 @@ def test_the_check_is_not_a_failure_when_rapidocr_is_not_installed(monkeypatch: 
 
     monkeypatch.setattr('pgsrip.rapidocr.importlib.metadata.version', version)
 
-    assert RapidOcrEngine.check({}) == [Check('rapidocr', 'not installed: rapidocr is missing')]
+    assert RapidOcrEngine.check({}) == [Check('rapidocr', 'not installed: rapidocr is missing', hint=RAPIDOCR_HINT)]
 
 
 @needs_rapidocr

@@ -7,7 +7,7 @@ import logging
 import typing
 
 from pgsrip.diagnostics import Check
-from pgsrip.rapidocr import RapidOcrEngine
+from pgsrip.rapidocr import RAPIDOCR_HINT, RapidOcrEngine
 from pgsrip.ripper import OcrEngine, OcrError
 from pgsrip.tesseract import TESSERACT_HINT, TesseractEngine, check_languages
 
@@ -30,7 +30,10 @@ def check_auto() -> Check:
             importlib.metadata.version(name)
     except importlib.metadata.PackageNotFoundError:
         return Check(
-            'auto', 'no OCR engine: tesseract not found, rapidocr not installed', ok=False, hint=TESSERACT_HINT
+            'auto',
+            'no OCR engine: tesseract not found, rapidocr not installed',
+            ok=False,
+            hint=f'{TESSERACT_HINT}. Or: {RAPIDOCR_HINT}',
         )
 
     return Check('auto', 'rapidocr (tesseract not found)')
@@ -57,12 +60,11 @@ class AutoEngine(OcrEngine):
             self.rapidocr.prepare(others, reporter)
 
         read = ', '.join(str(language) for language in others if self.rapidocr.supports(language))
-        if read and reporter:
-            if self.tesseract.tessdata.installed_codes is None:
-                reporter(f'tesseract not found: rapidocr reads {read}')
-                reporter(TESSERACT_HINT)
-            else:
-                reporter(f'no tesseract data for {read}: rapidocr reads {read}')
+        if others and reporter and self.tesseract.tessdata.installed_codes is None:
+            reporter(f'tesseract not found: rapidocr reads {read}' if read else 'tesseract not found')
+            reporter(TESSERACT_HINT)
+        elif read and reporter:
+            reporter(f'no tesseract data for {read}: rapidocr reads {read}')
 
         for language in languages:
             engine = self.engine_for(language)
