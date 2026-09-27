@@ -83,6 +83,9 @@
   - Changed: pgsrip extracts all the selected tracks of a file with one
     `mkvextract` call. Before, each track read the full file again
   - Fix: a track that pgsrip did not rip left its temporary folder
+  - Changed: one temporary folder `pgsrip-XXXX` for each run, with one folder
+    for each track in it. Library: use `with Options(...) as options:` to
+    remove it at the end
   - Changed: `-l/--language` looks only at the languages of the PGS tracks of
     a media, not at the audio and video tracks. A media with no PGS track in
     the selected languages is now filtered out, with its reason

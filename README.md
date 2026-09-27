@@ -232,9 +232,11 @@ from babelfish import Language
 from pgsrip import pgsrip, Media, Options
 
 media = Media('/subtitle/path/mymedia.mkv')
-options = Options(languages={Language('eng')}, overwrite=True)
-pgsrip.rip(media, options)
+with Options(languages={Language('eng')}, overwrite=True) as options:
+    pgsrip.rip(media, options)
 ```
+
+The `with` block removes the temporary folder of the run at the end.
 
 The OCR engines are an option too, in chain order. The default is `[AutoEngine()]` (`pgsrip.engines.auto`): tesseract,
 else RapidOCR, for each language. This example uses tesseract only:

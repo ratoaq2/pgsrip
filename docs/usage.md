@@ -314,7 +314,9 @@ cleanit:
 
 ### The cues as JSON
 
-With `--keep-temp-files`, pgsrip writes 2 files in the temporary folder of each track:
+Each run has one temporary folder `pgsrip-XXXX` in the system temporary directory. It holds one folder for each
+track, for example `mymedia.en-XXXX`. With `--keep-temp-files`, pgsrip keeps them, and it writes 2 files in the
+folder of each track:
 
 - `ocr.json`: the cues after the chain of OCR engines.
 - `cues.json`: the cues after the chain of post-processors.

@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import shutil
+import tempfile
 import typing
 from types import TracebackType
 
@@ -191,9 +192,14 @@ class Pgs:
 
     @property
     def temp_folder(self) -> str:
-        """The folder for the extracted track and the debug files. It is made on first use."""
+        """The folder for the extracted track and the debug files, in the temporary folder of the run.
+
+        It is made on first use. The unique suffix prevents a clash between 2 files with the same name.
+        """
         if self._temp_folder is None:
-            self._temp_folder = self.source_path.create_temp_folder()
+            name = os.path.splitext(os.path.basename(str(self.media_path)))[0]
+            self._temp_folder = tempfile.mkdtemp(prefix=f'{name}-', dir=self.options.temp_folder)
+            logger.debug('%s is using temporary folder %s', self, self._temp_folder)
         return self._temp_folder
 
     @property
@@ -253,11 +259,8 @@ class Pgs:
         self, exc_type: type[BaseException] | None, exc: BaseException | None, traceback: TracebackType | None
     ) -> None:
         self._items = None
-        if self._temp_folder is None:
+        if self._temp_folder is None or self.options.keep_temp_files:
             return
 
-        if self.options.keep_temp_files:
-            logger.info('Keeping temporary files in %s', self._temp_folder)
-        else:
-            logger.debug('Removing temporary files in %s', self._temp_folder)
-            shutil.rmtree(self._temp_folder)
+        logger.debug('Removing temporary files in %s', self._temp_folder)
+        shutil.rmtree(self._temp_folder)

@@ -434,19 +434,22 @@ def rip(
         click.echo(click.style(f'Cannot write the log file: {e}', fg='red'))
         return
 
-    options = Options(
-        languages=set(language or []),
-        encoding=encoding,
-        overwrite=force,
-        one_per_lang=not all,
-        one_per_language=one_per_language,
-        include_flags=frozenset(with_flags),
-        exclude_flags=frozenset(without_flags),
-        keep_temp_files=keep_temp_files,
-        engines=create_engines(ctx),
-        post_processors=create_post_processors(ctx),
-        age=age,
-        srt_age=srt_age,
+    # the temporary folder of the run is removed when the command ends, also on an error
+    options = ctx.with_resource(
+        Options(
+            languages=set(language or []),
+            encoding=encoding,
+            overwrite=force,
+            one_per_lang=not all,
+            one_per_language=one_per_language,
+            include_flags=frozenset(with_flags),
+            exclude_flags=frozenset(without_flags),
+            keep_temp_files=keep_temp_files,
+            engines=create_engines(ctx),
+            post_processors=create_post_processors(ctx),
+            age=age,
+            srt_age=srt_age,
+        )
     )
 
     log_environment(ctx)
@@ -640,7 +643,9 @@ def scrub(
         return
 
     redaction = Redaction(redact)
-    options = Options(languages=set(language or []), one_per_lang=not every_track, overwrite=True)
+    options = click.get_current_context().with_resource(
+        Options(languages=set(language or []), one_per_lang=not every_track, overwrite=True)
+    )
     log_environment()
 
     collected_medias: list[Media] = []

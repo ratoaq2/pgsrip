@@ -42,7 +42,8 @@
   RapidOCR checks, but they are not failures.
 - `engines/tsv.py` — typed wrapper over pytesseract TSV (`TsvData`/`TsvDataItem`).
 - `options.py` — `Options` config object threaded through the pipeline. `Options.engines` holds the OCR
-  engines, and `Options.post_processors` the post-processors, in chain order.
+  engines, and `Options.post_processors` the post-processors, in chain order. `Options.temp_folder` is the
+  temporary folder of the run. Its `with` block removes the folder at the end.
 - `engines/tessdata.py` — tesseract language codes and `.traineddata` lookup/download (`Tessdata`). `available` tells
   if tesseract has or can get a model (`TesseractEngine.supports`).
 - `track_flags.py` — `TrackFlags`: track flags (forced, SDH, commentary, ...), their filename tokens and the

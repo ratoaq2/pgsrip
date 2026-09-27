@@ -316,11 +316,11 @@ def test_get_pgs_medias_one_per_language_ignores_flags(tmp_path, mkvmerge):
 def test_get_pgs_medias_extracts_all_tracks_with_one_call(mkvextract):
     path, calls = mkvextract()
 
-    medias = Media(path).get_pgs_medias(Options(one_per_lang=False))
     data = []
-    for pgs in medias:
-        with pgs:
-            data.append(pgs.data_reader())
+    with Options(one_per_lang=False) as options:
+        for pgs in Media(path).get_pgs_medias(options):
+            with pgs:
+                data.append(pgs.data_reader())
 
     assert data == [payload()] * 3
     assert len(calls) == 1
@@ -329,11 +329,11 @@ def test_get_pgs_medias_extracts_all_tracks_with_one_call(mkvextract):
 
 def test_a_failed_extraction_fails_each_track(mkvextract):
     path, calls = mkvextract(error=CalledProcessError(2, ['mkvextract']))
-    options = Options(one_per_lang=False)
     errors = []
 
-    for pgs in Media(path).get_pgs_medias(options):
-        rip_pgs(pgs, options, on_error=lambda p, e: errors.append(e))
+    with Options(one_per_lang=False) as options:
+        for pgs in Media(path).get_pgs_medias(options):
+            rip_pgs(pgs, options, on_error=lambda p, e: errors.append(e))
 
     assert [type(e) for e in errors] == [CalledProcessError] * 3
     assert len(calls) == 1
@@ -344,10 +344,39 @@ def test_no_temp_folder_is_left_for_a_skipped_track(tmp_path, mkvextract):
     create_file(tmp_path, 'movie.de.srt')
     create_file(tmp_path, 'movie.fr.srt')
 
-    medias = Media(path).get_pgs_medias(Options(one_per_lang=False))
-    for pgs in medias:
-        with pgs:
-            pgs.data_reader()
+    with Options(one_per_lang=False) as options:
+        medias = Media(path).get_pgs_medias(options)
+        for pgs in medias:
+            with pgs:
+                pgs.data_reader()
 
     assert [str(pgs.language) for pgs in medias] == ['en']
     assert os.listdir(tempfile.tempdir) == []
+
+
+def test_all_tracks_of_a_run_share_one_base_folder(mkvextract):
+    path, _ = mkvextract()
+
+    with Options(one_per_lang=False, keep_temp_files=True) as options:
+        for pgs in Media(path).get_pgs_medias(options):
+            with pgs:
+                pgs.data_reader()
+
+    (base,) = os.listdir(tempfile.tempdir)
+    assert base.startswith('pgsrip-')
+    track_folders = sorted(os.listdir(os.path.join(tempfile.tempdir, base)))
+    assert [name.rpartition('-')[0] for name in track_folders] == ['movie.de', 'movie.en', 'movie.fr']
+    assert [os.listdir(os.path.join(tempfile.tempdir, base, name)) for name in track_folders] == [
+        ['1.sup'],
+        ['0.sup'],
+        ['2.sup'],
+    ]
+
+
+def test_two_media_with_the_same_name_do_not_share_a_track_folder(tmp_path):
+    with Options() as options:
+        first = Pgs(MediaPath(str(tmp_path / 'a' / 'movie.en.sup')), options, lambda: b'')
+        second = Pgs(MediaPath(str(tmp_path / 'b' / 'movie.en.sup')), options, lambda: b'')
+
+        assert first.temp_folder != second.temp_folder
+        assert os.path.dirname(first.temp_folder) == os.path.dirname(second.temp_folder) == options.temp_folder

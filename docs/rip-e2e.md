@@ -20,7 +20,8 @@ real.
 - `--all --one-per-language` silently ignores `--one-per-language`: `sources/base.py`'s dedup key is gated on
   `options.one_per_lang`, and `--all` sets `one_per_lang = False`, so the `one_per_language` collapsing
   branch never runs. Pinned as-is in `test_all_silently_disables_one_per_language`, not fixed here.
-- A `Pgs` makes its temp folder on first use (`Pgs.temp_folder`), and `rip_pgs` removes it. A track that
+- A `Pgs` makes its temp folder on first use (`Pgs.temp_folder`), in the temp folder of the run
+  (`Options.temp_folder`). `rip_pgs` removes the track folder, and the CLI removes the run folder. A track that
   gets filtered, deduped, or excluded makes no temp folder. `test_no_temporary_folder_is_left_behind`
   covers the happy path, and `tests/test_core.py` covers a skipped track. `tempfile.tempdir` redirection
   (below) keeps the tests from touching the real system temp dir.
