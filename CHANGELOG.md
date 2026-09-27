@@ -80,6 +80,9 @@
     `Media.get_pgs_medias` returns a list
   - Changed: `--with` and `--without` also apply to `.sup` files. The flags
     come from the file name, for example `mymedia.en.forced.sup`
+  - Changed: pgsrip extracts all the selected tracks of a file with one
+    `mkvextract` call. Before, each track read the full file again
+  - Fix: a track that pgsrip did not rip left its temporary folder
   - Changed: `-l/--language` looks only at the languages of the PGS tracks of
     a media, not at the audio and video tracks. A media with no PGS track in
     the selected languages is now filtered out, with its reason

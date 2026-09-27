@@ -135,6 +135,44 @@ class Source(typing.Protocol):
         """
 
 
+class Extraction:
+    """One call of the source for all the selected tracks of a media, on the first read.
+
+    The bytes stay on disk until each track reads them. When the call fails, each track gets the same error.
+    """
+
+    def __init__(self, source: Source, media_path: MediaPath, pgs_medias: list[Pgs]):
+        self.source = source
+        self.media_path = media_path
+        self.pgs_medias = pgs_medias
+        self._paths: dict[int, str] | None = None
+        self._error: Exception | None = None
+
+    def extract(self) -> dict[int, str]:
+        lang_ext = f'.{str(self.media_path.language)}' if self.media_path.language else ''
+        targets: dict[int, str] = {}
+        for pgs in self.pgs_medias:
+            assert pgs.track is not None
+            targets[pgs.track.id] = os.path.join(pgs.temp_folder, f'{pgs.track.id}{lang_ext}.sup')
+
+        logger.debug('Extracting %d tracks from %s', len(targets), self.media_path)
+        return self.source.extract(str(self.media_path), targets)
+
+    def read(self, track: Track) -> bytes:
+        if self._paths is None and self._error is None:
+            try:
+                self._paths = self.extract()
+            except Exception as e:
+                self._error = e
+
+        if self._error is not None:
+            raise self._error
+
+        assert self._paths is not None
+        with open(self._paths[track.id], mode='rb') as f:
+            return f.read()
+
+
 class Media:
     def __init__(self, path: str, source: Source | None = None):
         self.media_path = MediaPath(path)
@@ -191,13 +229,6 @@ class Media:
     def matches(self, options: Options) -> bool:
         return self.filter_reason(options) is None
 
-    def read_data(self, track: Track, temp_folder: str) -> bytes:
-        lang_ext = f'.{str(self.media_path.language)}' if self.media_path.language else ''
-        target = os.path.join(temp_folder, f'{track.id}{lang_ext}.sup')
-        sup_file = self.source.extract(str(self.media_path), {track.id: target})[track.id]
-        with open(sup_file, mode='rb') as f:
-            return f.read()
-
     def get_pgs_medias(self, options: Options) -> list[Pgs]:
         candidates: list[Track] = []
         for t in self.tracks:
@@ -220,6 +251,7 @@ class Media:
 
         selected: set[tuple[Language | None, TrackFlags | None]] = set()
         pgs_medias: list[Pgs] = []
+        extraction = Extraction(self.source, self.media_path, pgs_medias)
         for t in candidates:
             key = (t.language, None if options.one_per_language else t.flags)
             if options.one_per_lang and key in selected:
@@ -229,12 +261,10 @@ class Media:
                 logger.debug('Filtering out track %s:%s in %s', t.id, t.language, self)
                 continue
 
-            temp_folder = self.media_path.create_temp_folder()
             pgs = Pgs(
                 self.media_path.translate(language=t.language, flags=t.flags, track_id=suffixes.get(t.id)),
                 options=options,
-                data_reader=functools.partial(self.read_data, t, temp_folder),
-                temp_folder=temp_folder,
+                data_reader=functools.partial(extraction.read, t),
                 track=t,
             )
             pgs.source_path = self.media_path

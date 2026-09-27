@@ -20,11 +20,10 @@ real.
 - `--all --one-per-language` silently ignores `--one-per-language`: `sources/base.py`'s dedup key is gated on
   `options.one_per_lang`, and `--all` sets `one_per_lang = False`, so the `one_per_language` collapsing
   branch never runs. Pinned as-is in `test_all_silently_disables_one_per_language`, not fixed here.
-- `Media.get_pgs_medias` creates a temp folder for every *candidate* track but `rip_pgs` only enters (and
-  therefore only cleans up) the ones it actually rips. The happy path leaves nothing behind; a track
-  that gets filtered, deduped, or excluded leaks its temp folder. `tempfile.tempdir` redirection (below)
-  keeps this from touching the real system temp dir; `test_no_temporary_folder_is_left_behind` only
-  covers the happy path.
+- A `Pgs` makes its temp folder on first use (`Pgs.temp_folder`), and `rip_pgs` removes it. A track that
+  gets filtered, deduped, or excluded makes no temp folder. `test_no_temporary_folder_is_left_behind`
+  covers the happy path, and `tests/test_core.py` covers a skipped track. `tempfile.tempdir` redirection
+  (below) keeps the tests from touching the real system temp dir.
 
 ## 3. Target design
 
@@ -116,5 +115,4 @@ pre-existing gap) and nothing in the repo still claims the OCR path is untested.
 - No `TIMING_TOLERANCE_MS` was needed: `mkvextract`'s regenerated display sets produced the same
   timings as the fake backend for the one scenario compared directly
   (`pytest tests/test_rip_e2e.py --media-backend both -k "single and english and track"`).
-- `--all --one-per-language` and the `Media.get_pgs_medias` temp-folder leak on non-happy paths are pinned/noted as
-  found, not fixed, per the plan.
+- `--all --one-per-language` is pinned as found, not fixed, per the plan.

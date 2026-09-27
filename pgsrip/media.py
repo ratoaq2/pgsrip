@@ -173,7 +173,7 @@ class Pgs:
         media_path: MediaPath,
         options: Options,
         data_reader: typing.Callable[[], bytes],
-        temp_folder: str,
+        temp_folder: str | None = None,
         track: Track | None = None,
     ):
         self.media_path = media_path
@@ -181,13 +181,20 @@ class Pgs:
         self.source_path = media_path
         self.options = options
         self.data_reader = data_reader
-        self.temp_folder = temp_folder
+        self._temp_folder = temp_folder
         self.track = track
         self._items: list[PgsSubtitleItem] | None = None
 
     @property
     def language(self) -> Language:
         return self.media_path.language
+
+    @property
+    def temp_folder(self) -> str:
+        """The folder for the extracted track and the debug files. It is made on first use."""
+        if self._temp_folder is None:
+            self._temp_folder = self.source_path.create_temp_folder()
+        return self._temp_folder
 
     @property
     def srt_path(self) -> MediaPath:
@@ -246,8 +253,11 @@ class Pgs:
         self, exc_type: type[BaseException] | None, exc: BaseException | None, traceback: TracebackType | None
     ) -> None:
         self._items = None
+        if self._temp_folder is None:
+            return
+
         if self.options.keep_temp_files:
-            logger.info('Keeping temporary files in %s', self.temp_folder)
+            logger.info('Keeping temporary files in %s', self._temp_folder)
         else:
-            logger.debug('Removing temporary files in %s', self.temp_folder)
-            shutil.rmtree(self.temp_folder)
+            logger.debug('Removing temporary files in %s', self._temp_folder)
+            shutil.rmtree(self._temp_folder)

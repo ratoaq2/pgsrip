@@ -14,6 +14,8 @@
 - `sources/base.py` — `Track`, the `Source` protocol, and `Media`. A source is a tool that reads the PGS tracks of
   some file extensions. `Track.create` merges the container facts with the guess from the track name. `Media`
   picks the source and has the track selection (languages, flags, one per language, `.track<n>`) for all sources.
+  `Extraction`: on the first read of a track, one call of the source extracts all the selected tracks of the
+  file, each one into the temp folder of its `Pgs`. When the call fails, each track raises the same error.
 - `sources/__init__.py` — `SOURCES`: the built-in sources, in order of preference. `Media` uses the first one that
   reads the file. `source_checks` gives the lines of `pgsrip doctor`.
 - `sources/mkvtoolnix.py` — `MkvToolNixSource` for `.mkv`/`.mks`: `mkvmerge` finds the tracks, `mkvextract` writes
