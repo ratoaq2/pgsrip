@@ -174,6 +174,22 @@ def test_ensure_skips_download_when_tesseract_cannot_be_queried(monkeypatch, dow
     assert downloads == []
 
 
+def test_a_missing_tesseract_is_asked_and_reported_one_time(monkeypatch, caplog):
+    calls = []
+
+    def unavailable():
+        calls.append(1)
+        raise OSError('tesseract is not installed')
+
+    monkeypatch.setattr('pgsrip.tessdata.tess.get_languages', unavailable)
+    tessdata = Tessdata()
+
+    assert tessdata.installed_codes is None
+    assert tessdata.installed_codes is None
+    assert len(calls) == 1
+    assert caplog.text.count('Cannot list installed tesseract languages') == 1
+
+
 def test_ensure_uses_selected_repository(installed, downloads, tmp_path):
     installed()
 
