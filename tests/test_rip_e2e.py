@@ -326,6 +326,19 @@ def test_a_pass_split_into_several_composites_rips_every_cue_once(
     ]
 
 
+def test_the_ripped_srt_has_the_expected_bytes(
+    fabricate_media: typing.Callable[[dict[str, typing.Any]], typing.Any], fake_ocr: FakeTesseract
+) -> None:
+    scenario = {'media': {'name': 'movie.mkv', 'tracks': [{'language': 'en', 'texts': ['Line one\nLine two', 'Café']}]}}
+    media_dir = fabricate_media(scenario)
+
+    result = CliRunner().invoke(pgsrip, ['rip', str(media_dir)])
+
+    assert result.exit_code == 0, result.output
+    expected = '1\n00:00:01,000 --> 00:00:03,000\nLine one\nLine two\n\n2\n00:00:04,000 --> 00:00:06,000\nCafé\n\n'
+    assert (media_dir / 'movie.en.srt').read_bytes() == expected.replace('\n', os.linesep).encode('utf-8')
+
+
 def test_the_default_worker_count_is_capped(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(os, 'cpu_count', lambda: 64)
     monkeypatch.setattr(os, 'process_cpu_count', lambda: 64, raising=False)
