@@ -1,6 +1,6 @@
 import pytest
 
-from pgsrip.mkv import MkvTrack
+from pgsrip.sources.mkv import MkvTrack
 from pgsrip.track_flags import TrackFlags
 
 from . import from_yaml

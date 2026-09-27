@@ -9,9 +9,10 @@
   `--keep-temp-files`, writes the cues as JSON. No OCR logic.
 - `postprocessors/base.py` — `PostProcessor` protocol and `PostProcessorFactory` protocol.
 - `postprocessors/cleanit.py` — `CleanitPostProcessor`, the default post-processor: the cleanit rules of the track language.
-- `media.py` — `Media`/`Pgs`/`PgsSubtitleItem`: media abstraction, per-item bookkeeping (timing, offsets,
+- `media.py` — `Pgs`/`PgsSubtitleItem`: per-item bookkeeping (timing, offsets,
   image cropped to its ink), corrupted-data auto-fix (see `docs/corrupted_data.md`).
-- `mkv.py` / `sup.py` — `Media` subclasses for `.mkv`/`.mks` (`mkvmerge`/`mkvextract`) and `.sup`.
+- `sources/base.py` — `Media`: the abstract media container.
+- `sources/mkv.py` / `sources/sup.py` — `Media` subclasses for `.mkv`/`.mks` (`mkvmerge`/`mkvextract`) and `.sup`.
 - `media_path.py` — filename parsing/generation (language, track number, extension).
 - `formats/pgs.py` — binary PGS segment format: PDS/ODS/PCS/WDS/END parsing, RLE image decoding. Format-spec-heavy;
   malformed input is the norm (see `docs/corrupted_data.md`).

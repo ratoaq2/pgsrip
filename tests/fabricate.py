@@ -120,7 +120,10 @@ def track_json(spec: TrackSpec, track_id: int) -> dict[str, typing.Any]:
 
 
 class FakeMkvToolNix:
-    """Answers `mkvmerge`/`mkvextract` invocations for registered media, in place of `pgsrip.mkv.check_output`."""
+    """Answers `mkvmerge`/`mkvextract` invocations for registered media.
+
+    It takes the place of `pgsrip.sources.mkv.check_output`.
+    """
 
     def __init__(self) -> None:
         self.media: dict[str, MediaSpec] = {}
@@ -154,8 +157,8 @@ class FakeMkvToolNix:
 def fabricate_fake(
     media_dir: str, media_specs: list[MediaSpec], toolnix: FakeMkvToolNix, monkeypatch: typing.Any
 ) -> None:
-    """Register every media under media_dir with toolnix, and point `pgsrip.mkv.check_output` at it."""
-    monkeypatch.setattr('pgsrip.mkv.check_output', toolnix.check_output)
+    """Register every media under media_dir with toolnix, and point `pgsrip.sources.mkv.check_output` at it."""
+    monkeypatch.setattr('pgsrip.sources.mkv.check_output', toolnix.check_output)
     for spec in media_specs:
         path = os.path.join(media_dir, spec.name)
         # `core.scan_path` calls `os.path.isfile`, so a real (empty) file has to exist on disk.

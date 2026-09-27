@@ -9,8 +9,8 @@ from pgsrip.api import rip_pgs, scan_path
 from pgsrip.core import get_reason
 from pgsrip.media import Pgs
 from pgsrip.media_path import MediaPath
-from pgsrip.mkv import Mkv
 from pgsrip.options import Options
+from pgsrip.sources.mkv import Mkv
 
 
 @pytest.fixture
@@ -21,7 +21,7 @@ def mkvmerge(monkeypatch):
                 raise error
             return json.dumps({'tracks': list(tracks)}).encode()
 
-        monkeypatch.setattr('pgsrip.mkv.check_output', check_output)
+        monkeypatch.setattr('pgsrip.sources.mkv.check_output', check_output)
 
     return use
 

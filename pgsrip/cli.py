@@ -25,10 +25,10 @@ from pgsrip.engines.base import OcrEngine, OcrEngineFactory, OcrError
 from pgsrip.engines.rapidocr import RapidOcrEngine
 from pgsrip.engines.tesseract import TesseractEngine
 from pgsrip.formats.scrub import Redaction, output_path, scrub_data
-from pgsrip.media import Media
 from pgsrip.options import Options
 from pgsrip.postprocessors.base import PostProcessor, PostProcessorFactory
 from pgsrip.postprocessors.cleanit import CleanitPostProcessor
+from pgsrip.sources.base import Media
 from pgsrip.track_flags import FLAG_CHOICES
 
 if typing.TYPE_CHECKING:
