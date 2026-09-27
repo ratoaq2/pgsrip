@@ -30,4 +30,4 @@
 - `scrub.py` — makes a small, redacted copy of a PGS track so a reporter can share a bug sample.
 - `diagnostics.py` — environment checks (MKVToolNix, package versions) for bug reports. Each OCR engine and
   post-processor adds its own checks with a `check` classmethod, e.g. `TesseractEngine.check`.
-- `utils.py` — binary/time helpers (`from_hex`, `safe_get`, `to_time`, `pairwise`), `default_workers`.
+- `utils.py` — binary/time helpers (`from_hex`, `safe_get`, `to_time`, `pairwise`), `default_workers`, `split_lines`.
