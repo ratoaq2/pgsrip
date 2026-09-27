@@ -71,7 +71,7 @@ COPY --from=builder /app/dist /usr/src/dist
 RUN pip install "$(ls /usr/src/dist/pgsrip-*.tar.gz)[rapidocr]"
 
 # the PP-OCRv6 small model: the RapidOCR model of the Latin-script languages, Chinese and Japanese
-RUN python -c "from babelfish import Language; from pgsrip.rapidocr import RapidOcrEngine; \
+RUN python -c "from babelfish import Language; from pgsrip.engines.rapidocr import RapidOcrEngine; \
 engine = RapidOcrEngine(); engine.prepare([Language('eng')], print); assert engine.supports(Language('eng'))"
 
 WORKDIR /data

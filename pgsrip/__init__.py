@@ -12,8 +12,8 @@ __url__ = 'https://github.com/ratoaq2/pgsrip'
 del metadata
 
 from . import api as pgsrip
-from .media import Media as Media
 from .media import Pgs as Pgs
-from .mkv import Mkv as Mkv
 from .options import Options as Options
-from .sup import Sup as Sup
+from .sources.base import Media as Media
+from .sources.mkv import Mkv as Mkv
+from .sources.sup import Sup as Sup

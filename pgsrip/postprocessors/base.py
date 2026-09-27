@@ -4,13 +4,14 @@ import typing
 
 if typing.TYPE_CHECKING:
     from pgsrip.media import Pgs
-    from pgsrip.ripper import Cue, PluginOption
+    from pgsrip.plugin import PluginOption
+    from pgsrip.ripper import Cue
 
 
 class PostProcessor(typing.Protocol):
     """Changes the cues of a track after the chain of OCR engines.
 
-    `pgsrip.cleanit.CleanitPostProcessor` is the default.
+    `pgsrip.postprocessors.cleanit.CleanitPostProcessor` is the default.
     """
 
     def process(self, pgs: Pgs, cues: list[Cue]) -> list[Cue]:

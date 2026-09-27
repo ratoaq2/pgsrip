@@ -1,8 +1,9 @@
 import logging
 
 from pgsrip import core
-from pgsrip.media import Media, Pgs
+from pgsrip.media import Pgs
 from pgsrip.options import Options
+from pgsrip.sources.base import Media
 
 logger = logging.getLogger(__name__)
 

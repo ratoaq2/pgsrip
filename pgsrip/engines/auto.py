@@ -7,9 +7,9 @@ import logging
 import typing
 
 from pgsrip.diagnostics import Check
-from pgsrip.rapidocr import RAPIDOCR_HINT, RapidOcrEngine
-from pgsrip.ripper import OcrEngine, OcrError
-from pgsrip.tesseract import TESSERACT_HINT, TesseractEngine, check_languages
+from pgsrip.engines.base import OcrEngine, OcrError
+from pgsrip.engines.rapidocr import RAPIDOCR_HINT, RapidOcrEngine
+from pgsrip.engines.tesseract import TESSERACT_HINT, TesseractEngine, check_languages
 
 if typing.TYPE_CHECKING:
     from babelfish import Language

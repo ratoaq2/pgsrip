@@ -14,7 +14,7 @@ from contextlib import contextmanager
 import pytesseract as tess
 from babelfish import Language
 
-from pgsrip.ripper import OcrError
+from pgsrip.engines.base import OcrError
 
 logger = logging.getLogger(__name__)
 

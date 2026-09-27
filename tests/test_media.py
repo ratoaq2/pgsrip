@@ -1,9 +1,9 @@
 import pytest
 from pysrt import SubRipTime
 
+from pgsrip.formats.pgs import PgsReader, SegmentType
 from pgsrip.media import PgsSubtitleItem
 from pgsrip.media_path import MediaPath
-from pgsrip.pgs import PgsReader, SegmentType
 
 from .test_scrub import HEIGHT, WIDTH, display_set, ods, pcs, pds, segment, text_image_data, wds
 

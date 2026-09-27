@@ -4,9 +4,9 @@ import numpy as np
 import pytest
 from babelfish import Language
 
+from pgsrip.formats.pgs import ObjectDefinitionSegment, PgsImage, PgsReader, SegmentType
+from pgsrip.formats.scrub import Redaction, encode_runs, output_path, scrub_data, to_runs
 from pgsrip.media_path import MediaPath
-from pgsrip.pgs import ObjectDefinitionSegment, PgsImage, PgsReader, SegmentType
-from pgsrip.scrub import Redaction, encode_runs, output_path, scrub_data, to_runs
 from pgsrip.track_flags import TrackFlags
 
 WIDTH = 64

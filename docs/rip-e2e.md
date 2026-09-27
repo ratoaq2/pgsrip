@@ -2,7 +2,7 @@
 
 ## 1. Context
 
-`ripper.py`/`mkv.py`'s core decode/OCR path had no regression coverage: `test_core.py` asserted
+`ripper.py`/`sources/mkv.py`'s core decode/OCR path had no regression coverage: `test_core.py` asserted
 `srt_path` strings without ever ripping, `test_samples.py` decoded PGS without ever OCRing,
 `test_cli.py` was a 13-line `--help` smoke test. Nothing wrote an `.srt` and looked at it.
 
@@ -17,7 +17,7 @@ real.
   `mkvmerge`/`mkvextract` are only ever read from. `tests/samples/placeholder.en.sup` (a committed,
   non-copyrighted, synthetic 3-cue PGS stream) plus `scrub_display_sets(..., only=...)` is the payload;
   the container around it is fabricated.
-- `--all --one-per-language` silently ignores `--one-per-language`: `mkv.py`'s dedup key is gated on
+- `--all --one-per-language` silently ignores `--one-per-language`: `sources/mkv.py`'s dedup key is gated on
   `options.one_per_lang`, and `--all` sets `one_per_lang = False`, so the `one_per_language` collapsing
   branch never runs. Pinned as-is in `test_all_silently_disables_one_per_language`, not fixed here.
 - `MkvPgs.__init__` creates a temp folder for every *candidate* track but `rip_pgs` only enters (and
@@ -29,7 +29,7 @@ real.
 ## 3. Target design
 
 - **Hybrid media backend**, one fabrication API: `fake` (default) monkeypatches
-  `pgsrip.mkv.check_output`; `real` actually muxes with `mkvmerge`. The same YAML scenarios run through
+  `pgsrip.sources.mkv.check_output`; `real` actually muxes with `mkvmerge`. The same YAML scenarios run through
   both via `--media-backend {fake,real,both}` (`pytest_addoption`/`pytest_generate_tests` in
   `tests/conftest.py`).
 - **`tests/fabricate.py`**: the fabrication API, pytest-free (builds bytes, dicts and argv lists, so it
@@ -37,7 +37,7 @@ real.
   committed sample with `scrub_display_sets`; `FakeMkvToolNix` answers `mkvmerge -i -F json` and
   `mkvextract` from a registry of `MediaSpec`; `FakeTesseract` wraps `TesseractEngine.process` so the
   real image composition still runs (`item.place` gets set for real), wraps `FullImage.from_items` to
-  record every composite, and patches `pgsrip.tesseract.tess.image_to_data` to read back
+  record every composite, and patches `pgsrip.engines.tesseract.tess.image_to_data` to read back
   `TrackSpec.texts`/`confidences` for the items of the composite it receives (matched by identity, not
   pixels: the sample cues are identical bitmaps) instead of running tesseract; `mkvmerge_version`/`mkvmerge_args`/`fabricate_real` drive the real backend.
 - **YAML scenarios** (`tests/test_rip_e2e.yml`), loaded with the existing `from_yaml()` helper and fed

@@ -10,12 +10,13 @@ import pysrt
 import pytest
 from click.testing import CliRunner
 
-from pgsrip.cleanit import CleanitPostProcessor
-from pgsrip.cli import ENGINE_ENTRY_POINTS, POST_PROCESSOR_ENTRY_POINTS, pgsrip
+from pgsrip.cli import pgsrip
+from pgsrip.cli.plugins import ENGINE_ENTRY_POINTS, POST_PROCESSOR_ENTRY_POINTS
 from pgsrip.diagnostics import Check
+from pgsrip.engines.tesseract import TesseractEngine
 from pgsrip.options import Options
-from pgsrip.ripper import PluginOption
-from pgsrip.tesseract import TesseractEngine
+from pgsrip.plugin import PluginOption
+from pgsrip.postprocessors.cleanit import CleanitPostProcessor
 
 from .test_engines import PluginEngine, fake_tesseract, media_dir, read_texts, rip
 
@@ -111,7 +112,7 @@ def plugins(monkeypatch: pytest.MonkeyPatch) -> None:
         importlib.metadata.EntryPoint('cleanit', f'{__name__}:UpperPostProcessor', post_processors),
     ]
     monkeypatch.setattr(
-        'pgsrip.cli.importlib.metadata.entry_points',
+        'pgsrip.cli.plugins.importlib.metadata.entry_points',
         lambda group: [ep for ep in entry_points if ep.group == group],
     )
 

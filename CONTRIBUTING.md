@@ -21,7 +21,7 @@ too.
 - Keep the code small. See "Code: lazy senior dev" in `CLAUDE.md`.
 - Strict mypy: annotate every function.
 - Ruff formats the code (single quotes, 120-character lines). Do not format by hand against it.
-- Flat package layout: `pgsrip/`, not `src/pgsrip/`.
+- No `src/` layout: the package is `pgsrip/`, with sub-packages.
 - Do not add tests with real subtitle content. See `tests/samples/README.md`.
 
 ## Tests

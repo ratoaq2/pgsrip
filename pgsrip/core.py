@@ -6,11 +6,12 @@ import os
 import typing
 from subprocess import CalledProcessError
 
-from pgsrip.media import Media, Pgs
-from pgsrip.mkv import Mkv
+from pgsrip.media import Pgs
 from pgsrip.options import Options
 from pgsrip.ripper import Cue, PgsToSrtRipper, create_srt
-from pgsrip.sup import Sup
+from pgsrip.sources.base import Media
+from pgsrip.sources.mkv import Mkv
+from pgsrip.sources.sup import Sup
 
 logger = logging.getLogger(__name__)
 

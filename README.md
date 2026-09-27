@@ -236,11 +236,11 @@ options = Options(languages={Language('eng')}, overwrite=True)
 pgsrip.rip(media, options)
 ```
 
-The OCR engines are an option too, in chain order. The default is `[AutoEngine()]` (`pgsrip.auto`): tesseract,
+The OCR engines are an option too, in chain order. The default is `[AutoEngine()]` (`pgsrip.engines.auto`): tesseract,
 else RapidOCR, for each language. This example uses tesseract only:
 
 ```python
-from pgsrip.tesseract import TesseractEngine
+from pgsrip.engines.tesseract import TesseractEngine
 
 options = Options(engines=[TesseractEngine(workers=2, threshold=90)])
 ```

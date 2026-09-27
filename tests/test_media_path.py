@@ -6,7 +6,7 @@ from babelfish import Language
 from pgsrip.media import Pgs
 from pgsrip.media_path import MediaPath
 from pgsrip.options import Options
-from pgsrip.sup import Sup
+from pgsrip.sources.sup import Sup
 from pgsrip.track_flags import TrackFlags
 
 FLAG_FIELDS = ('forced', 'hearing_impaired', 'closed_caption', 'commentary', 'descriptive')

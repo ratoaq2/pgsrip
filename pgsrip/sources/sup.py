@@ -1,9 +1,10 @@
 import logging
 from collections.abc import Iterable
 
-from pgsrip.media import Media, Pgs
+from pgsrip.media import Pgs
 from pgsrip.media_path import MediaPath
 from pgsrip.options import Options
+from pgsrip.sources.base import Media
 
 logger = logging.getLogger(__name__)
 

@@ -16,13 +16,13 @@ import typing
 from babelfish import Language
 from trakit.api import trakit  # noqa: F401  registers the `cleanit` babelfish language converter
 
+from pgsrip.formats.pgs import PgsReader
+from pgsrip.formats.scrub import Redaction, scrub_display_sets
 from pgsrip.media_path import MediaPath
-from pgsrip.pgs import PgsReader
-from pgsrip.scrub import Redaction, scrub_display_sets
 
 if typing.TYPE_CHECKING:
+    from pgsrip.engines.tesseract import FullImage
     from pgsrip.media import PgsSubtitleItem
-    from pgsrip.tesseract import FullImage
 
 SAMPLE = os.path.join(os.path.dirname(__file__), 'samples', 'placeholder.en.sup')
 
@@ -120,7 +120,10 @@ def track_json(spec: TrackSpec, track_id: int) -> dict[str, typing.Any]:
 
 
 class FakeMkvToolNix:
-    """Answers `mkvmerge`/`mkvextract` invocations for registered media, in place of `pgsrip.mkv.check_output`."""
+    """Answers `mkvmerge`/`mkvextract` invocations for registered media.
+
+    It takes the place of `pgsrip.sources.mkv.check_output`.
+    """
 
     def __init__(self) -> None:
         self.media: dict[str, MediaSpec] = {}
@@ -154,8 +157,8 @@ class FakeMkvToolNix:
 def fabricate_fake(
     media_dir: str, media_specs: list[MediaSpec], toolnix: FakeMkvToolNix, monkeypatch: typing.Any
 ) -> None:
-    """Register every media under media_dir with toolnix, and point `pgsrip.mkv.check_output` at it."""
-    monkeypatch.setattr('pgsrip.mkv.check_output', toolnix.check_output)
+    """Register every media under media_dir with toolnix, and point `pgsrip.sources.mkv.check_output` at it."""
+    monkeypatch.setattr('pgsrip.sources.mkv.check_output', toolnix.check_output)
     for spec in media_specs:
         path = os.path.join(media_dir, spec.name)
         # `core.scan_path` calls `os.path.isfile`, so a real (empty) file has to exist on disk.

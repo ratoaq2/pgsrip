@@ -7,7 +7,7 @@ import click
 from cleanit import Config
 
 from pgsrip.diagnostics import Check
-from pgsrip.ripper import PluginOption
+from pgsrip.plugin import PluginOption
 
 if typing.TYPE_CHECKING:
     from pgsrip.media import Pgs

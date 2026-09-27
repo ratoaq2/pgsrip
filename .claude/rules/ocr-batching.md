@@ -1,8 +1,8 @@
 ---
 paths:
   - "pgsrip/ripper.py"
-  - "pgsrip/tesseract.py"
-  - "pgsrip/tsv.py"
+  - "pgsrip/engines/tesseract.py"
+  - "pgsrip/engines/tsv.py"
 ---
 
 # OCR batching

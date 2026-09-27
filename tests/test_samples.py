@@ -7,10 +7,10 @@ import os
 
 import pytest
 
+from pgsrip.formats.pgs import CompositionState, PgsReader, SegmentType
+from pgsrip.formats.scrub import scrub_data
 from pgsrip.media import PgsSubtitleItem
 from pgsrip.media_path import MediaPath
-from pgsrip.pgs import CompositionState, PgsReader, SegmentType
-from pgsrip.scrub import scrub_data
 
 SAMPLE = 'placeholder.en.sup'
 WIDTH = 480

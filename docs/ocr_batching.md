@@ -1,4 +1,4 @@
-# OCR batching (`tesseract.py`, `rapidocr.py`)
+# OCR batching (`engines/tesseract.py`, `engines/rapidocr.py`)
 
 One tesseract call per subtitle item = hundreds of slow roundtrips per episode. Instead:
 
@@ -26,7 +26,7 @@ One tesseract call per subtitle item = hundreds of slow roundtrips per episode. 
 Invariant: a few large tesseract calls per pass, about one per worker, run in parallel. Never one call per
 item: the per-call cost (process start, model load) is what batching avoids.
 
-## RapidOCR (`rapidocr.py`)
+## RapidOCR (`engines/rapidocr.py`)
 
 RapidOCR loads its model one time, in the pgsrip process. There is no cost for each call that composites can
 save. The cost grows with the number of pixels. So the engine batches text lines, not composites:

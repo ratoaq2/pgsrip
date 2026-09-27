@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
+from pgsrip.formats.pgs import PgsImage, PgsReader
 from pgsrip.media_path import MediaPath
-from pgsrip.pgs import PgsImage, PgsReader
 
 from .test_scrub import display_set
 

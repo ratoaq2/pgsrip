@@ -7,9 +7,10 @@ from subprocess import check_output
 from babelfish import Language
 from trakit.api import trakit
 
-from pgsrip.media import Media, Pgs
+from pgsrip.media import Pgs
 from pgsrip.media_path import MediaPath
 from pgsrip.options import Options
+from pgsrip.sources.base import Media
 from pgsrip.track_flags import TrackFlags
 
 logger = logging.getLogger(__name__)

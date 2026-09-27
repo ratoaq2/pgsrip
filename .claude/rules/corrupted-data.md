@@ -1,6 +1,6 @@
 ---
 paths:
-  - "pgsrip/pgs.py"
+  - "pgsrip/formats/pgs.py"
   - "pgsrip/media.py"
 ---
 

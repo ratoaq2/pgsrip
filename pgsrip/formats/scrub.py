@@ -20,14 +20,14 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 
-from pgsrip.media_path import MediaPath
-from pgsrip.pgs import (
+from pgsrip.formats.pgs import (
     BaseSegment,
     DisplaySet,
     ObjectDefinitionSegment,
     ObjectSequenceType,
     PgsReader,
 )
+from pgsrip.media_path import MediaPath
 
 logger = logging.getLogger(__name__)
 
