@@ -15,7 +15,8 @@ import pytest
 from babelfish import Language
 from click.testing import CliRunner
 
-from pgsrip.cli import ENGINE_ENTRY_POINTS, pgsrip
+from pgsrip.cli import pgsrip
+from pgsrip.cli.plugins import ENGINE_ENTRY_POINTS
 from pgsrip.diagnostics import Check
 from pgsrip.engines.auto import AutoEngine
 from pgsrip.engines.base import OcrEngine
@@ -148,7 +149,7 @@ def plugins(monkeypatch: pytest.MonkeyPatch) -> None:
         importlib.metadata.EntryPoint('tesseract', f'{__name__}:PluginEngine', ENGINE_ENTRY_POINTS),
     ]
     monkeypatch.setattr(
-        'pgsrip.cli.importlib.metadata.entry_points',
+        'pgsrip.cli.plugins.importlib.metadata.entry_points',
         lambda group: [ep for ep in entry_points if ep.group == group],
     )
 

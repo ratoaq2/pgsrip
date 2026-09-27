@@ -179,7 +179,7 @@ def test_all_silently_disables_one_per_language(
     fabricate_media: typing.Callable[[dict[str, typing.Any]], typing.Any], fake_ocr: FakeTesseract
 ) -> None:
     """Pinned as-is: `--all --one-per-language` writes both files (`one_per_lang` vs `one_per_language` in
-    mkv.py:145 — `--all` sets `one_per_lang=False`, which is also the flag `one_per_language` collapsing is
+    sources/mkv.py:148 — `--all` sets `one_per_lang=False`, which is also the flag `one_per_language` collapsing is
     gated on)."""
     scenario = {
         'media': {

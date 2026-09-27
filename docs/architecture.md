@@ -1,9 +1,9 @@
 # Project map
 
-- `cli.py` — Click entry point. Args, configuration files (`--config`), progress bars, reporting. Builds the
-  OCR engine chain and the post-processor chain, with the plug-ins of the `pgsrip.engines` and
-  `pgsrip.postprocessors` entry points. `PluginKind` holds what differs between the two kinds.
-  `PluginCommand` adds the `--<plugin>-*` options that each plug-in declares.
+- `cli/__init__.py` — Click entry point. Args, configuration files (`--config`), progress bars, reporting.
+- `cli/plugins.py` — builds the OCR engine chain and the post-processor chain, with the plug-ins of the
+  `pgsrip.engines` and `pgsrip.postprocessors` entry points. `PluginKind` holds what differs between the two
+  kinds. `PluginCommand` adds the `--<plugin>-*` options that each plug-in declares.
 - `api.py` — public API over `core.py` (`scan_path`, `rip`, `rip_pgs`).
 - `core.py` — path scanning/filtering, top-level rip loop: OCR chain, post-processor chain, SRT. With
   `--keep-temp-files`, writes the cues as JSON. No OCR logic.
