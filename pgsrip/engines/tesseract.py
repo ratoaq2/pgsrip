@@ -17,8 +17,8 @@ import numpy.typing as npt
 import pytesseract as tess
 
 from pgsrip.diagnostics import Check
-from pgsrip.ripper import OcrEngine, PluginOption
-from pgsrip.tessdata import (
+from pgsrip.engines.base import OcrEngine
+from pgsrip.engines.tessdata import (
     REPOSITORIES,
     Tessdata,
     TessdataError,
@@ -27,7 +27,8 @@ from pgsrip.tessdata import (
     get_tesseract_code,
     tessdata_env,
 )
-from pgsrip.tsv import TsvData, TsvDataItem
+from pgsrip.engines.tsv import TsvData, TsvDataItem
+from pgsrip.plugin import PluginOption
 from pgsrip.utils import default_workers
 
 if typing.TYPE_CHECKING:

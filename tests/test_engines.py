@@ -15,14 +15,16 @@ import pytest
 from babelfish import Language
 from click.testing import CliRunner
 
-from pgsrip.auto import AutoEngine
 from pgsrip.cli import ENGINE_ENTRY_POINTS, pgsrip
 from pgsrip.diagnostics import Check
+from pgsrip.engines.auto import AutoEngine
+from pgsrip.engines.base import OcrEngine
+from pgsrip.engines.rapidocr import RAPIDOCR_HINT, RapidOcrEngine
+from pgsrip.engines.tesseract import TESSERACT_HINT, TesseractEngine
+from pgsrip.engines.tsv import TsvData
 from pgsrip.options import Options
-from pgsrip.rapidocr import RAPIDOCR_HINT, RapidOcrEngine
-from pgsrip.ripper import OcrEngine, PgsToSrtRipper, PluginOption
-from pgsrip.tesseract import TESSERACT_HINT, TesseractEngine
-from pgsrip.tsv import TsvData
+from pgsrip.plugin import PluginOption
+from pgsrip.ripper import PgsToSrtRipper
 
 from .fabricate import SAMPLE
 
@@ -305,7 +307,7 @@ def missing_tesseract(monkeypatch: pytest.MonkeyPatch) -> None:
     def fail() -> list[str]:
         raise OSError('tesseract not found')
 
-    monkeypatch.setattr('pgsrip.tessdata.tess.get_languages', fail)
+    monkeypatch.setattr('pgsrip.engines.tessdata.tess.get_languages', fail)
 
 
 @pytest.fixture
@@ -328,7 +330,7 @@ def fake_rapidocr(monkeypatch: pytest.MonkeyPatch) -> list[Language]:
 def test_auto_uses_tesseract_else_rapidocr_for_each_language(
     media_dir: typing.Any, hebrew_track: typing.Any, fake_rapidocr: list[Language], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setattr('pgsrip.tessdata.tess.get_languages', lambda: ['eng'])
+    monkeypatch.setattr('pgsrip.engines.tessdata.tess.get_languages', lambda: ['eng'])
     monkeypatch.setattr(TesseractEngine, 'supports', lambda engine, language: language == Language('eng'))
 
     result = rip(str(media_dir))
@@ -673,8 +675,8 @@ def test_doctor_shows_the_engine_of_auto(
             raise importlib.metadata.PackageNotFoundError(name)
         return '1.0'
 
-    monkeypatch.setattr('pgsrip.tessdata.tess.get_languages', languages)
-    monkeypatch.setattr('pgsrip.auto.importlib.metadata.version', version)
+    monkeypatch.setattr('pgsrip.engines.tessdata.tess.get_languages', languages)
+    monkeypatch.setattr('pgsrip.engines.auto.importlib.metadata.version', version)
     monkeypatch.setattr(
         TesseractEngine,
         'check',

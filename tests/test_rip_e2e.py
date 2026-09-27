@@ -19,10 +19,10 @@ import yaml
 from click.testing import CliRunner
 
 from pgsrip.cli import pgsrip
+from pgsrip.engines.tesseract import MAX_TESS_DIMENSION, FullImage, TesseractEngine
 from pgsrip.media import PgsSubtitleItem
 from pgsrip.media_path import MediaPath
 from pgsrip.pgs import PgsReader
-from pgsrip.tesseract import MAX_TESS_DIMENSION, FullImage, TesseractEngine
 from pgsrip.utils import MAX_DEFAULT_WORKERS, default_workers
 
 from . import from_yaml
@@ -47,7 +47,7 @@ INSTALLED_CODES = {'eng', 'deu', 'fra', 'spa', 'por', 'chi_sim', 'chi_tra', 'jpn
 @pytest.fixture(autouse=True)
 def tesseract_data(monkeypatch: pytest.MonkeyPatch) -> None:
     """Never call tesseract and never download a traineddata file."""
-    monkeypatch.setattr('pgsrip.tessdata.tess.get_languages', lambda: sorted(INSTALLED_CODES))
+    monkeypatch.setattr('pgsrip.engines.tessdata.tess.get_languages', lambda: sorted(INSTALLED_CODES))
 
 
 @pytest.fixture(autouse=True)
@@ -68,7 +68,7 @@ def fake_ocr(toolnix: FakeMkvToolNix, monkeypatch: pytest.MonkeyPatch) -> FakeTe
     ocr = FakeTesseract(toolnix)
     monkeypatch.setattr(TesseractEngine, 'process', ocr.wrap_process(TesseractEngine.process))
     monkeypatch.setattr(FullImage, 'from_items', ocr.wrap_from_items(FullImage.from_items))
-    monkeypatch.setattr('pgsrip.tesseract.tess.image_to_data', ocr.image_to_data)
+    monkeypatch.setattr('pgsrip.engines.tesseract.tess.image_to_data', ocr.image_to_data)
     return ocr
 
 

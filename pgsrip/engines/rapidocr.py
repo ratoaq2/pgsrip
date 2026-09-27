@@ -17,8 +17,9 @@ import numpy.typing as npt
 
 from pgsrip import __url__
 from pgsrip.diagnostics import Check
-from pgsrip.ripper import OcrEngine, OcrError, PluginOption
-from pgsrip.tessdata import get_user_cache_dir, is_writable
+from pgsrip.engines.base import OcrEngine, OcrError
+from pgsrip.engines.tessdata import get_user_cache_dir, is_writable
+from pgsrip.plugin import PluginOption
 from pgsrip.utils import default_workers, split_lines
 
 if typing.TYPE_CHECKING:

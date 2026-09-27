@@ -18,7 +18,7 @@ from click.testing import CliRunner
 
 from pgsrip.cli import pgsrip
 from pgsrip.diagnostics import Check
-from pgsrip.rapidocr import RAPIDOCR_HINT, RapidOcrEngine, ctc, model_of
+from pgsrip.engines.rapidocr import RAPIDOCR_HINT, RapidOcrEngine, ctc, model_of
 
 from .fabricate import SAMPLE
 
@@ -73,7 +73,7 @@ def test_ctc_of_a_line_with_no_character_gives_the_score_0() -> None:
 
 def test_the_threshold_sets_doubtful_and_never_removes_text(monkeypatch: pytest.MonkeyPatch) -> None:
     lines = [('Sure', 0.95), ('Not sure', 0.5), ('', 0.0)]
-    monkeypatch.setattr('pgsrip.rapidocr.read_lines', lambda recognizer, images: lines[: len(images)])
+    monkeypatch.setattr('pgsrip.engines.rapidocr.read_lines', lambda recognizer, images: lines[: len(images)])
     engine = RapidOcrEngine(threshold=90)
     engine.languages[Language('eng')] = object()
     items = [item(), item(), item()]
@@ -117,7 +117,7 @@ def test_the_check_is_not_a_failure_when_rapidocr_is_not_installed(monkeypatch: 
     def version(name: str) -> str:
         raise importlib.metadata.PackageNotFoundError(name)
 
-    monkeypatch.setattr('pgsrip.rapidocr.importlib.metadata.version', version)
+    monkeypatch.setattr('pgsrip.engines.rapidocr.importlib.metadata.version', version)
 
     assert RapidOcrEngine.check({}) == [Check('rapidocr', 'not installed: rapidocr is missing', hint=RAPIDOCR_HINT)]
 

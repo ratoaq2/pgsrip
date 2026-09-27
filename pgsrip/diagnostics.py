@@ -12,7 +12,7 @@ import tempfile
 import typing
 
 from pgsrip import __version__
-from pgsrip.tessdata import is_writable
+from pgsrip.engines.tessdata import is_writable
 
 logger = logging.getLogger(__name__)
 

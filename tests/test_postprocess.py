@@ -13,9 +13,9 @@ from click.testing import CliRunner
 from pgsrip.cleanit import CleanitPostProcessor
 from pgsrip.cli import ENGINE_ENTRY_POINTS, POST_PROCESSOR_ENTRY_POINTS, pgsrip
 from pgsrip.diagnostics import Check
+from pgsrip.engines.tesseract import TesseractEngine
 from pgsrip.options import Options
-from pgsrip.ripper import PluginOption
-from pgsrip.tesseract import TesseractEngine
+from pgsrip.plugin import PluginOption
 
 from .test_engines import PluginEngine, fake_tesseract, media_dir, read_texts, rip
 

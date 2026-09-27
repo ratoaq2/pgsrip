@@ -5,7 +5,7 @@ import urllib.error
 import pytest
 from babelfish import Language
 
-from pgsrip.tessdata import (
+from pgsrip.engines.tessdata import (
     Tessdata,
     TessdataError,
     get_config_arg,
@@ -13,13 +13,13 @@ from pgsrip.tessdata import (
     get_tesseract_code,
     tessdata_env,
 )
-from pgsrip.tesseract import TesseractEngine
+from pgsrip.engines.tesseract import TesseractEngine
 
 
 @pytest.fixture
 def installed(monkeypatch):
     def install(*codes: str):
-        monkeypatch.setattr('pgsrip.tessdata.tess.get_languages', lambda: list(codes))
+        monkeypatch.setattr('pgsrip.engines.tessdata.tess.get_languages', lambda: list(codes))
 
     return install
 
@@ -32,7 +32,7 @@ def downloads(monkeypatch):
         requested.append(request.full_url)
         return io.BytesIO(b'traineddata')
 
-    monkeypatch.setattr('pgsrip.tessdata.urllib.request.urlopen', urlopen)
+    monkeypatch.setattr('pgsrip.engines.tessdata.urllib.request.urlopen', urlopen)
 
     return requested
 
@@ -168,7 +168,7 @@ def test_ensure_skips_download_when_tesseract_cannot_be_queried(monkeypatch, dow
     def unavailable():
         raise OSError('tesseract is not installed')
 
-    monkeypatch.setattr('pgsrip.tessdata.tess.get_languages', unavailable)
+    monkeypatch.setattr('pgsrip.engines.tessdata.tess.get_languages', unavailable)
 
     assert Tessdata(directory=str(tmp_path)).ensure({'por'}) is None
     assert downloads == []
@@ -181,7 +181,7 @@ def test_a_missing_tesseract_is_asked_and_reported_one_time(monkeypatch, caplog)
         calls.append(1)
         raise OSError('tesseract is not installed')
 
-    monkeypatch.setattr('pgsrip.tessdata.tess.get_languages', unavailable)
+    monkeypatch.setattr('pgsrip.engines.tessdata.tess.get_languages', unavailable)
     tessdata = Tessdata()
 
     assert tessdata.installed_codes is None
@@ -220,7 +220,7 @@ def test_ensure_fails_when_language_is_not_available(installed, monkeypatch, tmp
     def urlopen(request, timeout=None):
         raise urllib.error.HTTPError(request.full_url, 404, 'Not Found', {}, None)
 
-    monkeypatch.setattr('pgsrip.tessdata.urllib.request.urlopen', urlopen)
+    monkeypatch.setattr('pgsrip.engines.tessdata.urllib.request.urlopen', urlopen)
 
     with pytest.raises(TessdataError, match='not available in the best repository'):
         Tessdata(directory=str(tmp_path)).ensure({'xyz'})
@@ -230,7 +230,7 @@ def test_ensure_fails_when_language_is_not_available(installed, monkeypatch, tmp
 
 def test_ensure_fails_when_download_is_empty(installed, monkeypatch, tmp_path):
     installed()
-    monkeypatch.setattr('pgsrip.tessdata.urllib.request.urlopen', lambda request, timeout=None: io.BytesIO(b''))
+    monkeypatch.setattr('pgsrip.engines.tessdata.urllib.request.urlopen', lambda request, timeout=None: io.BytesIO(b''))
 
     with pytest.raises(TessdataError, match='is empty'):
         Tessdata(directory=str(tmp_path)).ensure({'por'})
@@ -242,7 +242,7 @@ def test_tesseract_supports_no_language_when_tesseract_cannot_be_queried(monkeyp
     def unavailable():
         raise OSError('tesseract is not installed')
 
-    monkeypatch.setattr('pgsrip.tessdata.tess.get_languages', unavailable)
+    monkeypatch.setattr('pgsrip.engines.tessdata.tess.get_languages', unavailable)
 
     assert not TesseractEngine(tessdata=Tessdata(directory=str(tmp_path))).supports(Language('eng'))
 
@@ -273,7 +273,7 @@ def test_tesseract_does_not_support_a_language_whose_download_failed(installed, 
             raise urllib.error.URLError('offline')
         return io.BytesIO(b'traineddata')
 
-    monkeypatch.setattr('pgsrip.tessdata.urllib.request.urlopen', urlopen)
+    monkeypatch.setattr('pgsrip.engines.tessdata.urllib.request.urlopen', urlopen)
     engine = TesseractEngine(tessdata=Tessdata(directory=str(tmp_path)))
     reported = []
 
@@ -292,6 +292,6 @@ def test_tesseract_does_not_support_a_language_whose_download_failed(installed, 
 def test_target_dir_falls_back_when_directory_is_not_writable(tmp_path, monkeypatch):
     monkeypatch.delenv('PGSRIP_TESSDATA_DIR', raising=False)
     monkeypatch.setenv('TESSDATA_PREFIX', str(tmp_path / 'prefix'))
-    monkeypatch.setattr('pgsrip.tessdata.is_writable', lambda directory: 'prefix' not in directory)
+    monkeypatch.setattr('pgsrip.engines.tessdata.is_writable', lambda directory: 'prefix' not in directory)
 
     assert 'prefix' not in Tessdata().target_dir

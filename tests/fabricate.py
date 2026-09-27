@@ -21,8 +21,8 @@ from pgsrip.pgs import PgsReader
 from pgsrip.scrub import Redaction, scrub_display_sets
 
 if typing.TYPE_CHECKING:
+    from pgsrip.engines.tesseract import FullImage
     from pgsrip.media import PgsSubtitleItem
-    from pgsrip.tesseract import FullImage
 
 SAMPLE = os.path.join(os.path.dirname(__file__), 'samples', 'placeholder.en.sup')
 

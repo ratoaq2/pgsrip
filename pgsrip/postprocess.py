@@ -4,7 +4,8 @@ import typing
 
 if typing.TYPE_CHECKING:
     from pgsrip.media import Pgs
-    from pgsrip.ripper import Cue, PluginOption
+    from pgsrip.plugin import PluginOption
+    from pgsrip.ripper import Cue
 
 
 class PostProcessor(typing.Protocol):

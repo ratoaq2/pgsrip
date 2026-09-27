@@ -18,17 +18,17 @@ from babelfish import Language
 from click.core import ParameterSource
 
 from pgsrip import Pgs, __url__, __version__, api
-from pgsrip.auto import AutoEngine, check_auto
 from pgsrip.cleanit import CleanitPostProcessor
 from pgsrip.core import get_reason
 from pgsrip.diagnostics import Check, format_checks, run_checks
+from pgsrip.engines.auto import AutoEngine, check_auto
+from pgsrip.engines.base import OcrEngine, OcrEngineFactory, OcrError
+from pgsrip.engines.rapidocr import RapidOcrEngine
+from pgsrip.engines.tesseract import TesseractEngine
 from pgsrip.media import Media
 from pgsrip.options import Options
 from pgsrip.postprocess import PostProcessor, PostProcessorFactory
-from pgsrip.rapidocr import RapidOcrEngine
-from pgsrip.ripper import OcrEngine, OcrEngineFactory, OcrError
 from pgsrip.scrub import Redaction, output_path, scrub_data
-from pgsrip.tesseract import TesseractEngine
 from pgsrip.track_flags import FLAG_CHOICES
 
 if typing.TYPE_CHECKING:

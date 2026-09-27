@@ -2,10 +2,10 @@ from datetime import timedelta
 
 from babelfish import Language
 
-from pgsrip.auto import AutoEngine
 from pgsrip.cleanit import CleanitPostProcessor
+from pgsrip.engines.auto import AutoEngine
+from pgsrip.engines.base import OcrEngine
 from pgsrip.postprocess import PostProcessor
-from pgsrip.ripper import OcrEngine
 
 
 class Options:
