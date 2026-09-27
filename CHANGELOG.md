@@ -27,6 +27,8 @@
     can now rip with no tesseract program on the system. `doctor` shows the
     engine of auto. A missing tesseract is not a `doctor` failure when
     RapidOCR can rip
+  - New: the Docker image has the RapidOCR PP-OCRv6 small model, in the
+    `/usr/src/rapidocr` volume (`PGSRIP_RAPIDOCR_DIR`)
   - New: `doctor` shows the checks of every OCR engine. It accepts `--config`
     and the `--<engine>-*` options
   - New: `--tesseract-workers` sets the number of tesseract processes. It

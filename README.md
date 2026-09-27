@@ -96,7 +96,8 @@ You do not need to install it. pgsrip downloads the language data at the first r
 ### Docker
 
 The [Docker image](https://hub.docker.com/r/ratoaq2/pgsrip) contains pgsrip, MKVToolNix, tesseract, and all
-languages. You do not need to install anything else:
+languages. It also contains the RapidOCR PP-OCRv6 small model in `/usr/src/rapidocr`. You do not need to install
+anything else:
 
 ```bash
 docker run -it --rm -v /medias:/medias -u $(id -u):$(id -g) ratoaq2/pgsrip -l en /medias
