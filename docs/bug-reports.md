@@ -25,6 +25,8 @@ The scrubbed subtitle holds no image, only what is needed to reproduce the error
 Attach it to a new issue: https://github.com/ratoaq2/pgsrip/issues
 ```
 
+When a subtitle could not be ripped, `pgsrip rip` exits with code 1, also when it ripped the other subtitles.
+
 ## Environment
 
 `pgsrip doctor` shows the installed programs. Add its output to the bug report:

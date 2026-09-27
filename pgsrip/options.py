@@ -2,10 +2,10 @@ from datetime import timedelta
 
 from babelfish import Language
 
+from pgsrip.auto import AutoEngine
 from pgsrip.cleanit import CleanitPostProcessor
 from pgsrip.postprocess import PostProcessor
 from pgsrip.ripper import OcrEngine
-from pgsrip.tesseract import TesseractEngine
 
 
 class Options:
@@ -33,7 +33,7 @@ class Options:
         self.exclude_flags = exclude_flags
         self.keep_temp_files = keep_temp_files
         # a chain: each engine reads the items that the engines before it left unread
-        self.engines = engines or [TesseractEngine()]
+        self.engines = engines or [AutoEngine()]
         # a chain: each post-processor changes the cues of the one before it. An empty list changes nothing.
         self.post_processors: list[PostProcessor] = (
             [CleanitPostProcessor()] if post_processors is None else post_processors

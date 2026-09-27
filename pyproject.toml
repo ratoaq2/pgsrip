@@ -52,6 +52,16 @@ dependencies = [
     "appdirs>=1.4.4",
 ]
 
+[project.optional-dependencies]
+# an extra, not a dependency: onnxruntime has no musl Linux wheel and no sdist, and no marker can detect musl.
+# The markers: the platforms with onnxruntime wheels. pgsrip.rapidocr uses the raw model output: keep the minor version.
+rapidocr = [
+    "rapidocr>=3.9,<3.10; (sys_platform == 'win32' and (platform_machine == 'AMD64' or platform_machine == 'ARM64')) or (sys_platform == 'darwin' and platform_machine == 'arm64') or (sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64'))",
+    "onnxruntime>=1.30; (sys_platform == 'win32' and (platform_machine == 'AMD64' or platform_machine == 'ARM64')) or (sys_platform == 'darwin' and platform_machine == 'arm64') or (sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64'))",
+    # RapidOCR puts the Arabic text in reading order with it
+    "python-bidi>=0.6; (sys_platform == 'win32' and (platform_machine == 'AMD64' or platform_machine == 'ARM64')) or (sys_platform == 'darwin' and platform_machine == 'arm64') or (sys_platform == 'linux' and (platform_machine == 'x86_64' or platform_machine == 'aarch64'))",
+]
+
 [project.urls]
 Repository = "https://github.com/ratoaq2/pgsrip"
 
@@ -60,6 +70,8 @@ pgsrip = "pgsrip.cli:pgsrip"
 
 [dependency-groups]
 dev = [
+    # the tests and CI use RapidOCR
+    "pgsrip[rapidocr]",
     "pytest>=8.4.1",
     "pytest-cov>=6.2.1",
     "mypy>=1.17.0",
@@ -100,8 +112,10 @@ module = [
     "babelfish.*",
     "cleanit.*",
     "cv2.*",
+    "onnxruntime.*",
     "pysrt.*",
     "pytesseract.*",
+    "rapidocr.*",
     "trakit.*",
 ]
 ignore_missing_imports = true

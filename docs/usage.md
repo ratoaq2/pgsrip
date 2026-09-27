@@ -31,6 +31,10 @@ pgsrip uses the first directory in this list that it can write to:
 pgsrip never downloads a language that tesseract already has. Tesseract always uses the first data that it
 finds for a language.
 
+Tesseract cannot read a language when the tesseract program is not found, or when the data is not installed
+and cannot be downloaded. The download is off, or it failed. The [default engine](#the-default-engine-auto) then
+uses RapidOCR for the tracks in this language, and the [engine chain](#a-chain-of-ocr-engines) skips tesseract.
+
 ### Download options
 
 | Option | Environment variable | What it does |
@@ -112,8 +116,64 @@ tesseract only. For example, `-w 1 --tesseract-workers 4` runs 4 tesseract proce
 
 ## OCR engines
 
-pgsrip reads the text of the subtitle images with an OCR engine. The default engine is tesseract. Other Python
-packages can add an engine (see [Add an OCR engine](#add-an-ocr-engine)).
+pgsrip reads the text of the subtitle images with an OCR engine. pgsrip has 2 engines: tesseract and
+[RapidOCR](#rapidocr). Other Python packages can add an engine (see [Add an OCR engine](#add-an-ocr-engine)).
+
+### The default engine: auto
+
+With no `--engine`, pgsrip uses `--engine auto`. For each language, auto uses tesseract when tesseract can read
+the language. Else it uses RapidOCR, when pgsrip has the `rapidocr` extra. Tesseract can read a language when the tesseract program is found, and the
+data is installed or can be downloaded. Auto is not a [chain](#a-chain-of-ocr-engines): one engine reads all the
+cues of a track, and a doubtful cue keeps its text.
+
+When auto uses RapidOCR, pgsrip shows one line before the rip starts:
+
+```text
+tesseract not found: rapidocr reads en, de
+Install tesseract-ocr and make sure that it is in the PATH
+```
+
+The `--tesseract-*` and `--rapidocr-*` options are valid with auto. Use `auto` alone: `--engine auto --engine
+myocr` is an error. Plug-in engines are never part of auto. `pgsrip doctor` shows the engine of auto in the
+`auto` line. When auto has an engine, a problem of tesseract or RapidOCR is not a `doctor` failure.
+
+### RapidOCR
+
+`--engine rapidocr` reads the text with the PaddleOCR models of [RapidOCR](https://github.com/RapidAI/RapidOCR),
+on ONNX Runtime. It needs no program on the system. The `rapidocr` extra installs it:
+`pip install "pgsrip[rapidocr]"`. The extra works on Windows (x64 and ARM64), macOS (Apple silicon), and Linux
+with glibc 2.28 or later (x86_64 and aarch64). These are the platforms with ONNX Runtime wheels. On other
+machines, for example macOS on Intel, the extra installs nothing. On musl Linux (Alpine) and older glibc, the install with the
+extra fails: install pgsrip without it. Without RapidOCR, `pgsrip doctor` shows `rapidocr not installed`.
+
+No environment marker can detect musl, so RapidOCR cannot be a normal dependency with a marker.
+
+The engine reads these languages:
+
+- PP-OCRv6 model: Afrikaans, Albanian, Basque, Bosnian, Catalan, Chinese, Croatian, Czech, Danish, Dutch,
+  English, Estonian, Finnish, French, Galician, German, Hungarian, Icelandic, Indonesian, Irish, Italian,
+  Japanese, Kurdish, Latin, Latvian, Lithuanian, Luxembourgish, Malay, Maltese, Maori, Norwegian, Occitan,
+  Polish, Portuguese, Quechua, Romanian, Romansh, Slovak, Slovenian, Spanish, Swahili, Swedish, Tagalog,
+  Turkish, Uzbek, Vietnamese, Welsh.
+- PP-OCRv5 script models: Cyrillic, Arabic, Devanagari, Greek, Korean, Thai, Tamil, and Telugu languages. These
+  models are not measured on subtitles.
+
+The engine cuts each cue into text lines, and reads all the lines of a track in batches. It marks a cue as
+doubtful when a character of the cue has a score below 90. The threshold never removes text.
+
+| Option | Default | What it does |
+| --- | --- | --- |
+| `--rapidocr-threshold` | `90` | A cue with a character score below this value (0 to 100) is doubtful. |
+| `--rapidocr-model` | `small` | Size of the PP-OCRv6 model: `tiny`, `small`, or `medium`. Japanese always uses `small` or `medium`. |
+| `--rapidocr-border` | `4` | White border around each line, in pixels. |
+| `--rapidocr-batch` | `6` | Text lines in one model call. |
+| `--rapidocr-dir` | | Directory of the models. Also `PGSRIP_RAPIDOCR_DIR`. The default is the user cache directory (for example `~/.cache/pgsrip/rapidocr`). |
+| `--no-rapidocr-download` | | Do not download models. Use only the models in the directory. |
+| `--rapidocr-workers` | `-w` | Number of ONNX Runtime threads. |
+
+Before the rip starts, pgsrip downloads the model of each language that it collected (about 20 MB for the
+small model). RapidOCR checks the SHA256 of each model. When a model cannot be loaded, the engine cannot read
+its languages, and the chain skips it for those tracks.
 
 ### A chain of OCR engines
 
@@ -131,6 +191,9 @@ The first engine reads all the cues. Each next engine reads only these cues:
 Tesseract marks a cue as doubtful when a word of the cue has a confidence below 80. `--tesseract-threshold`
 changes this value (0 to 100). A higher value sends more cues to the next engine. When the next engine gives no
 text for a cue, pgsrip keeps the tesseract text.
+
+pgsrip skips an engine of the chain for a track in a language that the engine cannot read. It shows one line for
+each such engine before the rip starts. When no engine of the chain can read the language, the track fails.
 
 A [configuration file](../README.md#configuration-file) can also set the chain and the threshold:
 
@@ -158,10 +221,10 @@ The class declares its options, and creates the engine from their values (see `O
 ```python
 import click
 
-from pgsrip.ripper import PluginOption
+from pgsrip.ripper import OcrEngine, PluginOption
 
 
-class MyEngine:
+class MyEngine(OcrEngine):
     options = (
         PluginOption('model', click.Choice(['small', 'large']), default='small', help='Model to use.'),
         PluginOption('url', required=True, envvar='MYOCR_URL', help='URL of the server.'),
@@ -191,13 +254,19 @@ pgsrip loads every plug-in class when it starts, also for `pgsrip --help`. Impor
 engine (for example onnxruntime) only in its methods. A plug-in that cannot be loaded is left out, with a
 warning.
 
-The engine has 2 methods (see `OcrEngine` in `pgsrip/ripper.py`):
+The engine has 3 methods (see `OcrEngine` in `pgsrip/ripper.py`):
 
 - `prepare(languages, reporter)`: get ready before the rip starts. Raise `pgsrip.ripper.OcrError` when the
   engine cannot rip at all.
+- `supports(language)`: `True` when the engine can read this language. pgsrip calls it after `prepare`. When
+  it returns `False`, pgsrip skips the engine for the tracks in this language.
 - `recognize(pgs, items)`: set `item.text` for each item that the engine can read. Leave `None` for the next
   engine of the chain. Set `item.doubtful` when the text can be wrong. Set `item.confidence` (0 to 1) when the
   engine has one. Raise `OcrError` when the engine fails: pgsrip then writes no `.srt` file for that track.
+
+Subclass `OcrEngine` to get the default `engine_for(language)`: the engine itself when it supports the
+language, else `None`. Override `engine_for` only when the engine sends a track to another engine. A class
+that does not subclass `OcrEngine` must also write `engine_for`.
 
 The class can also have a `check(settings)` classmethod. It returns a list of `pgsrip.diagnostics.Check`.
 `pgsrip doctor` shows the checks of all engines, and the debug log shows the checks of the engines in

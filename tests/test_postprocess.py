@@ -187,7 +187,7 @@ def test_a_cue_with_no_text_is_not_in_the_srt(media_dir: typing.Any) -> None:
 def test_a_failing_post_processor_writes_no_srt(media_dir: typing.Any) -> None:
     result = rip('--engine', 'plugin', '--post-processor', 'failing', str(media_dir))
 
-    assert result.exit_code == 0, result.output
+    assert result.exit_code == 1, result.output
     assert 'could not be ripped' in result.output
     assert '<RuntimeError> [no network]' in result.output
     assert not (media_dir / 'placeholder.en.srt').exists()

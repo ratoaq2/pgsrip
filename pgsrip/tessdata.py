@@ -120,7 +120,7 @@ def is_writable(directory: str) -> bool:
         with tempfile.NamedTemporaryFile(dir=directory, suffix='.pgsrip'):
             return True
     except OSError as e:
-        logger.debug('Cannot write tesseract data to %s: <%s> %s', directory, type(e).__name__, e)
+        logger.debug('Cannot write to %s: <%s> %s', directory, type(e).__name__, e)
         return False
 
 
@@ -140,6 +140,8 @@ class Tessdata:
         self.timeout = timeout
         self._target_dir: str | None = None
         self._installed_codes: set[str] | None = None
+        #: tesseract was asked for its languages: a failure is not asked again
+        self._queried = False
 
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__} [{self}]>'
@@ -158,16 +160,15 @@ class Tessdata:
     @property
     def installed_codes(self) -> set[str] | None:
         """Models tesseract already finds on its own, or None when tesseract cannot be queried."""
-        if self._installed_codes is None:
+        if not self._queried:
+            self._queried = True
             try:
-                codes: set[str] = set(tess.get_languages())
+                self._installed_codes = set(tess.get_languages())
             except Exception as e:
                 # tesseract itself is missing or broken: downloading data would not help
                 logger.warning('Cannot list installed tesseract languages: <%s> %s', type(e).__name__, e)
-                return None
-
-            logger.debug('Tesseract has %d languages installed', len(codes))
-            self._installed_codes = codes
+            else:
+                logger.debug('Tesseract has %d languages installed', len(self._installed_codes))
 
         return self._installed_codes
 
@@ -190,6 +191,24 @@ class Tessdata:
 
         return self._target_dir
 
+    def path(self, code: str) -> str:
+        """The file of a downloaded model."""
+        return os.path.join(self.target_dir, f'{code}{TRAINED_DATA_EXTENSION}')
+
+    def available(self, code: str) -> bool:
+        """True when tesseract runs and has the model, or `ensure` can give it: downloaded before, or download on."""
+        installed = self.installed_codes
+        if installed is None:
+            return False
+        if code in installed or self.download:
+            return True
+
+        try:
+            return os.path.isfile(self.path(code))
+        except TessdataError:
+            # no writable directory: nothing was downloaded before
+            return False
+
     def ensure(self, codes: typing.Iterable[str], reporter: typing.Callable[[str], None] | None = None) -> str | None:
         """Make the given models available to tesseract, calling reporter before each actual download.
 
@@ -205,7 +224,7 @@ class Tessdata:
 
         directory = self.target_dir
         for code in missing:
-            path = os.path.join(directory, f'{code}{TRAINED_DATA_EXTENSION}')
+            path = self.path(code)
             if os.path.isfile(path):
                 logger.debug('Using previously downloaded tesseract data %s', path)
                 continue

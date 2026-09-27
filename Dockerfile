@@ -51,7 +51,8 @@ ENV PYTHONFAULTHANDLER=1 \
     PIP_NO_CACHE_DIR=off \
     PIP_DISABLE_PIP_VERSION_CHECK=on \
     PIP_DEFAULT_TIMEOUT=100 \
-    TESSDATA_PREFIX=/usr/src/tessdata
+    TESSDATA_PREFIX=/usr/src/tessdata \
+    PGSRIP_RAPIDOCR_DIR=/usr/src/rapidocr
 
 COPY --from=apt-keys /etc/apt/trusted.gpg.d/alex-p-ubuntu-tesseract-ocr5.gpg /etc/apt/trusted.gpg.d/
 COPY --from=apt-keys /usr/share/keyrings/gpg-pub-moritzbunkus.gpg /usr/share/keyrings/
@@ -67,10 +68,14 @@ RUN echo "deb https://notesalexp.org/tesseract-ocr5/trixie/ trixie main" >> /etc
 COPY --from=tesseract-image /data/tessdata ${TESSDATA_PREFIX}
 COPY --from=builder /app/dist /usr/src/dist
 
-RUN pip install /usr/src/dist/pgsrip-*.tar.gz
+RUN pip install "$(ls /usr/src/dist/pgsrip-*.tar.gz)[rapidocr]"
+
+# the PP-OCRv6 small model: the RapidOCR model of the Latin-script languages, Chinese and Japanese
+RUN python -c "from babelfish import Language; from pgsrip.rapidocr import RapidOcrEngine; \
+engine = RapidOcrEngine(); engine.prepare([Language('eng')], print); assert engine.supports(Language('eng'))"
 
 WORKDIR /data
-VOLUME ${TESSDATA_PREFIX}
+VOLUME ${TESSDATA_PREFIX} ${PGSRIP_RAPIDOCR_DIR}
 
 ENTRYPOINT ["pgsrip"]
 CMD ["--help"]

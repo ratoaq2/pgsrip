@@ -9,7 +9,30 @@
   - New: other packages can add an OCR engine with a `pgsrip.engines` entry
     point. The engine declares its options: pgsrip adds them to `rip` as
     `--<engine>-*` options and reads them from the `<engine>` section of the
-    configuration file
+    configuration file. The engine tells the languages that it can read
+    (`supports`). The chain skips an engine that cannot read the language of
+    a track. When no engine can read it, the track fails
+  - New: tesseract cannot read a language when the tesseract program is not
+    found, or when its data is not installed and cannot be downloaded. A
+    failed download does not stop the downloads of the other languages
+  - New: the `rapidocr` OCR engine (`--engine rapidocr`). It reads the text
+    with the PaddleOCR models on ONNX Runtime, and needs no program on the
+    system. Install it with the `rapidocr` extra:
+    `pip install "pgsrip[rapidocr]"`. The extra needs ONNX Runtime wheels:
+    it does not install on musl Linux. It
+    downloads the model of each language before the rip starts. Options:
+    `--rapidocr-threshold`, `--rapidocr-model`, `--rapidocr-border`,
+    `--rapidocr-batch`, `--rapidocr-dir`, `--no-rapidocr-download` and
+    `--rapidocr-workers`
+  - Changed: the default OCR engine is `auto`. For each language, it uses
+    tesseract when tesseract can read the language, else RapidOCR. pgsrip
+    can now rip with no tesseract program on the system. `doctor` shows the
+    engine of auto. A missing tesseract is not a `doctor` failure when
+    RapidOCR can rip
+  - New: the Docker image has the RapidOCR PP-OCRv6 small model, in the
+    `/usr/src/rapidocr` volume (`PGSRIP_RAPIDOCR_DIR`)
+  - Fixed: `rip` exits with code 1 when a subtitle could not be ripped
+  - Fixed: when tesseract is not found, `rip` shows the warning one time only
   - New: `doctor` shows the checks of every OCR engine. It accepts `--config`
     and the `--<engine>-*` options
   - New: `--tesseract-workers` sets the number of tesseract processes. It

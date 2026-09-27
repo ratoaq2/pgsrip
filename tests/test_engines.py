@@ -2,31 +2,35 @@
 
 from __future__ import annotations
 
+import dataclasses
 import importlib.metadata
 import shutil
+import sys
 import tempfile
 import types
 import typing
 
 import pysrt
 import pytest
+from babelfish import Language
 from click.testing import CliRunner
 
+from pgsrip.auto import AutoEngine
 from pgsrip.cli import ENGINE_ENTRY_POINTS, pgsrip
 from pgsrip.diagnostics import Check
-from pgsrip.ripper import PluginOption
-from pgsrip.tesseract import TesseractEngine
+from pgsrip.options import Options
+from pgsrip.rapidocr import RAPIDOCR_HINT, RapidOcrEngine
+from pgsrip.ripper import OcrEngine, PgsToSrtRipper, PluginOption
+from pgsrip.tesseract import TESSERACT_HINT, TesseractEngine
 from pgsrip.tsv import TsvData
 
 from .fabricate import SAMPLE
 
 if typing.TYPE_CHECKING:
-    from babelfish import Language
-
     from pgsrip.media import Pgs, PgsSubtitleItem
 
 
-class PluginEngine:
+class PluginEngine(OcrEngine):
     """An engine of another package: it reads every cue as 'Plugin <index>'."""
 
     #: the item indexes of each recognize call
@@ -49,6 +53,9 @@ class PluginEngine:
     ) -> None:
         pass
 
+    def supports(self, language: Language) -> bool:
+        return True
+
     def recognize(self, pgs: Pgs, items: list[PgsSubtitleItem]) -> None:
         PluginEngine.calls.append([item.index for item in items])
         for item in items:
@@ -60,6 +67,24 @@ class BlindEngine(PluginEngine):
 
     def recognize(self, pgs: Pgs, items: list[PgsSubtitleItem]) -> None:
         PluginEngine.calls.append([item.index for item in items])
+
+
+class EnglishEngine(PluginEngine):
+    """An engine of another package that reads only English, as 'English <index>'."""
+
+    def supports(self, language: Language) -> bool:
+        return bool(language == Language('eng'))
+
+    def recognize(self, pgs: Pgs, items: list[PgsSubtitleItem]) -> None:
+        for item in items:
+            item.text = f'English {item.index}'
+
+
+class RoutingEngine(BlindEngine):
+    """An engine that gives the plug-in engine for each language, and reads nothing itself."""
+
+    def engine_for(self, language: Language) -> PluginEngine:
+        return PluginEngine()
 
 
 class TunedEngine(PluginEngine):
@@ -114,6 +139,7 @@ def plugins(monkeypatch: pytest.MonkeyPatch) -> None:
     entry_points = [
         importlib.metadata.EntryPoint('plugin', f'{__name__}:PluginEngine', ENGINE_ENTRY_POINTS),
         importlib.metadata.EntryPoint('blind', f'{__name__}:BlindEngine', ENGINE_ENTRY_POINTS),
+        importlib.metadata.EntryPoint('english', f'{__name__}:EnglishEngine', ENGINE_ENTRY_POINTS),
         importlib.metadata.EntryPoint('tuned', f'{__name__}:TunedEngine', ENGINE_ENTRY_POINTS),
         importlib.metadata.EntryPoint('remote', f'{__name__}:RemoteEngine', ENGINE_ENTRY_POINTS),
         importlib.metadata.EntryPoint('broken', f'{__name__}:MissingEngine', ENGINE_ENTRY_POINTS),
@@ -136,6 +162,7 @@ def fake_tesseract(monkeypatch: pytest.MonkeyPatch) -> list[int]:
             item.doubtful = item.index in doubtful
 
     monkeypatch.setattr(TesseractEngine, 'prepare', lambda *args, **kwargs: None)
+    monkeypatch.setattr(TesseractEngine, 'supports', lambda *args: True)
     monkeypatch.setattr(TesseractEngine, 'recognize', recognize)
     return doubtful
 
@@ -145,6 +172,7 @@ def blind_tesseract(monkeypatch: pytest.MonkeyPatch) -> list[TesseractEngine]:
     """Tesseract reads nothing. The list gets each tesseract engine that recognize was called on."""
     engines: list[TesseractEngine] = []
     monkeypatch.setattr(TesseractEngine, 'prepare', lambda *args, **kwargs: None)
+    monkeypatch.setattr(TesseractEngine, 'supports', lambda *args: True)
     monkeypatch.setattr(TesseractEngine, 'recognize', lambda engine, *args: engines.append(engine))
     return engines
 
@@ -153,8 +181,15 @@ def rip(*args: str) -> typing.Any:
     return CliRunner().invoke(pgsrip, ['rip', *args])
 
 
-def read_texts(media_dir: typing.Any) -> list[str]:
-    return [item.text for item in pysrt.open(str(media_dir / 'placeholder.en.srt'), encoding='utf-8')]
+def read_texts(media_dir: typing.Any, name: str = 'placeholder.en.srt') -> list[str]:
+    return [item.text for item in pysrt.open(str(media_dir / name), encoding='utf-8')]
+
+
+@pytest.fixture
+def hebrew_track(media_dir: typing.Any) -> typing.Any:
+    """A second track of the placeholder sample, in Hebrew."""
+    shutil.copy(SAMPLE, media_dir / 'placeholder.he.sup')
+    return media_dir / 'placeholder.he.srt'
 
 
 def test_a_plugin_engine_rips_the_cues(media_dir: typing.Any) -> None:
@@ -204,11 +239,189 @@ def test_a_plugin_cannot_replace_a_built_in_engine(media_dir: typing.Any) -> Non
     assert read_texts(media_dir) == ['Plugin 0', 'Plugin 1', 'Plugin 2']
 
 
+def test_the_chain_skips_an_engine_that_cannot_read_the_language(
+    media_dir: typing.Any, hebrew_track: typing.Any
+) -> None:
+    result = rip('--engine', 'english', '--engine', 'plugin', str(media_dir))
+
+    # the plug-in engine has no supports method: it reads all languages
+    assert result.exit_code == 0, result.output
+    assert 'EnglishEngine cannot read he' in result.output
+    assert read_texts(media_dir) == ['English 0', 'English 1', 'English 2']
+    assert read_texts(media_dir, hebrew_track.name) == ['Plugin 0', 'Plugin 1', 'Plugin 2']
+
+
+def test_a_track_that_no_engine_can_read_fails_and_the_other_tracks_rip(
+    media_dir: typing.Any, hebrew_track: typing.Any
+) -> None:
+    result = rip('--engine', 'english', str(media_dir))
+
+    # a failed track is a failed rip, also when the other tracks rip
+    assert result.exit_code == 1
+    assert 'No OCR engine of the chain can read he' in result.output
+    assert read_texts(media_dir) == ['English 0', 'English 1', 'English 2']
+    assert not hebrew_track.exists()
+
+
+def test_the_last_engine_keeps_its_doubtful_cues_when_the_next_engine_cannot_read_the_language(
+    media_dir: typing.Any, hebrew_track: typing.Any, fake_tesseract: list[int]
+) -> None:
+    fake_tesseract.extend([0, 1, 2])
+
+    result = rip('--engine', 'tesseract', '--engine', 'english', str(media_dir))
+
+    assert result.exit_code == 0, result.output
+    assert read_texts(media_dir) == ['English 0', 'English 1', 'English 2']
+    assert read_texts(media_dir, hebrew_track.name) == ['Tesseract 0', 'Tesseract 1', 'Tesseract 2']
+
+
+@dataclasses.dataclass(eq=False)
+class FakeItem:
+    """A subtitle item with ink, for the ripper."""
+
+    index: int = 0
+    start: None = None
+    end: None = None
+    height: int = 1
+    text: str | None = None
+    doubtful: bool = False
+    confidence: float | None = None
+
+
+def test_the_chain_uses_the_engine_that_engine_for_gives() -> None:
+    item = FakeItem()
+    pgs: typing.Any = types.SimpleNamespace(items=[item], language=Language('eng'))
+
+    cues = PgsToSrtRipper(pgs, Options(engines=[RoutingEngine()])).rip()
+
+    assert [(cue.text, cue.engine) for cue in cues] == [('Plugin 0', 'PluginEngine')]
+    assert PluginEngine.calls == [[0]]
+
+
+@pytest.fixture
+def missing_tesseract(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The tesseract program is not found."""
+
+    def fail() -> list[str]:
+        raise OSError('tesseract not found')
+
+    monkeypatch.setattr('pgsrip.tessdata.tess.get_languages', fail)
+
+
+@pytest.fixture
+def fake_rapidocr(monkeypatch: pytest.MonkeyPatch) -> list[Language]:
+    """RapidOCR reads every cue as 'RapidOCR <index>', doubtful. The list gets the languages that it prepared."""
+    prepared: list[Language] = []
+
+    def recognize(engine: RapidOcrEngine, pgs: Pgs, items: list[PgsSubtitleItem]) -> None:
+        for item in items:
+            item.text = f'RapidOCR {item.index}'
+            item.doubtful = True
+
+    monkeypatch.setattr(RapidOcrEngine, 'prepare', lambda engine, languages, reporter=None: prepared.extend(languages))
+    monkeypatch.setattr(RapidOcrEngine, 'supports', lambda engine, language: language in prepared)
+    monkeypatch.setattr(RapidOcrEngine, 'recognize', recognize)
+    return prepared
+
+
+@pytest.mark.usefixtures('fake_tesseract')
+def test_auto_uses_tesseract_else_rapidocr_for_each_language(
+    media_dir: typing.Any, hebrew_track: typing.Any, fake_rapidocr: list[Language], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr('pgsrip.tessdata.tess.get_languages', lambda: ['eng'])
+    monkeypatch.setattr(TesseractEngine, 'supports', lambda engine, language: language == Language('eng'))
+
+    result = rip(str(media_dir))
+
+    # no chain: the doubtful rapidocr cues keep their text
+    assert result.exit_code == 0, result.output
+    assert 'no tesseract data for he: rapidocr reads he' in result.output
+    assert fake_rapidocr == [Language('heb')]
+    assert read_texts(media_dir) == ['Tesseract 0', 'Tesseract 1', 'Tesseract 2']
+    assert read_texts(media_dir, hebrew_track.name) == ['RapidOCR 0', 'RapidOCR 1', 'RapidOCR 2']
+
+
+@pytest.mark.usefixtures('missing_tesseract', 'fake_rapidocr')
+def test_auto_uses_rapidocr_when_tesseract_is_not_found(media_dir: typing.Any) -> None:
+    result = rip(str(media_dir))
+
+    assert result.exit_code == 0, result.output
+    assert f'tesseract not found: rapidocr reads en\n{TESSERACT_HINT}' in result.output
+    assert read_texts(media_dir) == ['RapidOCR 0', 'RapidOCR 1', 'RapidOCR 2']
+
+
+@pytest.mark.usefixtures('missing_tesseract')
+def test_auto_tells_how_to_install_an_engine_when_there_is_none(
+    media_dir: typing.Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # pgsrip without the rapidocr extra
+    monkeypatch.setitem(sys.modules, 'onnxruntime', None)
+
+    result = rip(str(media_dir))
+
+    assert result.exit_code == 1
+    assert f'tesseract not found\n{TESSERACT_HINT}' in result.output
+    assert RAPIDOCR_HINT in result.output
+    assert 'AutoEngine cannot read en' in result.output
+
+
+@pytest.mark.usefixtures('fake_tesseract', 'fake_rapidocr')
+def test_auto_fails_a_track_that_no_engine_can_read(
+    media_dir: typing.Any, hebrew_track: typing.Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(TesseractEngine, 'supports', lambda engine, language: language == Language('eng'))
+    monkeypatch.setattr(RapidOcrEngine, 'supports', lambda engine, language: False)
+
+    result = rip(str(media_dir))
+
+    assert 'AutoEngine cannot read he' in result.output
+    assert 'No OCR engine of the chain can read he' in result.output
+    assert read_texts(media_dir) == ['Tesseract 0', 'Tesseract 1', 'Tesseract 2']
+    assert not hebrew_track.exists()
+
+
+@pytest.mark.usefixtures('fake_tesseract', 'fake_rapidocr')
+def test_the_cues_of_auto_have_the_name_of_the_engine_that_read_them(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(TesseractEngine, 'supports', lambda engine, language: False)
+    engine = AutoEngine()
+    engine.prepare([Language('heb')])
+    pgs: typing.Any = types.SimpleNamespace(items=[FakeItem()], language=Language('heb'))
+
+    cues = PgsToSrtRipper(pgs, Options(engines=[engine])).rip()
+
+    assert [(cue.text, cue.engine) for cue in cues] == [('RapidOCR 0', 'RapidOcrEngine')]
+
+
+def test_the_default_engine_of_the_options_is_auto() -> None:
+    assert [type(engine) for engine in Options().engines] == [AutoEngine]
+
+
+def test_auto_is_valid_only_alone(media_dir: typing.Any) -> None:
+    result = rip('--engine', 'auto', '--engine', 'plugin', str(media_dir))
+
+    assert result.exit_code == 2
+    assert 'use --engine auto alone' in result.output
+
+
+@pytest.mark.usefixtures('missing_tesseract')
+def test_the_rapidocr_options_are_valid_with_auto(media_dir: typing.Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    engines: list[RapidOcrEngine] = []
+    monkeypatch.setattr(RapidOcrEngine, 'prepare', lambda engine, languages, reporter=None: engines.append(engine))
+
+    result = rip('--rapidocr-threshold', '50', '--rapidocr-workers', '2', str(media_dir))
+
+    assert 'the --rapidocr-* options need' not in result.output
+    assert [(engine.threshold, engine.workers) for engine in engines] == [(50, 2)]
+
+
 def test_an_unknown_engine_is_rejected(media_dir: typing.Any) -> None:
     result = rip('--engine', 'nope', str(media_dir))
 
     assert result.exit_code == 2
-    assert 'nope is not an OCR engine. Choose from: tesseract, plugin, blind, tuned, remote' in result.output
+    assert (
+        'nope is not an OCR engine. Choose from: auto, tesseract, rapidocr, plugin, blind, english, tuned, remote'
+        in result.output
+    )
 
 
 def test_an_engine_is_rejected_the_second_time(media_dir: typing.Any) -> None:
@@ -433,6 +646,47 @@ def test_doctor_prints_the_checks_of_every_engine(doctor: typing.Callable[..., t
     assert any(line.startswith('tuned model') and line.endswith('small') for line in lines)
     # a broken check does not hide the other checks
     assert any(line.startswith('remote ') and 'check failed: <RuntimeError> no network' in line for line in lines)
+
+
+@pytest.mark.parametrize(
+    'tesseract, rapidocr, expected',
+    [
+        (True, True, 'tesseract'),
+        (False, True, 'rapidocr (tesseract not found)'),
+        (False, False, 'no OCR engine: tesseract not found, rapidocr not installed'),
+    ],
+)
+def test_doctor_shows_the_engine_of_auto(
+    tesseract: bool,
+    rapidocr: bool,
+    expected: str,
+    doctor: typing.Callable[..., typing.Any],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def languages() -> list[str]:
+        if not tesseract:
+            raise OSError('tesseract not found')
+        return ['eng']
+
+    def version(name: str) -> str:
+        if not rapidocr:
+            raise importlib.metadata.PackageNotFoundError(name)
+        return '1.0'
+
+    monkeypatch.setattr('pgsrip.tessdata.tess.get_languages', languages)
+    monkeypatch.setattr('pgsrip.auto.importlib.metadata.version', version)
+    monkeypatch.setattr(
+        TesseractEngine,
+        'check',
+        classmethod(lambda cls, settings: [Check('tesseract', 'fake' if tesseract else 'not found', ok=tesseract)]),
+    )
+
+    result = doctor()
+
+    assert any(line.startswith('auto ') and line.endswith(expected) for line in result.output.splitlines())
+    # the failures: when pgsrip can rip, a missing tesseract is not one
+    assert (f'auto: {expected}' in result.output) is not rapidocr
+    assert ('tesseract: not found' in result.output) is not rapidocr
 
 
 def test_doctor_reads_the_engine_sections_of_a_config_file(
