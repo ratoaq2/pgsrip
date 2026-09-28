@@ -8,6 +8,7 @@ import typing
 from pysrt import SubRipFile, SubRipItem, SubRipTime
 
 from pgsrip.engines.base import OcrError
+from pgsrip.utils import format_time
 
 if typing.TYPE_CHECKING:
     from pgsrip.media import Pgs, PgsSubtitleItem
@@ -21,8 +22,10 @@ class Cue:
     """The result of the OCR chain for one subtitle item. The post-processors change the cues."""
 
     index: int
-    start: SubRipTime | None
-    end: SubRipTime | None
+    #: in milliseconds
+    start: int | None
+    #: in milliseconds
+    end: int | None
     #: None when no engine could read the item
     text: str | None
     #: from 0 to 1, None when the engine gives no confidence
@@ -36,8 +39,8 @@ class Cue:
     def to_json(self) -> dict[str, typing.Any]:
         return {
             'index': self.index,
-            'start': str(self.start),
-            'end': str(self.end),
+            'start': format_time(self.start),
+            'end': format_time(self.end),
             'text': self.text,
             'confidence': self.confidence,
             'doubtful': self.doubtful,
@@ -112,7 +115,7 @@ def create_srt(path: str, cues: list[Cue]) -> SubRipFile:
     subs = SubRipFile(path=path)
     for cue in cues:
         if cue.text:
-            subs.append(SubRipItem(0, cue.start, cue.end, cue.text))
+            subs.append(SubRipItem(0, SubRipTime.from_ordinal(cue.start), SubRipTime.from_ordinal(cue.end), cue.text))
     subs.clean_indexes()
 
     return subs

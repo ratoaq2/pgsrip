@@ -11,6 +11,7 @@ from pgsrip.formats.pgs import CompositionState, PgsReader, SegmentType
 from pgsrip.formats.scrub import scrub_data
 from pgsrip.media import PgsSubtitleItem
 from pgsrip.media_path import MediaPath
+from pgsrip.utils import format_time
 
 SAMPLE = 'placeholder.en.sup'
 WIDTH = 480
@@ -62,7 +63,7 @@ def test_sample_is_decoded_as_three_subtitle_items(display_sets, media_path):
     items = PgsSubtitleItem.create_items(media_path, display_sets)
 
     assert len(items) == 3
-    assert [(str(item.start), str(item.end)) for item in items] == [
+    assert [(format_time(item.start), format_time(item.end)) for item in items] == [
         ('00:00:01,000', '00:00:03,000'),
         ('00:00:04,000', '00:00:06,000'),
         ('00:00:07,000', '00:00:09,000'),
@@ -102,7 +103,7 @@ def test_sample_can_be_scrubbed_again(data, media_path):
     assert stats.written_display_sets == 6
     assert len(scrubbed) < len(data)
     items = PgsSubtitleItem.create_items(media_path, PgsReader.decode(scrubbed, media_path))
-    assert [(str(item.start), str(item.end)) for item in items] == [
+    assert [(format_time(item.start), format_time(item.end)) for item in items] == [
         ('00:00:01,000', '00:00:03,000'),
         ('00:00:04,000', '00:00:06,000'),
         ('00:00:07,000', '00:00:09,000'),

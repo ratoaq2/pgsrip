@@ -1,5 +1,4 @@
 import pytest
-from pysrt import SubRipTime
 
 from pgsrip.formats.pgs import PgsReader, SegmentType
 from pgsrip.media import PgsSubtitleItem
@@ -47,16 +46,16 @@ def test_a_cue_at_pts_0_does_not_stop_the_rip(stream, media_path):
     items = create_items(stream, media_path)
 
     assert len(items) == 2
-    assert items[1].start == SubRipTime(seconds=4)
-    assert items[1].end == SubRipTime(seconds=6)
+    assert items[1].start == 4000
+    assert items[1].end == 6000
 
 
 def test_a_cue_at_pts_0_keeps_its_timestamps(stream, media_path):
     """PTS 0 is a valid timestamp: the cue must not take the time of its clear set as start."""
     items = create_items(stream, media_path)
 
-    assert items[0].start == SubRipTime(0)
-    assert items[0].end == SubRipTime(seconds=3)
+    assert items[0].start == 0
+    assert items[0].end == 3000
 
 
 def palette_update_set(number=0, pts=0):

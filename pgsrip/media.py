@@ -12,12 +12,11 @@ from types import TracebackType
 import numpy as np
 import numpy.typing as npt
 from babelfish import Language
-from pysrt import SubRipTime
 
 from pgsrip.formats.pgs import DisplaySet, Palette, PgsImage, PgsReader
 from pgsrip.media_path import MediaPath
 from pgsrip.options import Options
-from pgsrip.utils import pairwise
+from pgsrip.utils import format_time, pairwise
 
 if typing.TYPE_CHECKING:
     from pgsrip.sources.base import Track
@@ -30,8 +29,8 @@ class PgsSubtitleItem:
         self.index = index
         self.media_path = media_path
         timestamps = [ds.pcs.presentation_timestamp for ds in display_sets]
-        self.start: SubRipTime | None = min((t for t in timestamps if t is not None), default=None)
-        self.end: SubRipTime | None = max((t for t in timestamps if t is not None), default=None)
+        self.start: int | None = min((t for t in timestamps if t is not None), default=None)
+        self.end: int | None = max((t for t in timestamps if t is not None), default=None)
         self.image = PgsSubtitleItem.generate_image(display_sets)
         x_offsets = [w.x_offset for ds in display_sets if (w := ds.wds) and w.num_windows > 0]
         self.x_offset: int | None = min((x for x in x_offsets if x is not None), default=None)
@@ -146,8 +145,8 @@ class PgsSubtitleItem:
         if self.start is None:
             logger.warning('Corrupted %r: No Start timestamp', self)
             valid = False
-        elif not self.end or self.end <= self.start:
-            if next_item and next_item.start and self.start + 10000 >= next_item.start:
+        elif self.end is None or self.end <= self.start:
+            if next_item and next_item.start is not None and self.start + 10000 >= next_item.start:
                 self.end = max(self.start + 1, next_item.start - 1)
                 logger.info('Fix applied for %r: Subtitle end timestamp was fixed', self)
             else:
@@ -165,7 +164,8 @@ class PgsSubtitleItem:
         return f'<{self.__class__.__name__} [{self}]>'
 
     def __str__(self) -> str:
-        return f'{self.media_path} [{self.start} --> {self.end or ""}]'
+        end = format_time(self.end) if self.end is not None else ''
+        return f'{self.media_path} [{format_time(self.start)} --> {end}]'
 
 
 class Pgs:
