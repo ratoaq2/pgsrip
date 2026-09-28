@@ -3,7 +3,7 @@
 ## 1. Context
 
 `ripper.py`/`sources/mkvtoolnix.py`'s core decode/OCR path had no regression coverage: `test_core.py` asserted
-`srt_path` strings without ever ripping, `test_samples.py` decoded PGS without ever OCRing,
+the output paths without ever ripping, `test_samples.py` decoded PGS without ever OCRing,
 `test_cli.py` was a 13-line `--help` smoke test. Nothing wrote an `.srt` and looked at it.
 
 The goal: a guessit-style suite where the input is parameters that fabricate a media file, and the
@@ -25,6 +25,10 @@ real.
   gets filtered, deduped, or excluded makes no temp folder. `test_no_temporary_folder_is_left_behind`
   covers the happy path, and `tests/test_core.py` covers a skipped track. `tempfile.tempdir` redirection
   (below) keeps the tests from touching the real system temp dir.
+- The CLI has only the `srt` writer. `test_a_second_writer_writes_its_missing_file_and_the_existing_srt_does_not_change`
+  calls `rip_pgs` directly, with `Options(writers=[SrtWriter(), FakeWriter()])`. `FakeWriter` is in
+  `tests/test_writers.py`. The test checks the skip logic for each writer: one OCR pass, the existing `.srt`
+  does not change, and the missing `.fake` file is written.
 
 ## 3. Target design
 

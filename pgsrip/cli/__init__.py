@@ -448,7 +448,7 @@ def rip(
             engines=create_engines(ctx),
             post_processors=create_post_processors(ctx),
             age=age,
-            srt_age=srt_age,
+            output_age=srt_age,
         )
     )
 

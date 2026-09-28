@@ -8,7 +8,7 @@ from subprocess import CalledProcessError
 
 from pgsrip.media import Pgs
 from pgsrip.options import Options
-from pgsrip.ripper import Cue, PgsToSrtRipper, create_srt
+from pgsrip.ripper import Cue, PgsRipper
 from pgsrip.sources import EXTENSIONS
 from pgsrip.sources.base import Media
 
@@ -101,10 +101,11 @@ def rip_pgs(pgs: Pgs, options: Options, on_error: ErrorHandler | None = None) ->
     # noinspection PyBroadException
     try:
         with pgs as p:
-            if not p.matches(options):
+            writers = p.pending_writers(options)
+            if not writers:
                 return False
 
-            ripper = PgsToSrtRipper(p, options)
+            ripper = PgsRipper(p, options)
             cues = ripper.rip()
             if options.keep_temp_files:
                 dump_cues(p, 'ocr.json', cues, ripper.seconds)
@@ -113,7 +114,8 @@ def rip_pgs(pgs: Pgs, options: Options, on_error: ErrorHandler | None = None) ->
             if options.keep_temp_files:
                 dump_cues(p, 'cues.json', cues, ripper.seconds)
 
-            create_srt(str(p.media_path.translate(extension='srt')), cues).save(encoding=options.encoding)
+            for writer in writers:
+                writer.write(str(p.output_path(writer)), p, cues, options.encoding)
             return True
     except Exception as e:
         logger.warning(

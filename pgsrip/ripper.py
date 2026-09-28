@@ -5,8 +5,6 @@ import logging
 import time
 import typing
 
-from pysrt import SubRipFile, SubRipItem, SubRipTime
-
 from pgsrip.engines.base import OcrError
 from pgsrip.utils import format_time
 
@@ -48,7 +46,7 @@ class Cue:
         }
 
 
-class PgsToSrtRipper:
+class PgsRipper:
     def __init__(self, pgs: Pgs, options: Options):
         self.pgs = pgs
         self.engines = options.engines
@@ -58,7 +56,7 @@ class PgsToSrtRipper:
     def rip(self) -> list[Cue]:
         """Read the items with the chain of OCR engines. An item with no ink gives no cue."""
         if not self.pgs.items:
-            # a track with no image is corrupted: do not write an empty srt as if it was ripped
+            # a track with no image is corrupted: do not write an empty subtitle file as if it was ripped
             raise ValueError(f'No subtitle image in {self.pgs}')
 
         language = self.pgs.language
@@ -108,14 +106,3 @@ class PgsToSrtRipper:
             )
             for item in items
         ]
-
-
-def create_srt(path: str, cues: list[Cue]) -> SubRipFile:
-    """The SRT of the cues. A cue with no text is left out."""
-    subs = SubRipFile(path=path)
-    for cue in cues:
-        if cue.text:
-            subs.append(SubRipItem(0, SubRipTime.from_ordinal(cue.start), SubRipTime.from_ordinal(cue.end), cue.text))
-    subs.clean_indexes()
-
-    return subs

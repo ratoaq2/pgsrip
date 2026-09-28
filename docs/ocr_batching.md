@@ -49,7 +49,7 @@ save. The cost grows with the number of pixels. So the engine batches text lines
 
 ## Engine chain (`ripper.py`)
 
-`Options.engines` is a list of OCR engines (`OcrEngine`). `PgsToSrtRipper.rip` gives all the items to the
+`Options.engines` is a list of OCR engines (`OcrEngine`). `PgsRipper.rip` gives all the items to the
 first engine. Each next engine gets only the items that are still unread (`item.text is None`) or doubtful
 (`item.doubtful`). An engine failure (`OcrError`) fails the track.
 
@@ -64,7 +64,7 @@ first engine. Each next engine gets only the items that are still unread (`item.
 - Before the next engine, the ripper clears the text of the items that it gives to that engine. When the
   engine gives no text for an item, the ripper puts back the text, the doubtful flag, and the confidence of the
   engine before it. No text is lost.
-- `PgsToSrtRipper.rip` returns a `Cue` for each item, with the engine that gave its text. The post-processors
+- `PgsRipper.rip` returns a `Cue` for each item, with the engine that gave its text. The post-processors
   run after the whole chain (see `docs/usage.md`, "Post-processors").
 - Measured on 2 real tracks: a lowest word confidence below 80 is 8.5 % and 4.5 % of the cues. It finds
   some tesseract errors, not all: tesseract can be wrong with a high confidence.

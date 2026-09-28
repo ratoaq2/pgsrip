@@ -25,7 +25,7 @@ from pgsrip.engines.tesseract import TESSERACT_HINT, TesseractEngine
 from pgsrip.engines.tsv import TsvData
 from pgsrip.options import Options
 from pgsrip.plugin import PluginOption
-from pgsrip.ripper import PgsToSrtRipper
+from pgsrip.ripper import PgsRipper
 
 from .fabricate import SAMPLE
 
@@ -295,7 +295,7 @@ def test_the_chain_uses_the_engine_that_engine_for_gives() -> None:
     item = FakeItem()
     pgs: typing.Any = types.SimpleNamespace(items=[item], language=Language('eng'))
 
-    cues = PgsToSrtRipper(pgs, Options(engines=[RoutingEngine()])).rip()
+    cues = PgsRipper(pgs, Options(engines=[RoutingEngine()])).rip()
 
     assert [(cue.text, cue.engine) for cue in cues] == [('Plugin 0', 'PluginEngine')]
     assert PluginEngine.calls == [[0]]
@@ -390,7 +390,7 @@ def test_the_cues_of_auto_have_the_name_of_the_engine_that_read_them(monkeypatch
     engine.prepare([Language('heb')])
     pgs: typing.Any = types.SimpleNamespace(items=[FakeItem()], language=Language('heb'))
 
-    cues = PgsToSrtRipper(pgs, Options(engines=[engine])).rip()
+    cues = PgsRipper(pgs, Options(engines=[engine])).rip()
 
     assert [(cue.text, cue.engine) for cue in cues] == [('RapidOCR 0', 'RapidOcrEngine')]
 

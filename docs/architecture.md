@@ -5,12 +5,16 @@
   `pgsrip.engines` and `pgsrip.postprocessors` entry points. `PluginKind` holds what differs between the two
   kinds. `PluginCommand` adds the `--<plugin>-*` options that each plug-in declares.
 - `api.py` — public API over `core.py` (`scan_path`, `rip`, `rip_pgs`).
-- `core.py` — path scanning/filtering, top-level rip loop: OCR chain, post-processor chain, SRT. With
+- `core.py` — path scanning/filtering, top-level rip loop: OCR chain, post-processor chain, writers. With
   `--keep-temp-files`, writes the cues as JSON. No OCR logic.
+- `writers/base.py` — `Writer` protocol: writes the cues of a track to a file. `name` is the value of `--format`.
+- `writers/srt.py` — `SrtWriter`: the SRT file, with pysrt. It sorts the cues and leaves out a cue with no text.
+- `writers/__init__.py` — `WRITERS`: the built-in writers.
 - `postprocessors/base.py` — `PostProcessor` protocol and `PostProcessorFactory` protocol.
 - `postprocessors/cleanit.py` — `CleanitPostProcessor`, the default post-processor: the cleanit rules of the track language.
 - `media.py` — `Pgs`/`PgsSubtitleItem`: per-item bookkeeping (timing, offsets,
-  image cropped to its ink), corrupted-data auto-fix (see `docs/corrupted_data.md`).
+  image cropped to its ink), corrupted-data auto-fix (see `docs/corrupted_data.md`). `Pgs.pending_writers`:
+  the writers whose file is missing, or must be written again with `--force`.
 - `sources/base.py` — `Track`, the `Source` protocol, and `Media`. A source is a tool that reads the PGS tracks of
   some file extensions. `Track.create` merges the container facts with the guess from the track name. `Media`
   picks the source and has the track selection (languages, flags, one per language, `.track<n>`) for all sources.
@@ -26,7 +30,7 @@
 - `formats/pgs.py` — binary PGS segment format: PDS/ODS/PCS/WDS/END parsing, RLE image decoding. Format-spec-heavy;
   malformed input is the norm (see `docs/corrupted_data.md`).
 - `plugin.py` — `PluginOption`: the options that an engine or a post-processor declares for the CLI.
-- `ripper.py` — `Cue`, `create_srt`, and `PgsToSrtRipper`: asks a chain
+- `ripper.py` — `Cue` and `PgsRipper`: asks a chain
   of OCR engines for the text of each item, and returns the cues. Each engine gets the items that the
   engines before it left unread or doubtful. It skips the engines that cannot read the language of the track.
   It does not know which engines run.
@@ -42,7 +46,7 @@
   RapidOCR checks, but they are not failures.
 - `engines/tsv.py` — typed wrapper over pytesseract TSV (`TsvData`/`TsvDataItem`).
 - `options.py` — `Options` config object threaded through the pipeline. `Options.engines` holds the OCR
-  engines, and `Options.post_processors` the post-processors, in chain order. `Options.temp_folder` is the
+  engines, and `Options.post_processors` the post-processors, in chain order. `Options.writers` holds the writers. `Options.temp_folder` is the
   temporary folder of the run. Its `with` block removes the folder at the end.
 - `engines/tessdata.py` — tesseract language codes and `.traineddata` lookup/download (`Tessdata`). `available` tells
   if tesseract has or can get a model (`TesseractEngine.supports`).

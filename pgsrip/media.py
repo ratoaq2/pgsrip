@@ -20,6 +20,7 @@ from pgsrip.utils import format_time, pairwise
 
 if typing.TYPE_CHECKING:
     from pgsrip.sources.base import Track
+    from pgsrip.writers.base import Writer
 
 logger = logging.getLogger(__name__)
 
@@ -202,9 +203,8 @@ class Pgs:
             logger.debug('%s is using temporary folder %s', self, self._temp_folder)
         return self._temp_folder
 
-    @property
-    def srt_path(self) -> MediaPath:
-        return self.media_path.translate(extension='srt')
+    def output_path(self, writer: Writer) -> MediaPath:
+        return self.media_path.translate(extension=writer.extension)
 
     @property
     def items(self) -> list[PgsSubtitleItem]:
@@ -213,18 +213,24 @@ class Pgs:
             self._items = self.decode(data, self.media_path)
         return self._items
 
+    def pending_writers(self, options: Options) -> list[Writer]:
+        """The writers whose file must be written. An existing file is written again only with --force."""
+        pending = []
+        for writer in options.writers:
+            path = self.output_path(writer)
+            if not path.exists():
+                pending.append(writer)
+            elif not options.overwrite:
+                logger.debug('Skipping %s since %s already exists', self, path)
+            elif options.output_age and path.m_age < options.output_age:
+                logger.debug('Skipping since %s is too new', path)
+            else:
+                pending.append(writer)
+
+        return pending
+
     def matches(self, options: Options) -> bool:
-        if not self.srt_path.exists():
-            return True
-
-        if not options.overwrite:
-            logger.debug('Skipping %s since %s already exists', self, self.srt_path)
-            return False
-        if options.srt_age and self.srt_path.m_age < options.srt_age:
-            logger.debug('Skipping since %s is too new', self.srt_path)
-            return False
-
-        return True
+        return bool(self.pending_writers(options))
 
     def decode(self, data: bytes, media_path: MediaPath) -> list[PgsSubtitleItem]:
         display_sets = list(PgsReader.decode(data, media_path))
