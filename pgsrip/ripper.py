@@ -5,9 +5,8 @@ import logging
 import time
 import typing
 
-from pysrt import SubRipFile, SubRipItem, SubRipTime
-
 from pgsrip.engines.base import OcrError
+from pgsrip.utils import format_time
 
 if typing.TYPE_CHECKING:
     from pgsrip.media import Pgs, PgsSubtitleItem
@@ -21,8 +20,10 @@ class Cue:
     """The result of the OCR chain for one subtitle item. The post-processors change the cues."""
 
     index: int
-    start: SubRipTime | None
-    end: SubRipTime | None
+    #: in milliseconds
+    start: int | None
+    #: in milliseconds
+    end: int | None
     #: None when no engine could read the item
     text: str | None
     #: from 0 to 1, None when the engine gives no confidence
@@ -36,8 +37,8 @@ class Cue:
     def to_json(self) -> dict[str, typing.Any]:
         return {
             'index': self.index,
-            'start': str(self.start),
-            'end': str(self.end),
+            'start': format_time(self.start),
+            'end': format_time(self.end),
             'text': self.text,
             'confidence': self.confidence,
             'doubtful': self.doubtful,
@@ -45,7 +46,7 @@ class Cue:
         }
 
 
-class PgsToSrtRipper:
+class PgsRipper:
     def __init__(self, pgs: Pgs, options: Options):
         self.pgs = pgs
         self.engines = options.engines
@@ -55,7 +56,7 @@ class PgsToSrtRipper:
     def rip(self) -> list[Cue]:
         """Read the items with the chain of OCR engines. An item with no ink gives no cue."""
         if not self.pgs.items:
-            # a track with no image is corrupted: do not write an empty srt as if it was ripped
+            # a track with no image is corrupted: do not write an empty subtitle file as if it was ripped
             raise ValueError(f'No subtitle image in {self.pgs}')
 
         language = self.pgs.language
@@ -105,14 +106,3 @@ class PgsToSrtRipper:
             )
             for item in items
         ]
-
-
-def create_srt(path: str, cues: list[Cue]) -> SubRipFile:
-    """The SRT of the cues. A cue with no text is left out."""
-    subs = SubRipFile(path=path)
-    for cue in cues:
-        if cue.text:
-            subs.append(SubRipItem(0, cue.start, cue.end, cue.text))
-    subs.clean_indexes()
-
-    return subs

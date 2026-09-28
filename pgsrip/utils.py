@@ -4,7 +4,6 @@ import typing
 
 import numpy as np
 import numpy.typing as npt
-from pysrt import SubRipTime
 
 #: cap for the default number of parallel OCR jobs: a container with a CPU quota still reports every host core.
 MAX_DEFAULT_WORKERS = 4
@@ -41,8 +40,20 @@ def safe_get(b: bytes, i: int, default_value: int | None = 0) -> int | None:
         return default_value
 
 
-def to_time(value: float | None) -> SubRipTime | None:
-    return SubRipTime.from_ordinal(value) if value is not None else None
+def to_time(value: float | None) -> int | None:
+    """The time in int milliseconds. It truncates, as `SubRipTime.from_ordinal` does."""
+    return int(value) if value is not None else None
+
+
+def format_time(ms: int | None) -> str:
+    """The time as `HH:MM:SS,mmm`, the SRT format. `'None'` for None."""
+    if ms is None:
+        return 'None'
+
+    seconds, millis = divmod(ms, 1000)
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    return f'{hours:02d}:{minutes:02d}:{seconds:02d},{millis:03d}'
 
 
 T = typing.TypeVar('T')

@@ -8,6 +8,7 @@ from pgsrip.media_path import MediaPath
 from pgsrip.options import Options
 from pgsrip.sources.base import Media
 from pgsrip.track_flags import TrackFlags
+from pgsrip.writers.srt import SrtWriter
 
 FLAG_FIELDS = ('forced', 'hearing_impaired', 'closed_caption', 'commentary', 'descriptive')
 
@@ -95,16 +96,13 @@ def test_media_path_translate_leaves_flags_and_track_id_as_is_when_not_given():
     assert str(translated) == str(media_path)
 
 
-def test_srt_path_matches_the_ripper_write_path_for_a_flagged_track():
+def test_output_path_keeps_the_flags_and_the_track_id_and_takes_the_writer_extension():
     media_path = MediaPath('/media/movie.mkv').translate(
         language=Language('eng'), flags=TrackFlags(forced=True), track_id=7
     )
     pgs = Pgs(media_path, options=Options(), data_reader=lambda: b'', temp_folder='/tmp')
 
-    # mirrors ripper.py's `SubRipFile(path=str(self.pgs.media_path.translate(extension='srt')))`
-    ripper_write_path = pgs.media_path.translate(extension='srt')
-
-    assert str(pgs.srt_path) == str(ripper_write_path)
+    assert str(pgs.output_path(SrtWriter())) == '/media/movie.en.forced.track7.srt'
 
 
 @pytest.mark.parametrize('code', ['fre', 'ger', 'chi', 'dut'])

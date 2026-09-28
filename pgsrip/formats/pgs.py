@@ -7,10 +7,9 @@ import typing
 import cv2
 import numpy as np
 import numpy.typing as npt
-from pysrt import SubRipTime
 
 from pgsrip.media_path import MediaPath
-from pgsrip.utils import from_hex, safe_get, to_time
+from pgsrip.utils import format_time, from_hex, safe_get, to_time
 
 logger = logging.getLogger(__name__)
 
@@ -161,12 +160,12 @@ class BaseSegment:
         self.bytes = b
 
     @property
-    def presentation_timestamp(self) -> SubRipTime | None:
+    def presentation_timestamp(self) -> int | None:
         value = from_hex(self.bytes[2:6])
         return to_time(value / 90) if value is not None else None
 
     @property
-    def decoding_timestamp(self) -> SubRipTime | None:
+    def decoding_timestamp(self) -> int | None:
         value = from_hex(self.bytes[6:10])
         return to_time(value / 90) if value is not None else None
 
@@ -193,10 +192,12 @@ class BaseSegment:
             **self.attributes(),
         }
 
-        def to_value(v: typing.Any) -> typing.Any:
+        def to_value(k: str, v: typing.Any) -> typing.Any:
+            if k in ('pts', 'dts'):
+                return format_time(v)
             return v.name if isinstance(v, enum.Enum) else v
 
-        return {k: to_value(getattr(self, v)) for k, v in attributes.items() if getattr(self, v) is not None}
+        return {k: to_value(k, getattr(self, v)) for k, v in attributes.items() if getattr(self, v) is not None}
 
     def attributes(self) -> dict[str, str]:
         raise NotImplementedError

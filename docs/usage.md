@@ -90,7 +90,8 @@ track and an SDH English track. SDH means subtitles for the deaf and hard of hea
 
 ## File names
 
-pgsrip writes `<video>.<language>[.<flag>]*.srt`. The flags come in the order of the [flags](#flags) list:
+pgsrip writes `<video>.<language>[.<flag>]*.<extension>`. The extension comes from `--format`, for example
+`srt`. The flags come in the order of the [flags](#flags) list:
 
 ```text
 movie.en.srt              a plain English track
@@ -264,7 +265,7 @@ The engine has 3 methods (see `OcrEngine` in `pgsrip/engines/base.py`):
   it returns `False`, pgsrip skips the engine for the tracks in this language.
 - `recognize(pgs, items)`: set `item.text` for each item that the engine can read. Leave `None` for the next
   engine of the chain. Set `item.doubtful` when the text can be wrong. Set `item.confidence` (0 to 1) when the
-  engine has one. Raise `OcrError` when the engine fails: pgsrip then writes no `.srt` file for that track.
+  engine has one. Raise `OcrError` when the engine fails: pgsrip then writes no subtitle file for that track.
 
 Subclass `OcrEngine` to get the default `engine_for(language)`: the engine itself when it supports the
 language, else `None`. Override `engine_for` only when the engine sends a track to another engine. A class
@@ -361,7 +362,7 @@ class MyFix:
 `process(pgs, cues)` gets all the cues of one track, and returns the new list (see `PostProcessor` in
 `pgsrip/postprocessors/base.py` and `Cue` in `pgsrip/ripper.py`). It can change, remove, add, or merge cues. A
 cue with `text=None` was not read by any engine. `cue.item` gives the subtitle image. An error stops the track:
-pgsrip then writes no `.srt` file for that track.
+pgsrip then writes no subtitle file for that track.
 
 The class can also have a `check(settings)` classmethod, like an OCR engine. `pgsrip doctor` shows the checks of
 all post-processors.

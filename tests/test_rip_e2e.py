@@ -19,11 +19,15 @@ import yaml
 from click.testing import CliRunner
 
 from pgsrip.cli import pgsrip
+from pgsrip.core import rip_pgs
 from pgsrip.engines.tesseract import MAX_TESS_DIMENSION, FullImage, TesseractEngine
 from pgsrip.formats.pgs import PgsReader
 from pgsrip.media import PgsSubtitleItem
 from pgsrip.media_path import MediaPath
+from pgsrip.options import Options
+from pgsrip.sources.base import Media
 from pgsrip.utils import MAX_DEFAULT_WORKERS, default_workers
+from pgsrip.writers.srt import SrtWriter
 
 from . import from_yaml
 from .fabricate import (
@@ -38,6 +42,7 @@ from .fabricate import (
     fabricate_real,
     mkvmerge_version,
 )
+from .test_writers import FakeWriter
 
 #: every language the matrix exercises, plus `osd`: with all "installed", `Tessdata.ensure` never
 #: touches the network.
@@ -326,6 +331,49 @@ def test_a_pass_split_into_several_composites_rips_every_cue_once(
     ]
 
 
+def test_the_ripped_srt_has_the_expected_bytes(
+    fabricate_media: typing.Callable[[dict[str, typing.Any]], typing.Any], fake_ocr: FakeTesseract
+) -> None:
+    scenario = {'media': {'name': 'movie.mkv', 'tracks': [{'language': 'en', 'texts': ['Line one\nLine two', 'Café']}]}}
+    media_dir = fabricate_media(scenario)
+
+    result = CliRunner().invoke(pgsrip, ['rip', str(media_dir)])
+
+    assert result.exit_code == 0, result.output
+    expected = '1\n00:00:01,000 --> 00:00:03,000\nLine one\nLine two\n\n2\n00:00:04,000 --> 00:00:06,000\nCafé\n\n'
+    assert (media_dir / 'movie.en.srt').read_bytes() == expected.replace('\n', os.linesep).encode('utf-8')
+
+
+def test_a_second_writer_writes_its_missing_file_and_the_existing_srt_does_not_change(
+    fabricate_media: typing.Callable[[dict[str, typing.Any]], typing.Any], fake_ocr: FakeTesseract
+) -> None:
+    scenario = {
+        'media': {'name': 'movie.mkv', 'tracks': [{'language': 'en', 'texts': ['One', 'Two']}]},
+        'existing': {'movie.en.srt': 'old srt'},
+    }
+    media_dir = fabricate_media(scenario)
+
+    with Options(writers=[SrtWriter(), FakeWriter()]) as options:
+        (pgs,) = Media(str(media_dir / 'movie.mkv')).get_pgs_medias(options)
+        assert rip_pgs(pgs, options)
+
+    assert len(fake_ocr.passes) == 1
+    assert (media_dir / 'movie.en.srt').read_text(encoding='utf-8') == 'old srt'
+    assert (media_dir / 'movie.en.fake').read_text(encoding='utf-8') == 'One\nTwo'
+
+
+def test_an_unknown_format_is_a_usage_error(
+    fabricate_media: typing.Callable[[dict[str, typing.Any]], typing.Any], fake_ocr: FakeTesseract
+) -> None:
+    media_dir = fabricate_media(CONFIG_SCENARIO)
+
+    result = CliRunner().invoke(pgsrip, ['rip', '--format', 'vtt', str(media_dir)])
+
+    assert result.exit_code == 2
+    assert "Invalid value for '--format'" in result.output
+    assert written_subtitles(media_dir) == set()
+
+
 def test_the_default_worker_count_is_capped(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(os, 'cpu_count', lambda: 64)
     monkeypatch.setattr(os, 'process_cpu_count', lambda: 64, raising=False)
@@ -483,6 +531,8 @@ def test_the_command_line_wins_over_the_config_file(
         ('config.toml', 'language = ["de"]\n', 'is not a .json, .yml or .yaml file'),
         ('config.yml', '- de\n', 'must contain option names and values'),
         ('config.json', '{"language": ', 'Cannot read'),
+        ('config.yml', 'srt_age: 1d\n', 'Unknown option in'),
+        ('config.yml', 'format: [vtt]\n', "Invalid value for '--format'"),
     ],
 )
 def test_a_wrong_config_file_is_an_error(

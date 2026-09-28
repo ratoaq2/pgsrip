@@ -12,6 +12,8 @@ from pgsrip.engines.auto import AutoEngine
 from pgsrip.engines.base import OcrEngine
 from pgsrip.postprocessors.base import PostProcessor
 from pgsrip.postprocessors.cleanit import CleanitPostProcessor
+from pgsrip.writers.base import Writer
+from pgsrip.writers.srt import SrtWriter
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +34,8 @@ class Options:
         engines: list[OcrEngine] | None = None,
         post_processors: list[PostProcessor] | None = None,
         age: timedelta | None = None,
-        srt_age: timedelta | None = None,
+        output_age: timedelta | None = None,
+        writers: list[Writer] | None = None,
     ):
         self.languages = languages or set()
         self.encoding = encoding
@@ -49,7 +52,9 @@ class Options:
             [CleanitPostProcessor()] if post_processors is None else post_processors
         )
         self.age = age
-        self.srt_age = srt_age
+        self.output_age = output_age
+        # each writer writes one file for each track
+        self.writers = writers or [SrtWriter()]
         self._temp_folder: str | None = None
 
     @property
@@ -92,5 +97,6 @@ class Options:
             f'engines:{self.engines!r}, '
             f'post_processors:{self.post_processors!r}, '
             f'age:{self.age}, '
-            f'srt_age:{self.srt_age}'
+            f'output_age:{self.output_age}, '
+            f'writers:{self.writers!r}'
         )

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+  - New: `--format` selects the output format. `srt` is the default and the
+    only format. Use it more than one time to write more than one file. When
+    the file of one format is missing, pgsrip writes only that file
+  - Breaking: `-A/--srt-age` is now `-A/--output-age`, and the `srt_age`
+    configuration key is now `output_age`
+  - Breaking: library: `Options(writers=[...])` sets the output writers. The
+    default is `[SrtWriter()]`, from `pgsrip.writers.srt`. `Options.srt_age` is
+    now `Options.output_age`, `Pgs.srt_path` is now `Pgs.output_path(writer)`,
+    and `PgsToSrtRipper` is now `PgsRipper`
   - New: a chain of OCR engines. Use `--engine` more than one time. Each next
     engine reads the cues that the engines before it could not read or are not
     sure of. `--tesseract-threshold` (default 80) sets which tesseract cues go
@@ -66,8 +75,8 @@
     `Options(post_processors=[CleanitPostProcessor(config_path, tags)])`, from
     `pgsrip.postprocessors.cleanit`. `Options.config` and `Options.tags` are
     removed.
-    `PgsToSrtRipper.rip()` returns the cues, and `pgsrip.ripper.create_srt`
-    makes the SRT from them
+    `PgsRipper.rip()` returns the cues, and the writers of `pgsrip.writers`
+    write the files
   - Breaking: plug-ins: `pgsrip.ripper.EngineOption` is now
     `pgsrip.plugin.PluginOption`
   - Breaking: the modules move into sub-packages. Plug-ins import

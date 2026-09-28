@@ -12,6 +12,7 @@ from pgsrip.media import Pgs
 from pgsrip.media_path import MediaPath
 from pgsrip.options import Options
 from pgsrip.sources.base import Media
+from pgsrip.writers.srt import SrtWriter
 
 from .fabricate import FakeMkvToolNix, MediaSpec, TrackSpec, fabricate_fake, payload
 
@@ -196,7 +197,7 @@ def test_get_pgs_medias_disambiguates_only_a_real_language_and_flags_collision(t
 
     medias = list(Media(path).get_pgs_medias(Options(one_per_lang=False)))
 
-    assert sorted(os.path.basename(str(m.srt_path)) for m in medias) == sorted(
+    assert sorted(os.path.basename(str(m.output_path(SrtWriter()))) for m in medias) == sorted(
         ['movie.en.srt', 'movie.en.sdh.srt', 'movie.en.track2.srt', 'movie.de.srt']
     )
 
@@ -212,7 +213,10 @@ def test_get_pgs_medias_keeps_different_flag_combinations_for_the_same_language_
 
     medias = list(Media(path).get_pgs_medias(Options()))
 
-    assert sorted(os.path.basename(str(m.srt_path)) for m in medias) == ['movie.en.sdh.srt', 'movie.en.srt']
+    assert sorted(os.path.basename(str(m.output_path(SrtWriter()))) for m in medias) == [
+        'movie.en.sdh.srt',
+        'movie.en.srt',
+    ]
 
 
 def test_get_pgs_medias_track_id_is_stable_regardless_of_one_per_lang(tmp_path, mkvmerge):
@@ -226,7 +230,7 @@ def test_get_pgs_medias_track_id_is_stable_regardless_of_one_per_lang(tmp_path, 
 
     medias = list(Media(path).get_pgs_medias(Options(one_per_lang=True)))
 
-    assert [os.path.basename(str(m.srt_path)) for m in medias] == ['movie.en.srt']
+    assert [os.path.basename(str(m.output_path(SrtWriter()))) for m in medias] == ['movie.en.srt']
 
 
 def test_get_pgs_medias_excludes_flagged_tracks(tmp_path, mkvmerge):
@@ -240,7 +244,7 @@ def test_get_pgs_medias_excludes_flagged_tracks(tmp_path, mkvmerge):
 
     medias = list(Media(path).get_pgs_medias(Options(one_per_lang=False, exclude_flags=frozenset({'commentary'}))))
 
-    assert [os.path.basename(str(m.srt_path)) for m in medias] == ['movie.en.srt']
+    assert [os.path.basename(str(m.output_path(SrtWriter()))) for m in medias] == ['movie.en.srt']
 
 
 def test_get_pgs_medias_includes_forced_or_full_tracks(tmp_path, mkvmerge):
@@ -255,7 +259,10 @@ def test_get_pgs_medias_includes_forced_or_full_tracks(tmp_path, mkvmerge):
 
     medias = list(Media(path).get_pgs_medias(Options(one_per_lang=False, include_flags=frozenset({'forced', 'full'}))))
 
-    assert sorted(os.path.basename(str(m.srt_path)) for m in medias) == ['movie.en.forced.srt', 'movie.en.srt']
+    assert sorted(os.path.basename(str(m.output_path(SrtWriter()))) for m in medias) == [
+        'movie.en.forced.srt',
+        'movie.en.srt',
+    ]
 
 
 def test_get_pgs_medias_includes_sdh_for_the_selected_language_only(tmp_path, mkvmerge):
@@ -270,7 +277,7 @@ def test_get_pgs_medias_includes_sdh_for_the_selected_language_only(tmp_path, mk
 
     medias = list(Media(path).get_pgs_medias(Options(languages={Language('eng')}, include_flags=frozenset({'sdh'}))))
 
-    assert [os.path.basename(str(m.srt_path)) for m in medias] == ['movie.en.sdh.srt']
+    assert [os.path.basename(str(m.output_path(SrtWriter()))) for m in medias] == ['movie.en.sdh.srt']
 
 
 def test_get_pgs_medias_exclude_wins_over_include(tmp_path, mkvmerge):
@@ -296,7 +303,10 @@ def test_get_pgs_medias_track_id_is_stable_regardless_of_with_without_filtering(
 
     medias = list(Media(path).get_pgs_medias(Options(one_per_lang=False, exclude_flags=frozenset({'commentary'}))))
 
-    assert sorted(os.path.basename(str(m.srt_path)) for m in medias) == ['movie.en.srt', 'movie.en.track2.srt']
+    assert sorted(os.path.basename(str(m.output_path(SrtWriter()))) for m in medias) == [
+        'movie.en.srt',
+        'movie.en.track2.srt',
+    ]
 
 
 def test_get_pgs_medias_one_per_language_ignores_flags(tmp_path, mkvmerge):
@@ -310,7 +320,7 @@ def test_get_pgs_medias_one_per_language_ignores_flags(tmp_path, mkvmerge):
 
     medias = list(Media(path).get_pgs_medias(Options(one_per_language=True)))
 
-    assert [os.path.basename(str(m.srt_path)) for m in medias] == ['movie.en.srt']
+    assert [os.path.basename(str(m.output_path(SrtWriter()))) for m in medias] == ['movie.en.srt']
 
 
 def test_get_pgs_medias_extracts_all_tracks_with_one_call(mkvextract):

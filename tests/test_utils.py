@@ -2,7 +2,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
-from pgsrip.utils import split_lines
+from pgsrip.utils import format_time, split_lines, to_time
 
 
 def bitmap(rows: str) -> npt.NDArray[np.uint8]:
@@ -28,3 +28,23 @@ def ink_rows(image: npt.NDArray[np.uint8]) -> str:
 )
 def test_split_lines_gives_one_image_for_each_text_line(rows: str, lines: list[str]) -> None:
     assert [ink_rows(line) for line in split_lines(bitmap(rows))] == lines
+
+
+@pytest.mark.parametrize(
+    ('ms', 'text'),
+    [
+        pytest.param(0, '00:00:00,000', id='zero'),
+        pytest.param(1, '00:00:00,001', id='one ms'),
+        pytest.param(3_599_999, '00:59:59,999', id='last ms of the first hour'),
+        pytest.param(3_600_001, '01:00:00,001', id='more than one hour'),
+        pytest.param(360_000_000, '100:00:00,000', id='100 hours'),
+        pytest.param(None, 'None', id='none'),
+    ],
+)
+def test_format_time_gives_the_srt_format(ms: int | None, text: str) -> None:
+    assert format_time(ms) == text
+
+
+def test_to_time_truncates_to_int_milliseconds() -> None:
+    assert to_time(100000 / 90) == 1111
+    assert to_time(None) is None
