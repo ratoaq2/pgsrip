@@ -255,6 +255,31 @@
   expected:
     movie.en.srt: [['00:00:01,000', '00:00:03,000', 'New content']]
 
+- name: an existing srt newer than --output-age is left untouched with -f
+  media:
+    name: movie.mkv
+    tracks:
+      - {language: en, cues: 1, texts: ['New content']}
+  existing:
+    movie.en.srt: |
+      1
+      00:00:01,000 --> 00:00:03,000
+      Old content
+
+  args: ['-f', '--output-age', '1d']
+  expected:
+    movie.en.srt: [['00:00:01,000', '00:00:03,000', 'Old content']]
+
+- name: --format srt given 2 times writes one srt with one OCR pass
+  media:
+    name: movie.mkv
+    tracks:
+      - {language: en, cues: 1, texts: ['Hello']}
+  args: ['--format', 'srt', '--format', 'srt']
+  ocr_passes: 1
+  expected:
+    movie.en.srt: [['00:00:01,000', '00:00:03,000', 'Hello']]
+
 - name: a directory scan handles a .mkv and a .mks side by side
   medias:
     - {name: movie.mkv, tracks: [{language: en, cues: 1, texts: ['From the mkv']}]}

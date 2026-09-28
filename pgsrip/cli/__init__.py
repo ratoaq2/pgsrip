@@ -39,6 +39,7 @@ from pgsrip.options import Options
 from pgsrip.sources import source_checks
 from pgsrip.sources.base import Media
 from pgsrip.track_flags import FLAG_CHOICES
+from pgsrip.writers import WRITERS
 
 if typing.TYPE_CHECKING:
     from click._termui_impl import ProgressBar
@@ -118,6 +119,7 @@ class RangeParamType(click.ParamType[frozenset[int], str]):
 
 LANGUAGE = LanguageParamType()
 AGE = AgeParamType()
+WRITERS_BY_NAME = {w.name: w for w in WRITERS}
 RANGE = RangeParamType()
 
 
@@ -325,13 +327,23 @@ config_option = click.option(
 )
 @click.option('-e', '--encoding', help='Save subtitles using the following encoding.')
 @click.option('-a', '--age', type=AGE, help='Filter videos newer than AGE, e.g. 12h, 1w2d.')
-@click.option('-A', '--srt-age', type=AGE, help='Filter videos which srt subtitles are newer than AGE, e.g. 12h, 1w2d.')
+@click.option(
+    '-A', '--output-age', type=AGE, help='Filter videos whose subtitle files are newer than AGE, e.g. 12h, 1w2d.'
+)
+@click.option(
+    '--format',
+    type=click.Choice([w.name for w in WRITERS]),
+    multiple=True,
+    default=('srt',),
+    show_default=True,
+    help='Output format. Use it more than one time to write more than one file.',
+)
 @click.option(
     '-f',
     '--force',
     is_flag=True,
     default=False,
-    help='re-rip and overwrite existing srt subtitles, even if they already exist',
+    help='re-rip and overwrite existing subtitle files, even if they already exist',
 )
 @click.option(
     '--all',
@@ -410,7 +422,8 @@ def rip(
     language: tuple[Language] | None,
     encoding: str | None,
     age: timedelta | None,
-    srt_age: timedelta | None,
+    output_age: timedelta | None,
+    format: tuple[str, ...],
     force: bool,
     all: bool,
     with_flags: tuple[str, ...],
@@ -427,7 +440,7 @@ def rip(
     path: tuple[str],
     **plugin_params: typing.Any,
 ) -> None:
-    """Rip the PGS subtitles of each media PATH into SRT."""
+    """Rip the PGS subtitles of each media PATH into subtitle files."""
     try:
         configure_logging(debug, log_file)
     except OSError as e:
@@ -448,7 +461,9 @@ def rip(
             engines=create_engines(ctx),
             post_processors=create_post_processors(ctx),
             age=age,
-            output_age=srt_age,
+            output_age=output_age,
+            # one writer for each format, in the order of the option
+            writers=[WRITERS_BY_NAME[name]() for name in dict.fromkeys(format)],
         )
     )
 

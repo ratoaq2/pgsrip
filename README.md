@@ -148,20 +148,23 @@ $ pgsrip -l fr ~/medias/
 0 PGS subtitle collected from 0 file / 1 path ignored
 ```
 
-pgsrip does not rip a subtitle again when the `.srt` file exists. Use `-f` to rip it again.
+pgsrip does not rip a subtitle again when its subtitle files exist. Use `-f` to rip it again. When a
+file of one `--format` is missing, pgsrip writes only that file.
 
 ### Main options
 
 | Option | What it does |
 | --- | --- |
 | `-l`, `--language` | Rip only this language, for example `en` or `pt-BR`. You can use it more than one time. |
-| `-f`, `--force` | Rip again and replace the `.srt` files that exist. |
+| `-f`, `--force` | Rip again and replace the subtitle files that exist. |
+| `--format` | Output format. `srt` is the default and the only format. You can use it more than one time. |
 | `--with FLAG` | Rip only the tracks with this flag, for example `forced` or `sdh`. |
 | `--without FLAG` | Do not rip the tracks with this flag, for example `commentary`. |
 | `--all` | Rip all the selected tracks. Do not remove duplicates. |
 | `--one-per-language` | Rip only one track for each language. |
 | `-a`, `--age` | Rip only the videos that are newer than this age, for example `12h` or `1w2d`. |
-| `-e`, `--encoding` | Write the `.srt` files with this encoding. |
+| `-A`, `--output-age` | With `-f`, do not replace a subtitle file that is newer than this age, for example `12h` or `1w2d`. |
+| `-e`, `--encoding` | Write the subtitle files with this encoding. |
 | `-w`, `--max-workers` | Number of OCR jobs that run at the same time, for example tesseract processes. The default is the number of CPUs, at most 4. `--tesseract-workers` overrides it for tesseract. |
 | `--no-tesseract-download` | Do not download language data. Use only the installed languages. |
 | `--engine NAME` | OCR engine: [`auto`](docs/usage.md#the-default-engine-auto) (default: tesseract, else RapidOCR), `tesseract`, [`rapidocr`](docs/usage.md#rapidocr), or an engine of a plug-in. Use it more than one time for a [chain](docs/usage.md#ocr-engines). |

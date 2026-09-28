@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+  - New: `--format` selects the output format. `srt` is the default and the
+    only format. Use it more than one time to write more than one file. When
+    the file of one format is missing, pgsrip writes only that file
+  - Breaking: `-A/--srt-age` is now `-A/--output-age`, and the `srt_age`
+    configuration key is now `output_age`
   - Breaking: library: `Options(writers=[...])` sets the output writers. The
     default is `[SrtWriter()]`, from `pgsrip.writers.srt`. `Options.srt_age` is
     now `Options.output_age`, `Pgs.srt_path` is now `Pgs.output_path(writer)`,
