@@ -8,12 +8,14 @@ Convert image-based Blu-ray subtitles (PGS) in `.mkv`, `.mks`, and `.sup` files 
 [![Docker pulls](https://img.shields.io/docker/pulls/ratoaq2/pgsrip.svg)](https://hub.docker.com/r/ratoaq2/pgsrip)
 [![License](https://img.shields.io/github/license/ratoaq2/pgsrip.svg)](https://github.com/ratoaq2/pgsrip/blob/main/LICENSE)
 
-![A PGS subtitle image and the SRT text that pgsrip makes from it](https://raw.githubusercontent.com/ratoaq2/pgsrip/main/docs/images/before-after.png)
+![pgsrip rips the English and the Brazilian Portuguese subtitles of a .mkv file](https://raw.githubusercontent.com/ratoaq2/pgsrip/main/docs/images/demo.gif)
 
 ## Why pgsrip
 
 Blu-ray subtitles use the PGS format. A PGS subtitle is an image, not text. Many players, TVs, and subtitle
 editors cannot show or edit these images.
+
+![A PGS subtitle image and the SRT text that pgsrip makes from it](https://raw.githubusercontent.com/ratoaq2/pgsrip/main/docs/images/before-after.png)
 
 pgsrip reads the text in the images with [tesseract](https://github.com/tesseract-ocr/tesseract) OCR. When
 tesseract is not installed, it uses [RapidOCR](docs/usage.md#rapidocr) (`pgsrip[rapidocr]`). Then it writes a `.srt` file next to your
