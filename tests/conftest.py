@@ -1,9 +1,11 @@
 import os
+import shutil
+import tempfile
 import typing
 
 import pytest
 
-from .fabricate import BACKENDS
+from .fabricate import BACKENDS, SAMPLE
 
 
 def pytest_addoption(parser: pytest.Parser) -> None:
@@ -30,3 +32,15 @@ def user_config_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: typing.Any) -> ty
     path = tmp_path / 'user-config'
     monkeypatch.setattr('pgsrip.cli.AppDirs.user_config_dir', str(path))
     return path
+
+
+@pytest.fixture
+def media_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: typing.Any) -> typing.Any:
+    """A directory with the placeholder sample (3 cues), and a temporary directory of its own."""
+    temp_dir = tmp_path / 'temp'
+    temp_dir.mkdir()
+    monkeypatch.setattr(tempfile, 'tempdir', str(temp_dir))
+    media = tmp_path / 'media'
+    media.mkdir()
+    shutil.copy(SAMPLE, media)
+    return media

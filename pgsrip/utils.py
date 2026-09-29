@@ -3,12 +3,16 @@ import os
 import sys
 import tempfile
 
+import numpy as np
+import numpy.typing as npt
 from appdirs import user_cache_dir
 
 logger = logging.getLogger(__name__)
 
 #: cap for the default number of parallel OCR jobs: a container with a CPU quota still reports every host core.
 MAX_DEFAULT_WORKERS = 4
+#: a part of a cue lower than this share of its tallest part is not a text line, e.g. the dots of an umlaut.
+MIN_LINE_SHARE = 0.4
 
 
 def default_workers() -> int:
@@ -48,3 +52,32 @@ def is_writable(directory: str) -> bool:
     except OSError as e:
         logger.debug('Cannot write to %s: <%s> %s', directory, type(e).__name__, e)
         return False
+
+
+def split_lines(bitmap: npt.NDArray[np.uint8]) -> list[npt.NDArray[np.uint8]]:
+    """Cut a subtitle bitmap at its empty rows: one image for each text line.
+
+    The RapidOCR and openai engines read one text line in each image. One image for each line also keeps the
+    line breaks.
+    A part that is too low to be a line (the dots of an umlaut) goes with the part below it.
+    """
+    parts: list[list[int]] = []
+    for row in np.flatnonzero((bitmap == 0).any(axis=1)).tolist():
+        if parts and parts[-1][1] == row:
+            parts[-1][1] = row + 1
+        else:
+            parts.append([row, row + 1])
+
+    tallest = max((end - start for start, end in parts), default=0)
+    lines: list[list[int]] = []
+    start: int | None = None
+    for part_start, part_end in parts:
+        start = part_start if start is None else start
+        if part_end - part_start >= MIN_LINE_SHARE * tallest:
+            lines.append([start, part_end])
+            start = None
+    if start is not None and lines:
+        # a low part at the bottom, e.g. a line of dots: it goes with the line above it
+        lines[-1][1] = parts[-1][1]
+
+    return [bitmap[top:bottom] for top, bottom in lines] or [bitmap]

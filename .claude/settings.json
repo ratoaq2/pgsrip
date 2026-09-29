@@ -40,7 +40,21 @@
       "PowerShell(mediainfo --Output=JSON *)",
       "PowerShell(tesseract --version)",
       "PowerShell(mediainfo --version)",
-      "PowerShell(mkvmerge -i *)"
+      "PowerShell(mkvmerge -i *)",
+      "PowerShell(Select-String *)",
+      "Bash(uv run pgsrip doctor)",
+      "Bash(uv run pgsrip rip --help)",
+      "Bash(uv run pgsrip scrub --help)",
+      "Bash(podman ps *)",
+      "Bash(uv pip list *)",
+      "PowerShell(uv run pgsrip doctor)",
+      "PowerShell(uv run pgsrip rip --help)",
+      "PowerShell(uv run pgsrip scrub --help)",
+      "PowerShell(podman ps *)",
+      "PowerShell(uv pip list *)",
+      "Bash(wsl -l *)",
+      "PowerShell(wsl -l *)",
+      "PowerShell(Select-Object *)"
     ]
   },
   "skillOverrides": {
