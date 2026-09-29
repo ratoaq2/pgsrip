@@ -6,7 +6,6 @@ import dataclasses
 import importlib.metadata
 import shutil
 import sys
-import tempfile
 import typing
 
 import numpy as np
@@ -125,18 +124,6 @@ class RemoteEngine(PluginEngine):
     @classmethod
     def check(cls, settings: dict[str, typing.Any]) -> list[Check]:
         raise RuntimeError('no network')
-
-
-@pytest.fixture
-def media_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: typing.Any) -> typing.Any:
-    """A directory with the placeholder sample (3 cues), and a temporary directory of its own."""
-    temp_dir = tmp_path / 'temp'
-    temp_dir.mkdir()
-    monkeypatch.setattr(tempfile, 'tempdir', str(temp_dir))
-    media = tmp_path / 'media'
-    media.mkdir()
-    shutil.copy(SAMPLE, media)
-    return media
 
 
 @pytest.fixture(autouse=True)
@@ -432,8 +419,8 @@ def test_an_unknown_engine_is_rejected(media_dir: typing.Any) -> None:
 
     assert result.exit_code == 2
     assert (
-        'nope is not an OCR engine. Choose from: auto, tesseract, rapidocr, plugin, blind, english, tuned, remote'
-        in result.output
+        'nope is not an OCR engine. '
+        'Choose from: auto, tesseract, rapidocr, openai, plugin, blind, english, tuned, remote' in result.output
     )
 
 

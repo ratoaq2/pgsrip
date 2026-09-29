@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+  - New: `--engine openai` reads the subtitle images with a vision model
+    behind an OpenAI-compatible API, for example llama.cpp with GLM-OCR. The
+    `--openai-*` options, or the `openai` section of the configuration file,
+    set it up. This engine is experimental. Based on #148 by @socram8888
   - Breaking: `-w/--max-workers` is now `-w/--workers`, and the
     `max_workers` configuration key is now `workers`
   - Breaking: `-v` lists all the ignored paths, and `-vv` also lists the

@@ -62,6 +62,8 @@
 - `engines/rapidocr.py` — `RapidOcrEngine`: the PaddleOCR text line models on ONNX Runtime, with no system program.
   It imports `rapidocr` only in its methods: `rapidocr` and `onnxruntime` come from the `rapidocr` extra. Line batching and the lowest character score (see
   `docs/ocr_batching.md`, "RapidOCR"). The models go to `--rapidocr-dir` (`PGSRIP_RAPIDOCR_DIR`) or the user cache directory.
+- `engines/openai.py` — `OpenAiEngine`: one request for each text line of each item to an OpenAI-compatible
+  API, with `urllib` (see `docs/ocr_batching.md`).
 - `engines/auto.py` — `AutoEngine`, the default engine (`--engine auto`, `AUTO`, with the `AUTO_ENGINES`).
   `AutoEngine.from_engines` makes it from the engines of the CLI. For each language, it uses tesseract when
   tesseract can read the language, else RapidOCR. It overrides `engine_for`, so the cues get the name of the real engine. Not a chain.
@@ -81,4 +83,5 @@
   post-processor adds its own checks with a `check` classmethod, e.g. `TesseractEngine.check`.
 - `errors.py` — `PgsripError`: the base of the errors of pgsrip: `SourceError`, `CorruptDataError`, `OcrError`
   (and `TessdataError`), `ScrubError`.
-- `utils.py` — `format_time`, `default_workers`, `cache_dir` (with appdirs), `is_writable`.
+- `utils.py` — `format_time`, `default_workers`, `cache_dir` (with appdirs), `is_writable`, `split_lines` (the text
+  lines of a subtitle bitmap, for the RapidOCR and openai engines).

@@ -122,8 +122,9 @@ tesseract only. For example, `-w 1 --tesseract-workers 4` runs 4 tesseract proce
 
 ## OCR engines
 
-pgsrip reads the text of the subtitle images with an OCR engine. pgsrip has 2 engines: tesseract and
-[RapidOCR](#rapidocr). Other Python packages can add an engine (see [Add an OCR engine](#add-an-ocr-engine)).
+pgsrip reads the text of the subtitle images with an OCR engine. pgsrip has 3 engines: tesseract,
+[RapidOCR](#rapidocr), and [openai](#openai-compatible-engine) (a vision model). Other Python packages can add an
+engine (see [Add an OCR engine](#add-an-ocr-engine)).
 
 ### The default engine: auto
 
@@ -181,12 +182,63 @@ Before the rip starts, pgsrip downloads the model of each language that it colle
 small model). RapidOCR checks the SHA256 of each model. When a model cannot be loaded, the engine cannot read
 its languages, and the chain skips it for those tracks.
 
+### OpenAI-compatible engine
+
+> [!WARNING]
+> This engine is experimental. Its options and its behavior can change in a later version.
+
+`--engine openai` reads the subtitle images with a vision model behind an API that is compatible with the OpenAI
+Chat Completions API. llama.cpp, Ollama, vLLM, LM Studio, and OpenAI have this API. For example, with llama.cpp and
+GLM-OCR on the local machine:
+
+```bash
+llama-server -hf ggml-org/GLM-OCR-GGUF -np 4
+pgsrip --engine openai --openai-url http://127.0.0.1:8080/v1 --openai-workers 4 mymedia.mkv
+```
+
+| Option | Default | What it does |
+| --- | --- | --- |
+| `--openai-url` | | Base URL of the API. Necessary for `--engine openai`. |
+| `--openai-model` | | Model name, when the server needs one. |
+| `--openai-api-key` | | API key. Also `PGSRIP_OPENAI_API_KEY`. |
+| `--openai-timeout` | `300` | Seconds to wait for one answer. |
+| `--openai-prompt` | see `pgsrip rip --help` | Text that goes with each image. pgsrip replaces `{language}` with the language name of the track, or with `unknown`. |
+| `--openai-max-tokens` | `512` | Maximum number of tokens of one answer. |
+| `--openai-temperature` | `0` | Sampling temperature of the model (0 to 2). |
+| `--openai-extra-body` | | JSON object that pgsrip adds to each request. See below. |
+| `--openai-border` | `20` | White border around each image, in pixels. |
+| `--openai-workers` | `-w` | Number of requests that run at the same time. Set it to the number of parallel slots of the server (`-np` for llama-server). |
+| `--openai-request-per` | `line` | `line`: one request for each text line of a subtitle image. `cue`: one request for each subtitle image. |
+
+pgsrip sends one request for each text line of each subtitle image. Small OCR models, for example GLM-OCR,
+join the lines of a sentence. One request for each line keeps the line breaks correct. The engine can read all
+languages. It gives no confidence, and it marks no cue as doubtful.
+
+Some models think before they answer, for example Qwen3. Thinking makes each request slow, and it can use all
+the tokens of `--openai-max-tokens` before the text comes. The field that turns it off is different for each
+server, so pgsrip does not send one. Use `--openai-extra-body`, or `extra_body` in the `openai` section of a
+configuration file:
+
+```yaml
+openai:
+  extra_body:
+    chat_template_kwargs: {enable_thinking: false}  # llama.cpp (with --jinja) and vLLM
+    # think: false                                  # Ollama
+```
+
+A key of the extra body replaces the key of pgsrip with the same name, for example `max_tokens`.
+
+When a request fails, pgsrip does not write the subtitle file of that track. When the API does not answer at all,
+pgsrip stops before it rips. `pgsrip doctor` shows the URL and the model. It does not send a request.
+
+A vision model is slow without a GPU.
+
 ### A chain of OCR engines
 
 Use `--engine` more than one time to make a chain:
 
 ```bash
-pgsrip --engine tesseract --engine myocr mymedia.mkv
+pgsrip --engine tesseract --engine openai --openai-url http://127.0.0.1:8080/v1 mymedia.mkv
 ```
 
 The first engine reads all the cues. Each next engine reads only these cues:
@@ -206,14 +258,18 @@ tesseract.
 pgsrip skips an engine of the chain for a track in a language that the engine cannot read. It shows one line for
 each such engine before the rip starts. When no engine of the chain can read the language, the track fails.
 
-A [configuration file](../README.md#configuration-file) can also set the chain and the threshold:
+A [configuration file](../README.md#configuration-file) can also set the chain and the engine options:
 
 ```yaml
 engine:
   - tesseract
-  - myocr
+  - openai
 tesseract:
   threshold: 90
+openai:
+  url: http://127.0.0.1:8080/v1
+  api_key: mysecretkey
+  workers: 1
 ```
 
 ### Add an OCR engine
@@ -294,7 +350,7 @@ The class must have a `check(settings)` classmethod. It returns a list of `pgsri
 `[]`. `pgsrip doctor` shows the checks of all engines, and the debug log shows the checks of the engines in
 `--engine`. A check must not fail when an option has no value: show `not set`.
 
-Use the engine by name, alone or in a chain. A plug-in cannot replace `tesseract`.
+Use the engine by name, alone or in a chain. A plug-in cannot replace a built-in engine.
 
 ## Post-processors
 

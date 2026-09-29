@@ -1,4 +1,4 @@
-# OCR batching (`engines/tesseract.py`, `engines/rapidocr.py`)
+# OCR batching (`engines/tesseract.py`, `engines/rapidocr.py`, `engines/openai.py`)
 
 One tesseract call per subtitle item = hundreds of slow roundtrips per episode. Instead:
 
@@ -53,6 +53,24 @@ save. The cost grows with the number of pixels. So the engine batches text lines
   character score of its lines. The RapidOCR line score is a mean, and one bad character is hidden in it.
   `read_lines` uses `TextRecognizer` internals: `rapidocr` is pinned to one minor version. The real-model test
   in `tests/test_rapidocr.py` finds a change.
+
+## OpenAI-compatible engine (`engines/openai.py`)
+
+`OpenAiEngine` does not batch. It sends one request for each text line of each item, and `--openai-workers`
+items (default `-w`) run in parallel.
+
+- The server keeps the model loaded, so a request has a small fixed cost. The image prefill is most of the
+  time, and it grows with the size of the image, not with the number of requests.
+- `split_lines` (`utils.py`) cuts the item bitmap at its empty rows. Small OCR models (for example
+  GLM-OCR) join the lines of a wrapped sentence, also when the prompt asks to keep the line breaks: 17 of 60
+  cues on 3 tracks (de, en, pt) with one request for each item. One request for each line keeps the breaks
+  exact: 0 of 60. Measured on a CPU (GLM-OCR Q8_0, llama.cpp, 1 slot): 295 s against 288 s for one request
+  for each item. `--openai-request-per cue` sends one request for each item.
+- Small OCR models do not give the position of the text. With many items in one image, pgsrip cannot match
+  each text to its item. If the model skips or joins one item, all the texts after it go to the wrong
+  timestamps, and nothing reports the error. So one image never holds more than one item.
+- A failed request raises `OpenAiError`: the track fails and no subtitle file is written. The requests that did
+  not start are cancelled.
 
 ## Engine chain (`engines/chain.py`)
 

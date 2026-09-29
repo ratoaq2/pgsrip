@@ -21,7 +21,7 @@ from pgsrip.plugin import PluginOption
 from pgsrip.postprocessors import POST_PROCESSOR_ENTRY_POINTS
 from pgsrip.postprocessors.cleanit import CleanitPostProcessor
 
-from .test_engines import PluginEngine, fake_tesseract, media_dir, read_texts, rip
+from .test_engines import PluginEngine, fake_tesseract, read_texts, rip
 
 if typing.TYPE_CHECKING:
     from babelfish import Language
@@ -30,7 +30,7 @@ if typing.TYPE_CHECKING:
     from pgsrip.formats.pgs import Item
     from pgsrip.sources.base import Track
 
-__all__ = ['fake_tesseract', 'media_dir']
+__all__ = ['fake_tesseract']
 
 
 class SpeakerEngine(PluginEngine):
