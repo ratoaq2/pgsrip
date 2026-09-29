@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.metadata
 import importlib.util
+import os
 import shutil
 import sys
 import types
@@ -11,6 +12,7 @@ import typing
 
 import cv2
 import numpy as np
+import numpy.typing as npt
 import pysrt
 import pytest
 from babelfish import Language
@@ -18,7 +20,8 @@ from click.testing import CliRunner
 
 from pgsrip.cli import pgsrip
 from pgsrip.diagnostics import Check
-from pgsrip.engines.rapidocr import RAPIDOCR_HINT, RapidOcrEngine, ctc, model_of
+from pgsrip.engines.base import Reading
+from pgsrip.engines.rapidocr import RAPIDOCR_HINT, RapidOcrEngine, ctc_decode, model_of, split_lines
 
 from .fabricate import SAMPLE
 
@@ -29,12 +32,7 @@ needs_rapidocr = pytest.mark.skipif(
 
 
 def item(bitmap: typing.Any = None) -> typing.Any:
-    return types.SimpleNamespace(
-        bitmap=np.full((10, 10), 255, np.uint8) if bitmap is None else bitmap,
-        text=None,
-        doubtful=False,
-        confidence=None,
-    )
+    return types.SimpleNamespace(bitmap=np.full((10, 10), 255, np.uint8) if bitmap is None else bitmap)
 
 
 @pytest.mark.parametrize(
@@ -60,7 +58,7 @@ def test_ctc_gives_the_text_and_the_lowest_character_score() -> None:
     for step, (index, score) in enumerate(steps):
         preds[step, index] = score
 
-    text, score = ctc(preds, characters)
+    text, score = ctc_decode(preds, characters)
 
     assert text == 'aab b'
     # the space does not count
@@ -68,22 +66,20 @@ def test_ctc_gives_the_text_and_the_lowest_character_score() -> None:
 
 
 def test_ctc_of_a_line_with_no_character_gives_the_score_0() -> None:
-    assert ctc(np.array([[0.9, 0.1], [0.8, 0.2]], np.float32), ['blank', 'a']) == ('', 0.0)
+    assert ctc_decode(np.array([[0.9, 0.1], [0.8, 0.2]], np.float32), ['blank', 'a']) == ('', 0.0)
 
 
 def test_the_threshold_sets_doubtful_and_never_removes_text(monkeypatch: pytest.MonkeyPatch) -> None:
     lines = [('Sure', 0.95), ('Not sure', 0.5), ('', 0.0)]
     monkeypatch.setattr('pgsrip.engines.rapidocr.read_lines', lambda recognizer, images: lines[: len(images)])
     engine = RapidOcrEngine(threshold=90)
-    engine.languages[Language('eng')] = object()
+    engine.recognizers_by_language[Language('eng')] = object()
     items = [item(), item(), item()]
 
-    engine.recognize(typing.cast(typing.Any, types.SimpleNamespace(language=Language('eng'))), items)
-
-    assert [(i.text, i.confidence, i.doubtful) for i in items] == [
-        ('Sure', 0.95, False),
-        ('Not sure', 0.5, True),
-        (None, None, False),
+    assert engine.recognize(items, Language('eng'), None) == [
+        Reading('Sure', 0.95, False),
+        Reading('Not sure', 0.5, True),
+        Reading(None),
     ]
 
 
@@ -100,7 +96,7 @@ def test_supports_is_false_when_rapidocr_is_not_installed(monkeypatch: pytest.Mo
 
 @needs_rapidocr
 def test_supports_is_false_when_the_download_is_off_and_there_is_no_model(tmp_path: typing.Any) -> None:
-    engine = RapidOcrEngine(directory=str(tmp_path), download=False)
+    engine = RapidOcrEngine(model_dir=str(tmp_path), download=False)
     reported: list[str] = []
 
     engine.prepare([Language('eng'), Language('heb')], reporter=reported.append)
@@ -125,7 +121,15 @@ def test_the_check_is_not_a_failure_when_rapidocr_is_not_installed(monkeypatch: 
 @needs_rapidocr
 def test_the_check_shows_the_models_in_the_directory(tmp_path: typing.Any) -> None:
     (tmp_path / 'PP-OCRv6_rec_small.onnx').write_bytes(b'model')
-    settings = {'threshold': 90, 'model': 'small', 'border': 8, 'batch': 6, 'dir': str(tmp_path), 'download': False}
+    settings = {
+        'threshold': 90,
+        'model': 'small',
+        'border': 8,
+        'batch': 6,
+        'dir': str(tmp_path),
+        'download': False,
+        'workers': None,
+    }
 
     checks = {check.name: check for check in RapidOcrEngine.check(settings)}
 
@@ -138,7 +142,7 @@ def test_the_check_shows_the_models_in_the_directory(tmp_path: typing.Any) -> No
 @pytest.fixture(scope='module')
 def real_engine() -> RapidOcrEngine:
     """The engine with the real v6 small model. PGSRIP_RAPIDOCR_DIR sets the model directory, as for CI."""
-    engine = RapidOcrEngine()
+    engine = RapidOcrEngine(model_dir=os.getenv('PGSRIP_RAPIDOCR_DIR'))
     engine.prepare([Language('eng')])
     assert engine.supports(Language('eng'))
     return engine
@@ -156,11 +160,12 @@ def draw(*lines: str) -> typing.Any:
 def test_the_real_model_reads_two_lines(real_engine: RapidOcrEngine) -> None:
     cue = item(draw('Hello world', 'See you soon'))
 
-    real_engine.recognize(typing.cast(typing.Any, types.SimpleNamespace(language=Language('eng'))), [cue])
+    (reading,) = real_engine.recognize([cue], Language('eng'), None)
 
-    assert cue.text == 'Hello world\nSee you soon'
-    assert 0.9 < cue.confidence <= 1
-    assert cue.doubtful is False
+    assert reading.text == 'Hello world\nSee you soon'
+    assert reading.confidence is not None
+    assert 0.9 < reading.confidence <= 1
+    assert reading.doubtful is False
 
 
 @needs_rapidocr
@@ -174,3 +179,28 @@ def test_the_last_engine_of_a_chain_writes_its_doubtful_cues(tmp_path: typing.An
     assert result.exit_code == 0, result.output
     texts = [cue.text for cue in pysrt.open(str(tmp_path / 'placeholder.en.srt'), encoding='utf-8')]
     assert texts == ['Lorem ipsum dolor sit amet 0', 'Lorem ipsum dolor sit amet 2', 'Lorem ipsum dolor sit amet 4']
+
+
+def bitmap(rows: str) -> npt.NDArray[np.uint8]:
+    """A subtitle bitmap: one character for each row, '#' is a row with ink."""
+    image = np.full((len(rows), 4), 255, dtype=np.uint8)
+    image[[index for index, row in enumerate(rows) if row == '#'], 1] = 0
+    return image
+
+
+def ink_rows(image: npt.NDArray[np.uint8]) -> str:
+    return ''.join('#' if (row < 128).any() else '.' for row in image)
+
+
+@pytest.mark.parametrize(
+    ('rows', 'lines'),
+    [
+        pytest.param('#####', ['#####'], id='one line'),
+        pytest.param('#####..#####', ['#####', '#####'], id='two lines'),
+        pytest.param('#.#####..#####', ['#.#####', '#####'], id='umlaut dots go with the line below'),
+        pytest.param('#####..#####..#', ['#####', '#####..#'], id='low part at the bottom goes with the line above'),
+        pytest.param('.....', ['.....'], id='empty bitmap'),
+    ],
+)
+def test_split_lines_gives_one_image_for_each_text_line(rows: str, lines: list[str]) -> None:
+    assert [ink_rows(line) for line in split_lines(bitmap(rows))] == lines

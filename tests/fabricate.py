@@ -16,13 +16,13 @@ import typing
 from babelfish import Language
 from trakit.api import trakit  # noqa: F401  registers the `cleanit` babelfish language converter
 
-from pgsrip.formats.pgs import PgsReader
+from pgsrip.formats.pgs import read_display_sets
 from pgsrip.formats.scrub import Redaction, scrub_display_sets
-from pgsrip.media_path import MediaPath
 
 if typing.TYPE_CHECKING:
-    from pgsrip.engines.tesseract import FullImage
-    from pgsrip.media import PgsSubtitleItem
+    from pgsrip.engines.tesseract import Composite
+    from pgsrip.formats.pgs import Box, Item
+    from pgsrip.media import Subtitle
 
 SAMPLE = os.path.join(os.path.dirname(__file__), 'samples', 'placeholder.en.sup')
 
@@ -80,8 +80,8 @@ _PAYLOAD_CACHE: dict[int, bytes] = {}
 def payload(cues: int = 3) -> bytes:
     """The PGS bytes of a track holding `cues` subtitles, sliced out of the committed sample."""
     if cues not in _PAYLOAD_CACHE:
-        media_path = MediaPath(SAMPLE)
-        display_sets = PgsReader.decode(media_path.get_data(), media_path)
+        with open(SAMPLE, 'rb') as f:
+            display_sets = read_display_sets(f.read(), SAMPLE)
         data, _ = scrub_display_sets(display_sets, Redaction.NONE, only=set(range(2 * cues)))
         _PAYLOAD_CACHE[cues] = data
 
@@ -162,17 +162,17 @@ def fabricate_fake(
     monkeypatch.setattr('pgsrip.sources.mkvtoolnix.check_output', toolnix.check_output)
     for spec in media_specs:
         path = os.path.join(media_dir, spec.name)
-        # `core.scan_path` calls `os.path.isfile`, so a real (empty) file has to exist on disk.
+        # `api.scan` calls `os.path.isfile`, so a real (empty) file has to exist on disk.
         with open(path, mode='wb'):
             pass
         toolnix.register(path, spec)
 
 
-def _tsv_rows_for_item(item: PgsSubtitleItem, text: str, conf: int) -> list[dict[str, typing.Any]]:
-    if not item.place or not text:
+def _tsv_rows_for_item(item: Item, box: Box, text: str, conf: int) -> list[dict[str, typing.Any]]:
+    if not text:
         return []
 
-    top, left, bottom, right = item.place
+    top, left, bottom, right = box
     lines = text.split('\n')
     line_height = max(1, (bottom - top) // len(lines))
     rows: list[dict[str, typing.Any]] = []
@@ -205,43 +205,45 @@ def _tsv_rows_for_item(item: PgsSubtitleItem, text: str, conf: int) -> list[dict
 
 
 class FakeTesseract:
-    """Answers `TesseractEngine.process`'s tesseract calls with text fabricated from `TrackSpec.texts`."""
+    """Answers `TesseractEngine.read_pass`'s tesseract calls with text fabricated from `TrackSpec.texts`."""
 
     def __init__(self, toolnix: FakeMkvToolNix) -> None:
         self.toolnix = toolnix
         # (subtitle path, confidence) for every `process()` call, in order: the OCR retry ladder.
         self.passes: list[tuple[str, int]] = []
-        # every composite `FullImage.from_items` returned, in order: one tesseract call each.
-        self.composites: list[FullImage] = []
-        self._pgs: typing.Any = None
+        # every composite `Composite.from_items` returned, in order: one tesseract call each.
+        self.composites: list[Composite] = []
+        self._subtitle: typing.Any = None
 
-    def _track_spec_for(self, pgs: typing.Any) -> TrackSpec:
-        spec = self.toolnix._spec(str(pgs.source_path))
-        track_id = pgs.track.id
+    def _track_spec_for(self, subtitle: typing.Any) -> TrackSpec:
+        spec = self.toolnix._spec(str(subtitle.source_path))
+        track_id = subtitle.track.id
         for i, t in enumerate(spec.tracks):
             if _track_id(t, i) == track_id:
                 return t
 
-        raise KeyError(f'No track {track_id} registered for {pgs.source_path}')
+        raise KeyError(f'No track {track_id} registered for {subtitle.source_path}')
+
+    def wrap_decode(self, original_decode: typing.Callable[[Subtitle], list[Item]]) -> typing.Any:
+        """The engines do not know the subtitle: `api.decode` tells the fake which track is ripped."""
+
+        def decode(subtitle: Subtitle) -> list[Item]:
+            self._subtitle = subtitle
+            return original_decode(subtitle)
+
+        return decode
 
     def wrap_process(self, original_process: typing.Callable[..., typing.Any]) -> typing.Callable[..., typing.Any]:
         def process(
-            engine: typing.Any,
-            pgs: typing.Any,
-            items: list[PgsSubtitleItem],
-            confidence: int,
-            max_width: int,
-            gap: tuple[int, int],
-            tessdata_dir: str | None,
+            engine: typing.Any, items: list[Item], language: typing.Any, confidence: int, *args: typing.Any
         ) -> typing.Any:
-            self._pgs = pgs
-            self.passes.append((str(pgs.media_path), confidence))
-            return original_process(engine, pgs, items, confidence, max_width, gap, tessdata_dir)
+            self.passes.append((str(self._subtitle.output_base), confidence))
+            return original_process(engine, items, language, confidence, *args)
 
         return process
 
-    def wrap_from_items(self, original_from_items: typing.Callable[..., list[FullImage]]) -> typing.Any:
-        def from_items(*args: typing.Any) -> list[FullImage]:
+    def wrap_from_items(self, original_from_items: typing.Callable[..., list[Composite]]) -> typing.Any:
+        def from_items(*args: typing.Any) -> list[Composite]:
             composites = original_from_items(*args)
             self.composites.extend(composites)
             return composites
@@ -249,15 +251,15 @@ class FakeTesseract:
         return from_items
 
     def image_to_data(self, image: typing.Any, **config: typing.Any) -> dict[str, list[typing.Any]]:
-        spec = self._track_spec_for(self._pgs)
+        spec = self._track_spec_for(self._subtitle)
         # identity, not pixels: identical bitmaps drawn at the same place in two composites look the same.
-        composite = next(c for c in self.composites if c.data is image)
+        composite = next(c for c in self.composites if c.image is image)
 
         rows: list[dict[str, typing.Any]] = []
-        for item in composite.items:
+        for item, box in composite.placed:
             text = spec.texts[item.index] if item.index < len(spec.texts) else ''
             conf = spec.confidences[item.index] if item.index < len(spec.confidences) else DEFAULT_CONFIDENCE
-            rows.extend(_tsv_rows_for_item(item, text, conf))
+            rows.extend(_tsv_rows_for_item(item, box, text, conf))
 
         if not rows:
             return {key: [] for key in TSV_KEYS}
@@ -304,7 +306,7 @@ def mkvmerge_args(spec: TrackSpec) -> list[str]:
 def fabricate_real(media_dir: str, payload_dir: str, media_specs: list[MediaSpec]) -> None:
     """Mux a real .mkv per media spec with mkvmerge, writing per-track .sup payloads into payload_dir.
 
-    payload_dir must not be media_dir or a subdirectory of it: `core.scan_path` recurses into .sup
+    payload_dir must not be media_dir or a subdirectory of it: `api.scan` recurses into .sup
     files and would rip them as extra media.
     """
     os.makedirs(payload_dir, exist_ok=True)

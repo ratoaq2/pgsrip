@@ -7,44 +7,59 @@ import logging
 import typing
 
 from pgsrip.diagnostics import Check
-from pgsrip.engines.base import OcrEngine, OcrError
-from pgsrip.engines.rapidocr import RAPIDOCR_HINT, RapidOcrEngine
+from pgsrip.engines.base import OcrEngine, OcrError, Reading
+from pgsrip.engines.rapidocr import RAPIDOCR_HINT, RapidOcrEngine, installed_versions
 from pgsrip.engines.tesseract import TESSERACT_HINT, TesseractEngine, check_languages
 
 if typing.TYPE_CHECKING:
     from babelfish import Language
 
-    from pgsrip.media import Pgs, PgsSubtitleItem
+    from pgsrip.formats.pgs import Item
 
 logger = logging.getLogger(__name__)
 
 
-def check_auto() -> Check:
-    """The engine that auto uses when no language is known, for `pgsrip doctor`."""
-    # the same test as Tessdata.installed_codes, without its warning
-    if check_languages().ok:
-        return Check('auto', 'tesseract')
-
-    try:
-        for name in ('rapidocr', 'onnxruntime'):
-            importlib.metadata.version(name)
-    except importlib.metadata.PackageNotFoundError:
-        return Check(
-            'auto',
-            'no OCR engine: tesseract not found, rapidocr not installed',
-            ok=False,
-            hint=f'{TESSERACT_HINT}. Or: {RAPIDOCR_HINT}',
-        )
-
-    return Check('auto', 'rapidocr (tesseract not found)')
+#: a reserved engine name, not a plug-in: tesseract for each language that it can read, else rapidocr
+AUTO = 'auto'
+#: the engines that auto uses, by name. The options of these engines are valid with auto.
+AUTO_ENGINES = ('tesseract', 'rapidocr')
 
 
 class AutoEngine(OcrEngine):
     """The default engine: one engine for each language, tesseract first."""
 
-    def __init__(self, tesseract: TesseractEngine | None = None, rapidocr: RapidOcrEngine | None = None):
-        self.tesseract = tesseract or TesseractEngine()
-        self.rapidocr = rapidocr or RapidOcrEngine()
+    def __init__(self, tesseract: TesseractEngine, rapidocr: RapidOcrEngine):
+        self.tesseract = tesseract
+        self.rapidocr = rapidocr
+
+    @classmethod
+    def from_engines(cls, tesseract: OcrEngine, rapidocr: OcrEngine) -> AutoEngine:
+        """Auto with the engines that the CLI made from the options of AUTO_ENGINES."""
+        if not isinstance(tesseract, TesseractEngine) or not isinstance(rapidocr, RapidOcrEngine):
+            raise TypeError(f'auto needs a TesseractEngine and a RapidOcrEngine, not {tesseract!r} and {rapidocr!r}')
+
+        return cls(tesseract, rapidocr)
+
+    @classmethod
+    def check(cls, settings: dict[str, typing.Any]) -> list[Check]:
+        """The engine that auto uses when no language is known, for `pgsrip doctor`."""
+        # the same test as Tessdata.installed_codes, without its warning
+        if check_languages().ok:
+            return [Check('auto', 'tesseract')]
+
+        try:
+            installed_versions()
+        except importlib.metadata.PackageNotFoundError:
+            return [
+                Check(
+                    'auto',
+                    'no OCR engine: tesseract not found, rapidocr not installed',
+                    ok=False,
+                    hint=f'{TESSERACT_HINT}. Or: {RAPIDOCR_HINT}',
+                )
+            ]
+
+        return [Check('auto', 'rapidocr (tesseract not found)')]
 
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__} [{self.tesseract!r}, {self.rapidocr!r}]>'
@@ -81,9 +96,9 @@ class AutoEngine(OcrEngine):
 
         return None
 
-    def recognize(self, pgs: Pgs, items: list[PgsSubtitleItem]) -> None:
-        engine = self.engine_for(pgs.language)
+    def recognize(self, items: list[Item], language: Language, debug_dir: str | None) -> list[Reading]:
+        engine = self.engine_for(language)
         if engine is None:
-            raise OcrError(f'No OCR engine can read {pgs.language}')
+            raise OcrError(f'No OCR engine can read {language}')
 
-        engine.recognize(pgs, items)
+        return engine.recognize(items, language, debug_dir)

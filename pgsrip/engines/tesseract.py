@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import enum
 import json
 import logging
 import os
@@ -17,180 +16,188 @@ import numpy.typing as npt
 import pytesseract as tess
 
 from pgsrip.diagnostics import Check
-from pgsrip.engines.base import OcrEngine
+from pgsrip.engines.base import OcrEngine, OcrEngineFactory, Reading
 from pgsrip.engines.tessdata import (
+    DEFAULT_REPOSITORY,
     REPOSITORIES,
     Tessdata,
     TessdataError,
-    get_config_arg,
-    get_required_codes,
-    get_tesseract_code,
-    tessdata_env,
+    config_arg,
+    required_codes,
+    tesseract_code,
+    tesseract_env,
 )
-from pgsrip.engines.tsv import TsvData, TsvDataItem
+from pgsrip.engines.tsv import TsvResult, TsvWord
+from pgsrip.formats.pgs import Box
 from pgsrip.plugin import PluginOption
 from pgsrip.utils import default_workers
 
 if typing.TYPE_CHECKING:
     from babelfish import Language
 
-    from pgsrip.media import Pgs, PgsSubtitleItem
+    from pgsrip.formats.pgs import Item
 
 logger = logging.getLogger(__name__)
 
 #: tesseract refuses any image dimension above INT16_MAX; stay under it with room for the border.
 MAX_TESS_DIMENSION = 31 * 1024
+#: the smallest value of --tesseract-width
+MIN_WIDTH = 10 * 1024
+#: white margin around the rows of a composite
+BORDER = 100
+#: the gaps between 2 rows and between 2 items of a row, in addition to a quarter of the tallest item
+ROW_GAP = 30
+ITEM_GAP = 100
 #: confidence of the first pass. The retry passes go lower, down to 0.
 DEFAULT_CONFIDENCE = 65
+#: the confidence of each retry pass is this much lower than the pass before it
+CONFIDENCE_STEP = 5
+#: a pass that leaves more than this share of its items unread: the next pass uses smaller composites
+SLOW_PASS = 0.8
+#: with fewer unread items, one last pass reads them with the confidence 0
+LAST_PASS_SIZE = 20
+#: the LSTM engine. 0 and 2 need the legacy models, which tessdata_best does not have.
+OEM = 1
+#: one uniform block of text: one composite is one block. The other modes break the batching.
+PSM = 6
 #: a cue with a word below this confidence is doubtful: the next engine of the chain reads it again.
 DEFAULT_THRESHOLD = 80
 TESSERACT_HINT = 'Install tesseract-ocr and make sure that it is in the PATH'
 MAX_REPORTED_LANGUAGES = 20
 
 
-@enum.unique
-class TesseractEngineMode(enum.Enum):
-    LEGACY = 0
-    NEURAL = 1
-    LEGACY_AND_NEURAL = 2
-    DEFAULT_AVAILABLE = 3
+def same_row(item: Item, other: Item) -> bool:
+    """True when the vertical middle of the other item is inside the rows of the item."""
+    box, other_box = item.box, other.box
+    return box.top <= other_box.top + (other_box.bottom - other_box.top) // 2 <= box.bottom
 
 
-@enum.unique
-class TesseractPageSegmentationMode(enum.Enum):
-    OSD_ONLY = 0
-    AUTOMATIC_PAGE_SEGMENTATION_WITH_OSD = 1
-    AUTOMATIC_PAGE_SEGMENTATION_WITHOUT_OSD_OR_OCR = 2
-    FULLY_AUTOMATIC_PAGE_SEGMENTATION_WITHOUT_OSD = 3
-    SINGLE_COLUMN_OF_TEXT_OF_VARIABLE_SIZES = 4
-    SINGLE_UNIFORM_BLOCK_OF_VERTICALLY_ALIGNED_TEXT = 5
-    SINGLE_UNIFORM_BLOCK_OF_TEXT = 6
-    SINGLE_TEXT_LINE = 7
-    SINGLE_WORD = 8
-    SINGLE_WORD_IN_CIRCLE = 9
-    SINGLE_CHARACTER = 10
-    SPARSE_TEXT = 11
-    SPARSE_TEXT_WITH_OSD = 12
-    RAW_LINE = 13
+class Gap(typing.NamedTuple):
+    """The space in pixels between 2 rows of a composite, and between 2 items of a row."""
+
+    row: int
+    item: int
 
 
-class ImageArea:
-    def __init__(self, items: list[PgsSubtitleItem], gap: tuple[int, int]):
-        self.gap = gap
-        self.width = sum([(item.shape[3] - item.shape[1]) for item in items]) + (len(items) - 1) * gap[1]
-        self.shape = (
-            min([item.shape[0] for item in items]),
-            items[0].shape[1],
-            max([item.shape[2] for item in items]),
-            min([item.shape[1] for item in items]) + self.width,
+class Row:
+    """Items side by side, with the same vertical middle."""
+
+    def __init__(self, items: list[Item], item_gap: int):
+        self.item_gap = item_gap
+        self.width = sum(item.box.right - item.box.left for item in items) + (len(items) - 1) * item_gap
+        self.box = Box(
+            min(item.box.top for item in items),
+            items[0].box.left,
+            max(item.box.bottom for item in items),
+            min(item.box.left for item in items) + self.width,
         )
         self.items = items
 
     def __str__(self) -> str:
-        return str(self.shape)
+        return str(self.box)
 
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__} [{self}]>'
 
     @property
     def height(self) -> int:
-        return self.shape[2] - self.shape[0]
+        return self.box.bottom - self.box.top
 
-    def create_area_image(self, start: tuple[int, int]) -> npt.NDArray[np.uint8]:
-        area_image = np.full((self.height, self.width), 255, dtype=np.uint8)
+    def draw(self, start: tuple[int, int]) -> tuple[npt.NDArray[np.uint8], list[tuple[Item, Box]]]:
+        """The image of the row, and the box of each item in the composite that starts the row at start."""
+        image = np.full((self.height, self.width), 255, dtype=np.uint8)
 
+        placed = []
         current_width = 0
         for item in self.items:
-            h_start, w_start, h_end, w_end = self.get_shape(item, current_width=current_width)
-            item.place = (start[0] + h_start, start[1] + w_start, start[0] + h_end, start[1] + w_end)
-            area_image[h_start:h_end, w_start:w_end] = item.bitmap
-            current_width += item.width + self.gap[1]
+            box = self.item_box(item, current_width)
+            placed.append(
+                (item, Box(start[0] + box.top, start[1] + box.left, start[0] + box.bottom, start[1] + box.right))
+            )
+            image[box.top : box.bottom, box.left : box.right] = item.bitmap
+            current_width += item.width + self.item_gap
 
-        return area_image
+        return image, placed
 
-    def get_shape(
-        self, item: PgsSubtitleItem, current_width: int = 0, full_shape: bool = False
-    ) -> tuple[int, int, int, int]:
-        start_y = 0
-        start_x = current_width
-        h_start = start_y + ((item.shape[0] - self.shape[0]) if not full_shape else 0)
-        w_start = start_x
-        h_end = h_start + (item.height if not full_shape else self.height)
-        w_end = w_start + (item.width if not full_shape else self.width)
-
-        return h_start, w_start, h_end, w_end
+    def item_box(self, item: Item, current_width: int) -> Box:
+        """The box of the item in the image of the row."""
+        top = item.box.top - self.box.top
+        return Box(top, current_width, top + item.height, current_width + item.width)
 
 
-class FullImage:
-    border = 100
+class Composite:
+    """Rows one under the other in one image: one tesseract call."""
 
-    def __init__(self, areas: list[ImageArea], gap: tuple[int, int]):
-        border = self.border
-        total_height = sum([area.height for area in areas]) + (len(areas) - 1) * gap[0] + 2 * border
-        total_width = max([area.width for area in areas]) + 2 * border
-        full_image = np.full((total_height, total_width), 255, dtype=np.uint8)
+    def __init__(self, rows: list[Row], row_gap: int):
+        border = BORDER
+        total_height = sum(row.height for row in rows) + (len(rows) - 1) * row_gap + 2 * border
+        total_width = max(row.width for row in rows) + 2 * border
+        image = np.full((total_height, total_width), 255, dtype=np.uint8)
+        #: each item, and its box in this composite
+        self.placed: list[tuple[Item, Box]] = []
         h_start = border
         w_start = border
-        for area in areas:
-            h_end = h_start + area.height
-            w_end = w_start + area.width
-            full_image[h_start:h_end, w_start:w_end] = area.create_area_image((h_start, w_start))
-            h_start = h_end + gap[0]
+        for row in rows:
+            h_end = h_start + row.height
+            w_end = w_start + row.width
+            image[h_start:h_end, w_start:w_end], placed = row.draw((h_start, w_start))
+            self.placed.extend(placed)
+            h_start = h_end + row_gap
 
-        self.data = full_image
-        self.items = [item for area in areas for item in area.items]
+        self.image = image
 
     @classmethod
     def from_items(
-        cls, items: list[PgsSubtitleItem], gap: tuple[int, int], max_width: int, max_height: int, parts: int = 1
-    ) -> list[FullImage]:
+        cls, items: list[Item], gap: Gap, max_width: int, max_height: int, parts: int = 1
+    ) -> list[Composite]:
         """Split items into at most `parts` composites of about the same height, to OCR them in parallel.
 
         No composite is taller than max_height, so a long track can give more than `parts` composites.
-        An area taller than max_height on its own still gets a composite of its own.
+        A row taller than max_height on its own still gets a composite of its own.
         """
-        areas: list[ImageArea] = []
+        rows: list[Row] = []
         remaining = list(items)
         remaining.sort(key=lambda x: x.height)
         while len(remaining) > 0:
             first_item = remaining.pop(0)
-            area_items = [first_item] + [item for item in remaining if item.intersect(first_item)]
-            remaining = [item for item in remaining if not item.intersect(first_item)]
-            current_items: list[PgsSubtitleItem] = []
+            row_items = [first_item] + [item for item in remaining if same_row(item, first_item)]
+            remaining = [item for item in remaining if not same_row(item, first_item)]
+            current_items: list[Item] = []
             current_width = 0
-            for area_item in area_items:
-                current_width += area_item.width + gap[1]
-                if current_width > max_width:
-                    areas.append(ImageArea(current_items, gap))
+            for area_item in row_items:
+                current_width += area_item.width + gap.item
+                # an item wider than max_width gets a row of its own
+                if current_width > max_width and current_items:
+                    rows.append(Row(current_items, gap.item))
                     current_width = area_item.width
                     current_items = [area_item]
                 else:
                     current_items.append(area_item)
 
             if len(current_items) > 0:
-                areas.append(ImageArea(current_items, gap))
+                rows.append(Row(current_items, gap.item))
 
-        composites: list[FullImage] = []
-        # cut the stacked areas in `parts` slices of the same height: each area goes to the slice of its middle.
-        share = max(1.0, (sum(area.height for area in areas) + (len(areas) - 1) * gap[0]) / parts)
-        group: list[ImageArea] = []
+        composites: list[Composite] = []
+        # cut the stacked rows in `parts` slices of the same height: each row goes to the slice of its middle.
+        share = max(1.0, (sum(row.height for row in rows) + (len(rows) - 1) * gap.row) / parts)
+        group: list[Row] = []
         group_part = 0
-        height = 2 * cls.border
+        height = 2 * BORDER
         top = 0
-        for area in areas:
-            part = int((top + area.height / 2) // share)
-            top += area.height + gap[0]
-            if group and (part != group_part or height + gap[0] + area.height > max_height):
-                composites.append(cls(group, gap))
+        for row in rows:
+            part = int((top + row.height / 2) // share)
+            top += row.height + gap.row
+            if group and (part != group_part or height + gap.row + row.height > max_height):
+                composites.append(cls(group, gap.row))
                 group = []
-                height = 2 * cls.border
+                height = 2 * BORDER
 
-            height += (gap[0] if group else 0) + area.height
-            group.append(area)
+            height += (gap.row if group else 0) + row.height
+            group.append(row)
             group_part = part
 
         if group:
-            composites.append(cls(group, gap))
+            composites.append(cls(group, gap.row))
 
         return composites
 
@@ -198,7 +205,7 @@ class FullImage:
         return f'<{self.__class__.__name__} [{self}]>'
 
     def __str__(self) -> str:
-        return f'{self.data.shape}]'
+        return str(self.image.shape)
 
 
 def check_tesseract() -> Check:
@@ -230,7 +237,7 @@ def check_languages() -> Check:
 
 def check_tessdata(tessdata: Tessdata) -> list[Check]:
     checks = [
-        Check('tessdata directory', str(tessdata.directory or 'not set')),
+        Check('tessdata directory', str(tessdata.data_dir or 'not set')),
         Check('TESSDATA_PREFIX', os.getenv('TESSDATA_PREFIX') or 'not set'),
         Check('tessdata repository', tessdata.repository),
         Check('tessdata download', 'enabled' if tessdata.download else 'disabled'),
@@ -245,23 +252,47 @@ def check_tessdata(tessdata: Tessdata) -> list[Check]:
     return checks
 
 
-class TesseractEngine(OcrEngine):
+class TesseractEngine(OcrEngine, OcrEngineFactory):
     """The first engine of auto. One engine reads all the tracks of a rip."""
 
     options: typing.ClassVar[tuple[PluginOption, ...]] = (
         PluginOption(
             'threshold',
             click.IntRange(0, 100),
-            help=f'A cue with a word below this tesseract confidence goes to the next --engine. '
-            f'Default: {DEFAULT_THRESHOLD}.',
+            default=DEFAULT_THRESHOLD,
+            help='A cue with a word below this tesseract confidence goes to the next --engine.',
+        ),
+        PluginOption(
+            'confidence',
+            click.IntRange(0, 100),
+            default=DEFAULT_CONFIDENCE,
+            help='Tesseract confidence of the words that the first pass accepts. The next passes go lower.',
+        ),
+        PluginOption(
+            'width',
+            click.IntRange(MIN_WIDTH, MAX_TESS_DIMENSION),
+            default=MAX_TESS_DIMENSION,
+            help='Maximum width in pixels of the images that go to tesseract.',
+        ),
+        PluginOption(
+            'workers',
+            click.IntRange(1, 50),
+            default=None,
+            help='Number of tesseract processes that run in parallel. Default: -w.',
         ),
         PluginOption(
             'dir',
             click.Path(),
-            help='Directory where tesseract data is stored. Defaults to TESSDATA_PREFIX or a user cache directory.',
+            default=None,
+            envvar='PGSRIP_TESSDATA_DIR',
+            help='Directory where tesseract data is stored. Default: TESSDATA_PREFIX, else a user cache directory.',
         ),
         PluginOption(
-            'repository', click.Choice(sorted(REPOSITORIES)), help='Repository to download missing tesseract data from.'
+            'repository',
+            click.Choice(sorted(REPOSITORIES)),
+            default=DEFAULT_REPOSITORY,
+            envvar='PGSRIP_TESSDATA_REPO',
+            help='Repository to download missing tesseract data from.',
         ),
         PluginOption(
             'download',
@@ -272,8 +303,14 @@ class TesseractEngine(OcrEngine):
     )
 
     @classmethod
-    def from_settings(cls, settings: dict[str, typing.Any], workers: int | None) -> TesseractEngine:
-        return cls(workers=workers, tessdata=cls.tessdata_from(settings), threshold=settings['threshold'])
+    def from_settings(cls, settings: dict[str, typing.Any]) -> TesseractEngine:
+        return cls(
+            confidence=settings['confidence'],
+            width=settings['width'],
+            workers=settings['workers'],
+            tessdata=cls.tessdata_from(settings),
+            threshold=settings['threshold'],
+        )
 
     @classmethod
     def check(cls, settings: dict[str, typing.Any]) -> list[Check]:
@@ -282,24 +319,20 @@ class TesseractEngine(OcrEngine):
 
     @staticmethod
     def tessdata_from(settings: dict[str, typing.Any]) -> Tessdata:
-        return Tessdata(directory=settings['dir'], repository=settings['repository'], download=settings['download'])
+        return Tessdata(data_dir=settings['dir'], repository=settings['repository'], download=settings['download'])
 
     def __init__(
         self,
-        confidence: int | None = None,
-        width: int | None = None,
-        oem: TesseractEngineMode | None = None,
-        psm: TesseractPageSegmentationMode | None = None,
+        confidence: int = DEFAULT_CONFIDENCE,
+        width: int = MAX_TESS_DIMENSION,
         workers: int | None = None,
         tessdata: Tessdata | None = None,
-        threshold: int | None = None,
+        threshold: int = DEFAULT_THRESHOLD,
     ):
-        self.confidence = min(max(confidence or DEFAULT_CONFIDENCE, 0), 100)
-        self.threshold = min(max(DEFAULT_THRESHOLD if threshold is None else threshold, 0), 100)
-        self.max_width = min(max(width or MAX_TESS_DIMENSION, 10 * 1024), MAX_TESS_DIMENSION)
+        self.confidence = confidence
+        self.threshold = threshold
+        self.width = width
         self.workers = workers or default_workers()
-        self.oem = oem or TesseractEngineMode.NEURAL
-        self.psm = psm or TesseractPageSegmentationMode.SINGLE_UNIFORM_BLOCK_OF_TEXT
         self.tessdata = tessdata or Tessdata()
         #: the tesseract data that `prepare` could not download
         self.failed_codes: set[str] = set()
@@ -311,10 +344,8 @@ class TesseractEngine(OcrEngine):
         return (
             f'confidence:{self.confidence}, '
             f'threshold:{self.threshold}, '
-            f'max_width:{self.max_width}, '
+            f'width:{self.width}, '
             f'workers:{self.workers}, '
-            f'oem:{self.oem}, '
-            f'psm:{self.psm}, '
             f'tessdata:[{self.tessdata}]'
         )
 
@@ -331,9 +362,9 @@ class TesseractEngine(OcrEngine):
                 reporter(f'Downloading tesseract data for {code}...')
 
         # one code at a time: a failed download does not stop the downloads of the other codes
-        for code in sorted(get_required_codes(languages, self.psm.value)):
+        for code in sorted(required_codes(languages)):
             try:
-                self.tessdata.ensure({code}, reporter=report)
+                self.tessdata.ensure({code}, on_download=report)
             except TessdataError as e:
                 self.failed_codes.add(code)
                 if reporter:
@@ -342,117 +373,125 @@ class TesseractEngine(OcrEngine):
     def supports(self, language: Language) -> bool:
         """True when tesseract runs, and has or can get the data of the language."""
         return all(
-            code not in self.failed_codes and self.tessdata.available(code)
-            for code in get_required_codes([language], self.psm.value)
+            code not in self.failed_codes and self.tessdata.available(code) for code in required_codes([language])
         )
 
-    def recognize(self, pgs: Pgs, items: list[PgsSubtitleItem]) -> None:
-        max_height = max([item.height for item in pgs.items]) // 2
-        gap = (max_height // 2 + 30, max_height // 2 + 100)
-        tessdata_dir = self.tessdata.ensure(get_required_codes([pgs.language], self.psm.value))
-        confidence, max_width = self.confidence, self.max_width
+    def recognize(self, items: list[Item], language: Language, debug_dir: str | None) -> list[Reading]:
+        all_items = items
+        readings: dict[Item, Reading] = {}
+        quarter_height = max(item.height for item in items) // 4
+        gap = Gap(quarter_height + ROW_GAP, quarter_height + ITEM_GAP)
+        tessdata_dir = self.tessdata.ensure(required_codes([language]))
+        confidence, max_width = self.confidence, self.width
         previous_size = len(items)
-        while previous_size > 0:
-            items = self.process(pgs, items, confidence, max_width, gap, tessdata_dir)
-            if not items:
-                break
-
-            current_size = len(items)
-            if current_size < 20:
-                max_width = min(sum([item.width + gap[1] for item in items]), self.max_width)
-                confidence = 0
-                self.process(pgs, items, confidence, max_width, gap, tessdata_dir)
-                break
-            elif current_size > previous_size * 0.8:
-                last_pass = (confidence, max_width)
-                max_width = min(sum([item.width + gap[1] for item in items]), self.max_width) // 2
-                confidence = max(0, confidence - 5)
-                # the same pass on the same items reads nothing new: the remaining items stay unread
-                if (confidence, max_width) == last_pass:
+        with tesseract_env(tessdata_dir):
+            while previous_size > 0:
+                read = self.read_pass(items, language, confidence, max_width, gap, tessdata_dir, debug_dir)
+                readings.update(read)
+                items = [item for item in items if item not in read]
+                if not items:
                     break
-            previous_size = current_size
 
-    def process(
+                current_size = len(items)
+                if current_size < LAST_PASS_SIZE:
+                    max_width = min(sum(item.width + gap.item for item in items), self.width)
+                    confidence = 0
+                    readings.update(
+                        self.read_pass(items, language, confidence, max_width, gap, tessdata_dir, debug_dir)
+                    )
+                    break
+                elif current_size > previous_size * SLOW_PASS:
+                    last_pass = (confidence, max_width)
+                    max_width = min(sum(item.width + gap.item for item in items), self.width) // 2
+                    confidence = max(0, confidence - CONFIDENCE_STEP)
+                    # the same pass on the same items reads nothing new: the remaining items stay unread
+                    if (confidence, max_width) == last_pass:
+                        break
+                previous_size = current_size
+
+        return [readings.get(item, Reading(None)) for item in all_items]
+
+    def read_pass(
         self,
-        pgs: Pgs,
-        items: list[PgsSubtitleItem],
+        items: list[Item],
+        language: Language,
         confidence: int,
         max_width: int,
-        gap: tuple[int, int],
+        gap: Gap,
         tessdata_dir: str | None,
-    ) -> list[PgsSubtitleItem]:
-        """Run one OCR pass and return the items that it could not read."""
-        oem, psm = self.oem, self.psm
+        debug_dir: str | None,
+    ) -> dict[Item, Reading]:
+        """Run one OCR pass. Return the reading of each item that it could read."""
         config: dict[str, typing.Any] = {
             'output_type': tess.Output.DICT,
-            'config': f'{get_config_arg(tessdata_dir)} --psm {psm.value} --oem {oem.value}'.strip(),
+            'config': f'{config_arg(tessdata_dir)} --psm {PSM} --oem {OEM}'.strip(),
         }
 
-        language_code = get_tesseract_code(pgs.language)
+        language_code = tesseract_code(language)
         if language_code:
             config.update({'lang': language_code})
 
-        # one tesseract process per composite, in parallel: one process with OpenMP threads uses about one core.
-        os.environ['OMP_THREAD_LIMIT'] = '1'
-
-        composites = FullImage.from_items(items, gap, max_width, MAX_TESS_DIMENSION, self.workers)
-        prefix = f'{os.path.basename(str(pgs.media_path.translate(extension="srt")))}-{len(items)}'
-        if pgs.options.keep_temp_files:
-            for index, full_image in enumerate(composites):
-                png_file = os.path.join(pgs.temp_folder, f'{prefix}-{index}-psm{psm.value}-{oem.name}-{confidence}.png')
+        composites = Composite.from_items(items, gap, max_width, MAX_TESS_DIMENSION, self.workers)
+        prefix = f'tesseract-{len(items)}'
+        if debug_dir:
+            for index, composite in enumerate(composites):
+                png_file = os.path.join(debug_dir, f'{prefix}-{index}-{confidence}.png')
                 logger.debug('Writing temporary png file %s', png_file)
-                cv2.imwrite(png_file, full_image.data)
+                cv2.imwrite(png_file, composite.image)
 
-        with tessdata_env(tessdata_dir), ThreadPoolExecutor(self.workers) as pool:
-            results = list(pool.map(lambda image: tess.image_to_data(image.data, **config), composites))
+        # one tesseract process for each composite, in parallel (see `tesseract_env`)
+        with ThreadPoolExecutor(self.workers) as pool:
+            results = list(pool.map(lambda composite: tess.image_to_data(composite.image, **config), composites))
 
-        remaining: list[PgsSubtitleItem] = []
-        for index, (full_image, result) in enumerate(zip(composites, results, strict=True)):
-            data = TsvData(result, confidence=confidence)
-            if pgs.options.keep_temp_files:
-                results_file = os.path.join(pgs.temp_folder, f'{prefix}-{index}-{confidence}.json')
+        read: dict[Item, Reading] = {}
+        for index, (composite, result) in enumerate(zip(composites, results, strict=True)):
+            tsv = TsvResult(result, confidence=confidence)
+            if debug_dir:
+                results_file = os.path.join(debug_dir, f'{prefix}-{index}-{confidence}.json')
                 logger.debug('Writing temporary results file %s', results_file)
                 with open(results_file, mode='w', encoding='utf8') as f:
-                    json.dump([i.__dict__ for i in data.items], f, indent=2, ensure_ascii=False)
+                    json.dump([word.__dict__ for word in tsv.words], f, indent=2, ensure_ascii=False)
 
-            # item.place is relative to the composite the item was drawn in: match it against that one only.
-            for item in full_image.items:
-                if self.accept(data, item, confidence) is None:
-                    remaining.append(item)
+            # the box of an item is in the composite the item was drawn in: match it against that one only.
+            for item, box in composite.placed:
+                reading = self.read_item(tsv, box, confidence)
+                if reading is not None:
+                    read[item] = reading
 
-        return remaining
+        return read
 
-    def accept(self, data: TsvData, item: PgsSubtitleItem, confidence: int) -> str | None:
-        rows = data.select(item.place) if item.place else []
+    def read_item(self, tsv: TsvResult, box: Box, confidence: int) -> Reading | None:
+        """The reading of the words in box. None when no word is in box, or when a word is below the confidence of
+        the pass."""
+        words = tsv.select(box)
+        if not words:
+            return None
+
         lines: list[str] = []
-        words: list[str] = []
-        last_row: TsvDataItem | None = None
-        for row in rows:
-            if row.conf < confidence:
-                if not data.has_word(row.text):
+        texts: list[str] = []
+        last_word: TsvWord | None = None
+        for word in words:
+            if word.conf < confidence:
+                if not tsv.has_word(word.text):
                     return None
 
             if (
-                last_row is not None
+                last_word is not None
                 and (
-                    last_row.page_num < row.page_num
-                    or last_row.block_num < row.block_num
-                    or last_row.par_num < row.par_num
-                    or last_row.line_num < row.line_num
+                    last_word.page_num < word.page_num
+                    or last_word.block_num < word.block_num
+                    or last_word.par_num < word.par_num
+                    or last_word.line_num < word.line_num
                 )
-                and len(words) > 0
+                and len(texts) > 0
             ):
-                lines.append(' '.join(words))
-                words.clear()
-            words.append(row.text)
-            last_row = row
+                lines.append(' '.join(texts))
+                texts.clear()
+            texts.append(word.text)
+            last_word = word
 
-        if len(words) > 0:
-            lines.append(' '.join(words))
-            words.clear()
+        if len(texts) > 0:
+            lines.append(' '.join(texts))
 
-        item.text = '\n'.join(lines).strip()
-        lowest = min((row.conf for row in rows), default=100)
-        item.doubtful = lowest < self.threshold
-        item.confidence = lowest / 100
-        return item.text
+        lowest = min(word.conf for word in words)
+        return Reading('\n'.join(lines).strip(), lowest / 100, lowest < self.threshold)

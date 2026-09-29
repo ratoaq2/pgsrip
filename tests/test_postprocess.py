@@ -10,19 +10,25 @@ import pysrt
 import pytest
 from click.testing import CliRunner
 
+from pgsrip.api import post_processors
 from pgsrip.cli import pgsrip
-from pgsrip.cli.plugins import ENGINE_ENTRY_POINTS, POST_PROCESSOR_ENTRY_POINTS
 from pgsrip.diagnostics import Check
+from pgsrip.engines import ENGINE_ENTRY_POINTS
+from pgsrip.engines.base import Reading
 from pgsrip.engines.tesseract import TesseractEngine
 from pgsrip.options import Options
 from pgsrip.plugin import PluginOption
+from pgsrip.postprocessors import POST_PROCESSOR_ENTRY_POINTS
 from pgsrip.postprocessors.cleanit import CleanitPostProcessor
 
 from .test_engines import PluginEngine, fake_tesseract, media_dir, read_texts, rip
 
 if typing.TYPE_CHECKING:
-    from pgsrip.media import Pgs, PgsSubtitleItem
-    from pgsrip.ripper import Cue
+    from babelfish import Language
+
+    from pgsrip.cue import Cue
+    from pgsrip.formats.pgs import Item
+    from pgsrip.sources.base import Track
 
 __all__ = ['fake_tesseract', 'media_dir']
 
@@ -30,9 +36,8 @@ __all__ = ['fake_tesseract', 'media_dir']
 class SpeakerEngine(PluginEngine):
     """An engine of another package that reads a speaker label: the default cleanit rules remove it."""
 
-    def recognize(self, pgs: Pgs, items: list[PgsSubtitleItem]) -> None:
-        for item in items:
-            item.text = f'MAN:  Hello {item.index}'
+    def recognize(self, items: list[Item], language: Language, debug_dir: str | None) -> list[Reading]:
+        return [Reading(f'MAN:  Hello {item.index}') for item in items]
 
 
 class UpperPostProcessor:
@@ -54,7 +59,7 @@ class UpperPostProcessor:
     def check(cls, settings: dict[str, typing.Any]) -> list[Check]:
         return [Check('upper suffix', settings['suffix'] or 'not set')]
 
-    def process(self, pgs: Pgs, cues: list[Cue]) -> list[Cue]:
+    def process(self, cues: list[Cue], track: Track) -> list[Cue]:
         for cue in cues:
             if cue.text:
                 cue.text = cue.text.upper() + self.suffix
@@ -72,7 +77,7 @@ class RecordPostProcessor:
     def from_settings(cls, settings: dict[str, typing.Any]) -> RecordPostProcessor:
         return cls()
 
-    def process(self, pgs: Pgs, cues: list[Cue]) -> list[Cue]:
+    def process(self, cues: list[Cue], track: Track) -> list[Cue]:
         RecordPostProcessor.seen.extend((cue.text, cue.engine, cue.confidence, cue.doubtful) for cue in cues)
         return cues
 
@@ -80,7 +85,7 @@ class RecordPostProcessor:
 class DropPostProcessor(RecordPostProcessor):
     """A post-processor of another package that empties the text of the second cue."""
 
-    def process(self, pgs: Pgs, cues: list[Cue]) -> list[Cue]:
+    def process(self, cues: list[Cue], track: Track) -> list[Cue]:
         cues[1].text = ''
         return cues
 
@@ -88,7 +93,7 @@ class DropPostProcessor(RecordPostProcessor):
 class FailingPostProcessor(RecordPostProcessor):
     """A post-processor of another package that fails."""
 
-    def process(self, pgs: Pgs, cues: list[Cue]) -> list[Cue]:
+    def process(self, cues: list[Cue], track: Track) -> list[Cue]:
         raise RuntimeError('no network')
 
 
@@ -136,7 +141,7 @@ def test_cleanit_is_the_default_post_processor(media_dir: typing.Any) -> None:
 
 
 def test_no_post_process_keeps_the_text_of_the_engines(media_dir: typing.Any) -> None:
-    result = rip('--engine', 'speaker', '--no-post-process', str(media_dir))
+    result = rip('--engine', 'speaker', '--no-post-processor', str(media_dir))
 
     assert result.exit_code == 0, result.output
     assert read_texts(media_dir) == ['MAN:  Hello 0', 'MAN:  Hello 1', 'MAN:  Hello 2']
@@ -190,7 +195,7 @@ def test_a_failing_post_processor_writes_no_srt(media_dir: typing.Any) -> None:
 
     assert result.exit_code == 1, result.output
     assert 'could not be ripped' in result.output
-    assert '<RuntimeError> [no network]' in result.output
+    assert '<RuntimeError> no network' in result.output
     assert not (media_dir / 'placeholder.en.srt').exists()
 
 
@@ -251,17 +256,17 @@ def test_a_cleanit_tag_with_no_rule_is_rejected(media_dir: typing.Any) -> None:
 
 
 def test_the_cleanit_options_need_the_cleanit_post_processor(media_dir: typing.Any) -> None:
-    result = rip('--engine', 'plugin', '--no-post-process', '--cleanit-tag', 'ocr', str(media_dir))
+    result = rip('--engine', 'plugin', '--no-post-processor', '--cleanit-tag', 'ocr', str(media_dir))
 
     assert result.exit_code == 2
     assert 'the --cleanit-* options need --post-processor cleanit' in result.output
 
 
 def test_post_processor_and_no_post_process_are_rejected_together(media_dir: typing.Any) -> None:
-    result = rip('--engine', 'plugin', '--post-processor', 'upper', '--no-post-process', str(media_dir))
+    result = rip('--engine', 'plugin', '--post-processor', 'upper', '--no-post-processor', str(media_dir))
 
     assert result.exit_code == 2
-    assert 'use --post-processor or --no-post-process, not both' in result.output
+    assert 'use --post-processor or --no-post-processor, not both' in result.output
 
 
 def test_an_unknown_post_processor_is_rejected(media_dir: typing.Any) -> None:
@@ -293,8 +298,8 @@ def test_keep_temp_files_writes_the_cues_as_json(media_dir: typing.Any, tmp_path
 
 
 def test_the_default_options_have_the_cleanit_post_processor() -> None:
-    assert [type(p) for p in Options().post_processors] == [CleanitPostProcessor]
-    assert Options(post_processors=[]).post_processors == []
+    assert [type(p) for p in post_processors(Options())] == [CleanitPostProcessor]
+    assert post_processors(Options(post_processors=[])) == []
 
 
 def test_doctor_prints_the_checks_of_every_post_processor(monkeypatch: pytest.MonkeyPatch) -> None:

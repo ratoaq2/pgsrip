@@ -1,33 +1,8 @@
-import numpy as np
-import numpy.typing as npt
+import os
+
 import pytest
 
-from pgsrip.utils import format_time, split_lines, to_time
-
-
-def bitmap(rows: str) -> npt.NDArray[np.uint8]:
-    """A subtitle bitmap: one character for each row, '#' is a row with ink."""
-    image = np.full((len(rows), 4), 255, dtype=np.uint8)
-    image[[index for index, row in enumerate(rows) if row == '#'], 1] = 0
-    return image
-
-
-def ink_rows(image: npt.NDArray[np.uint8]) -> str:
-    return ''.join('#' if (row < 128).any() else '.' for row in image)
-
-
-@pytest.mark.parametrize(
-    ('rows', 'lines'),
-    [
-        pytest.param('#####', ['#####'], id='one line'),
-        pytest.param('#####..#####', ['#####', '#####'], id='two lines'),
-        pytest.param('#.#####..#####', ['#.#####', '#####'], id='umlaut dots go with the line below'),
-        pytest.param('#####..#####..#', ['#####', '#####..#'], id='low part at the bottom goes with the line above'),
-        pytest.param('.....', ['.....'], id='empty bitmap'),
-    ],
-)
-def test_split_lines_gives_one_image_for_each_text_line(rows: str, lines: list[str]) -> None:
-    assert [ink_rows(line) for line in split_lines(bitmap(rows))] == lines
+from pgsrip.utils import cache_dir, format_time
 
 
 @pytest.mark.parametrize(
@@ -38,13 +13,14 @@ def test_split_lines_gives_one_image_for_each_text_line(rows: str, lines: list[s
         pytest.param(3_599_999, '00:59:59,999', id='last ms of the first hour'),
         pytest.param(3_600_001, '01:00:00,001', id='more than one hour'),
         pytest.param(360_000_000, '100:00:00,000', id='100 hours'),
-        pytest.param(None, 'None', id='none'),
+        pytest.param(None, None, id='none'),
     ],
 )
-def test_format_time_gives_the_srt_format(ms: int | None, text: str) -> None:
+def test_format_time_gives_the_srt_format(ms: int | None, text: str | None) -> None:
     assert format_time(ms) == text
 
 
-def test_to_time_truncates_to_int_milliseconds() -> None:
-    assert to_time(100000 / 90) == 1111
-    assert to_time(None) is None
+def test_the_cache_dir_is_in_the_user_cache_directory_of_pgsrip() -> None:
+    # the same place as before appdirs, so that the downloaded data stays where it is
+    assert cache_dir('tessdata').endswith(os.path.join('', 'pgsrip', 'tessdata'))
+    assert 'Cache' not in cache_dir('tessdata').split(os.sep)

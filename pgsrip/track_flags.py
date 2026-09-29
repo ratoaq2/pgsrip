@@ -19,14 +19,17 @@ FLAG_ALIASES: dict[str, str] = {
     'foreign': 'forced',
 }
 
-#: version value rendered/parsed as a filename token rather than a boolean field.
+#: the filename token of the `alternate` field.
 ALTERNATE = 'alternate'
+
+#: every token that parse() accepts -> TrackFlags boolean field.
+PARSED_TOKENS: dict[str, str] = {**FLAG_TOKENS, **FLAG_ALIASES, ALTERNATE: 'alternate'}
 
 #: matches()-only pseudo-flag: a track carrying none of FLAG_TOKENS' fields.
 FULL = 'full'
 
-#: every token accepted by --with/--without: the filename tokens, plus the non-rendered
-#: default/original flags and the alternate/full pseudo-flags matches() also understands.
+#: every token accepted by --with/--without: the filename tokens, the non-rendered default/original
+#: flags, the alternate flag, and the full pseudo-flag.
 FLAG_CHOICES: tuple[str, ...] = (*FLAG_TOKENS, 'default', 'original', ALTERNATE, FULL)
 
 
@@ -39,62 +42,38 @@ class TrackFlags:
     descriptive: bool = False
     default: bool = False
     original: bool = False
-    version: str | None = None
+    alternate: bool = False
 
     def tokens(self) -> tuple[str, ...]:
         """Filename tokens in canonical order: forced, sdh, cc, commentary, descriptive, alternate."""
         result = [token for token, field in FLAG_TOKENS.items() if getattr(self, field)]
-        if self.version == ALTERNATE:
+        if self.alternate:
             result.append(ALTERNATE)
         return tuple(result)
 
     @classmethod
     def parse(cls, tokens: Sequence[str]) -> tuple[TrackFlags, list[str]]:
-        """Consume recognised flag tokens off the END of tokens. Return (flags, remaining)."""
+        """Remove the flag tokens from the end of `tokens`. Return the flags and the remaining tokens."""
         remaining = list(tokens)
-        forced = hearing_impaired = closed_caption = commentary = descriptive = False
-        version: str | None = None
-        while remaining:
-            token = remaining[-1]
-            field = FLAG_TOKENS.get(token) or FLAG_ALIASES.get(token)
-            if token == ALTERNATE:
-                version = ALTERNATE
-            elif field == 'forced':
-                forced = True
-            elif field == 'hearing_impaired':
-                hearing_impaired = True
-            elif field == 'closed_caption':
-                closed_caption = True
-            elif field == 'commentary':
-                commentary = True
-            elif field == 'descriptive':
-                descriptive = True
-            else:
-                break
+        fields: dict[str, bool] = {}
+        while remaining and (field := PARSED_TOKENS.get(remaining[-1])):
+            fields[field] = True
             remaining.pop()
 
-        flags = cls(
-            forced=forced,
-            hearing_impaired=hearing_impaired,
-            closed_caption=closed_caption,
-            commentary=commentary,
-            descriptive=descriptive,
-            version=version,
-        )
-        return flags, remaining
+        return cls(**fields), remaining
 
-    def matches(self, include: frozenset[str], exclude: frozenset[str]) -> bool:
-        """Empty include = allow all. 'full' means no forced/sdh/cc/commentary/descriptive.
-        exclude wins over include."""
-        if any(self._has_token(token) for token in exclude):
+    def matches(self, with_flags: frozenset[str], without_flags: frozenset[str]) -> bool:
+        """True when the track has one of `with_flags` (or `with_flags` is empty) and none of `without_flags`.
+
+        'full' means no forced, sdh, cc, commentary or descriptive flag. `without_flags` wins over `with_flags`.
+        """
+        if any(self._has_token(token) for token in without_flags):
             return False
-        return not include or any(self._has_token(token) for token in include)
+        return not with_flags or any(self._has_token(token) for token in with_flags)
 
     def _has_token(self, token: str) -> bool:
         if token == FULL:
             return not any(getattr(self, field) for field in FLAG_TOKENS.values())
-        if token == ALTERNATE:
-            return self.version == ALTERNATE
         if token in FLAG_TOKENS:
             return bool(getattr(self, FLAG_TOKENS[token]))
         return bool(getattr(self, token, False))

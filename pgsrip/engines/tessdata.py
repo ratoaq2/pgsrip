@@ -15,14 +15,12 @@ import pytesseract as tess
 from babelfish import Language
 
 from pgsrip.engines.base import OcrError
+from pgsrip.utils import cache_dir, is_writable
 
 logger = logging.getLogger(__name__)
 
 TRAINED_DATA_EXTENSION = '.traineddata'
 DEFAULT_LANGUAGE_CODE = 'eng'
-OSD_CODE = 'osd'
-# page segmentation modes that need osd.traineddata on top of the language itself
-OSD_PAGE_SEGMENTATION_MODES = frozenset({0, 1, 12})
 
 DEFAULT_REPOSITORY = 'best'
 REPOSITORIES = {
@@ -33,7 +31,7 @@ REPOSITORIES = {
 DOWNLOAD_TIMEOUT = 30
 USER_AGENT = 'pgsrip'
 
-# tesseract does not name every model after its alpha3 code: some are script specific
+#: tesseract does not name every model after its alpha3 code: some models are for one script
 SCRIPT_CODES = {
     ('aze', 'Cyrl'): 'aze_cyrl',
     ('srp', 'Latn'): 'srp_latn',
@@ -48,7 +46,7 @@ class TessdataError(OcrError):
     """Raised when the tesseract data required to rip a subtitle cannot be made available."""
 
 
-def get_tesseract_code(language: Language) -> str | None:
+def tesseract_code(language: Language) -> str | None:
     """Return the tesseract model name for a language, or None when the language is unknown."""
     if not language:
         return None
@@ -62,16 +60,12 @@ def get_tesseract_code(language: Language) -> str | None:
     return SCRIPT_CODES.get((alpha3, script or ''), alpha3)
 
 
-def get_required_codes(languages: typing.Iterable[Language], psm_value: int | None = None) -> set[str]:
+def required_codes(languages: typing.Iterable[Language]) -> set[str]:
     """Return every tesseract model needed to rip the given languages."""
-    codes = {get_tesseract_code(language) or DEFAULT_LANGUAGE_CODE for language in languages}
-    if psm_value in OSD_PAGE_SEGMENTATION_MODES:
-        codes.add(OSD_CODE)
-
-    return codes
+    return {tesseract_code(language) or DEFAULT_LANGUAGE_CODE for language in languages}
 
 
-def get_config_arg(directory: str | None) -> str:
+def config_arg(directory: str | None) -> str:
     """Return the tesseract argument pointing to directory, or an empty string when it cannot be passed safely.
 
     pytesseract splits the config string with shlex before handing it to tesseract, so a directory that does not
@@ -81,63 +75,46 @@ def get_config_arg(directory: str | None) -> str:
         return ''
 
     if shlex.split(directory, posix=(sys.platform != 'win32')) != [directory]:
-        logger.debug('Cannot pass %s as --tessdata-dir, falling back to TESSDATA_PREFIX', directory)
+        logger.debug('Cannot pass %s as --tessdata-dir: TESSDATA_PREFIX is used', directory)
         return ''
 
     return f'--tessdata-dir {directory}'
 
 
 @contextmanager
-def tessdata_env(directory: str | None) -> typing.Iterator[None]:
-    """Point TESSDATA_PREFIX at directory for the duration of the block, restoring the previous value after."""
-    if not directory:
-        yield
-        return
+def tesseract_env(directory: str | None) -> typing.Iterator[None]:
+    """Set the environment of the tesseract processes for the block, and restore the previous values after.
 
-    previous = os.environ.get('TESSDATA_PREFIX')
-    os.environ['TESSDATA_PREFIX'] = directory
+    pytesseract gives `os.environ` to each tesseract process. `OMP_THREAD_LIMIT=1`: one process with OpenMP
+    threads uses about one core, and pgsrip runs one process for each composite in parallel. `TESSDATA_PREFIX`
+    points at directory, for the case when it cannot be passed as `--tessdata-dir`.
+    """
+    values = {'OMP_THREAD_LIMIT': '1', **({'TESSDATA_PREFIX': directory} if directory else {})}
+    previous = {name: os.environ.get(name) for name in values}
+    os.environ.update(values)
     try:
         yield
     finally:
-        if previous is None:
-            os.environ.pop('TESSDATA_PREFIX', None)
-        else:
-            os.environ['TESSDATA_PREFIX'] = previous
-
-
-def get_user_cache_dir() -> str:
-    if sys.platform == 'win32':
-        return os.getenv('LOCALAPPDATA') or os.path.join(os.path.expanduser('~'), 'AppData', 'Local')
-    if sys.platform == 'darwin':
-        return os.path.join(os.path.expanduser('~'), 'Library', 'Caches')
-
-    return os.getenv('XDG_CACHE_HOME') or os.path.join(os.path.expanduser('~'), '.cache')
-
-
-def is_writable(directory: str) -> bool:
-    try:
-        os.makedirs(directory, exist_ok=True)
-        with tempfile.NamedTemporaryFile(dir=directory, suffix='.pgsrip'):
-            return True
-    except OSError as e:
-        logger.debug('Cannot write to %s: <%s> %s', directory, type(e).__name__, e)
-        return False
+        for name, value in previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
 
 class Tessdata:
-    """Makes sure tesseract has the data files it needs, downloading the missing ones when allowed."""
+    """The tesseract data files. It downloads the missing files when `download` is set."""
 
     def __init__(
         self,
-        directory: str | None = None,
-        repository: str | None = None,
+        data_dir: str | None = None,
+        repository: str = DEFAULT_REPOSITORY,
         download: bool = True,
-        timeout: int = DOWNLOAD_TIMEOUT,
     ):
-        self.directory = directory or os.getenv('PGSRIP_TESSDATA_DIR') or None
-        self.repository = repository or os.getenv('PGSRIP_TESSDATA_REPO') or DEFAULT_REPOSITORY
+        #: the directory of the option, None for the default: see `target_dir`
+        self.data_dir = data_dir
+        self.repository = repository
         self.download = download
-        self.timeout = timeout
         self._target_dir: str | None = None
         self._installed_codes: set[str] | None = None
         #: tesseract was asked for its languages: a failure is not asked again
@@ -147,10 +124,11 @@ class Tessdata:
         return f'<{self.__class__.__name__} [{self}]>'
 
     def __str__(self) -> str:
-        return f'directory:{self.directory}, repository:{self.repository}, download:{self.download}'
+        return f'data_dir:{self.data_dir}, repository:{self.repository}, download:{self.download}'
 
     @property
     def base_url(self) -> str:
+        # a hidden hook for the tests: a mirror of the repository
         url = os.getenv('PGSRIP_TESSDATA_URL') or REPOSITORIES.get(self.repository)
         if not url:
             raise TessdataError(f'Unknown tessdata repository {self.repository}: expected {sorted(REPOSITORIES)}')
@@ -177,9 +155,9 @@ class Tessdata:
         """First writable directory where downloaded data can be stored."""
         if self._target_dir is None:
             candidates = [
-                self.directory,
+                self.data_dir,
                 os.getenv('TESSDATA_PREFIX'),
-                os.path.join(get_user_cache_dir(), 'pgsrip', 'tessdata'),
+                cache_dir('tessdata'),
                 os.path.join(tempfile.gettempdir(), 'pgsrip', 'tessdata'),
             ]
             for candidate in candidates:
@@ -209,8 +187,10 @@ class Tessdata:
             # no writable directory: nothing was downloaded before
             return False
 
-    def ensure(self, codes: typing.Iterable[str], reporter: typing.Callable[[str], None] | None = None) -> str | None:
-        """Make the given models available to tesseract, calling reporter before each actual download.
+    def ensure(
+        self, codes: typing.Iterable[str], on_download: typing.Callable[[str], None] | None = None
+    ) -> str | None:
+        """Make the given models available to tesseract. Call `on_download` with the code before each download.
 
         Returns the directory tesseract has to be pointed at, or None when it already finds everything itself.
         """
@@ -234,8 +214,8 @@ class Tessdata:
                 logger.warning('Tesseract data not installed for %s and downloading is disabled', code)
                 return None
 
-            if reporter:
-                reporter(code)
+            if on_download:
+                on_download(code)
             self.fetch(code, path)
 
         # data already visible to tesseract does not need it to be redirected
@@ -249,7 +229,7 @@ class Tessdata:
         request = urllib.request.Request(url, headers={'User-Agent': USER_AGENT})
         temp_path: str | None = None
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+            with urllib.request.urlopen(request, timeout=DOWNLOAD_TIMEOUT) as response:
                 with tempfile.NamedTemporaryFile(dir=os.path.dirname(path), suffix='.part', delete=False) as f:
                     temp_path = f.name
                     shutil.copyfileobj(response, f)

@@ -11,12 +11,22 @@ import sys
 import tempfile
 import typing
 
-from pgsrip import __version__
-from pgsrip.engines.tessdata import is_writable
+from pgsrip.utils import is_writable
 
 logger = logging.getLogger(__name__)
 
-REPORTED_PACKAGES = ('click', 'numpy', 'opencv-python', 'pytesseract', 'pysrt', 'babelfish', 'cleanit', 'trakit')
+REPORTED_PACKAGES = (
+    'click',
+    'numpy',
+    'opencv-python',
+    'pytesseract',
+    'pysrt',
+    'babelfish',
+    'cleanit',
+    'trakit',
+    'appdirs',
+    'pyyaml',
+)
 COMMAND_TIMEOUT = 10
 
 
@@ -74,7 +84,7 @@ def check_temp_directory() -> Check:
 def run_checks(tool_checks: list[Check] | None = None) -> list[Check]:
     """Collect everything that is worth knowing about this installation, with the checks of the sources and engines."""
     checks = [
-        Check('pgsrip', __version__),
+        Check('pgsrip', importlib.metadata.version('pgsrip')),
         Check('python', f'{platform.python_version()} ({sys.executable})'),
         Check('platform', platform.platform()),
     ]

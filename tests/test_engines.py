@@ -7,30 +7,32 @@ import importlib.metadata
 import shutil
 import sys
 import tempfile
-import types
 import typing
 
+import numpy as np
 import pysrt
 import pytest
 from babelfish import Language
 from click.testing import CliRunner
 
+from pgsrip.api import engines
 from pgsrip.cli import pgsrip
-from pgsrip.cli.plugins import ENGINE_ENTRY_POINTS
 from pgsrip.diagnostics import Check
+from pgsrip.engines import ENGINE_ENTRY_POINTS
 from pgsrip.engines.auto import AutoEngine
-from pgsrip.engines.base import OcrEngine
+from pgsrip.engines.base import OcrEngine, Reading
+from pgsrip.engines.chain import read_cues
 from pgsrip.engines.rapidocr import RAPIDOCR_HINT, RapidOcrEngine
-from pgsrip.engines.tesseract import TESSERACT_HINT, TesseractEngine
-from pgsrip.engines.tsv import TsvData
+from pgsrip.engines.tesseract import MAX_TESS_DIMENSION, TESSERACT_HINT, Composite, Gap, TesseractEngine
+from pgsrip.engines.tsv import TsvResult
+from pgsrip.formats.pgs import Box
 from pgsrip.options import Options
 from pgsrip.plugin import PluginOption
-from pgsrip.ripper import PgsRipper
 
 from .fabricate import SAMPLE
 
 if typing.TYPE_CHECKING:
-    from pgsrip.media import Pgs, PgsSubtitleItem
+    from pgsrip.formats.pgs import Item
 
 
 class PluginEngine(OcrEngine):
@@ -41,15 +43,19 @@ class PluginEngine(OcrEngine):
     #: the engines that the plug-in factory created
     created: typing.ClassVar[list[PluginEngine]] = []
 
-    options: typing.ClassVar[tuple[PluginOption, ...]] = ()
+    options: typing.ClassVar[tuple[PluginOption, ...]] = (PluginOption('workers', int, default=None),)
 
     def __init__(self, workers: int | None = None):
         self.workers = workers
         PluginEngine.created.append(self)
 
     @classmethod
-    def from_settings(cls, settings: dict[str, typing.Any], workers: int | None) -> PluginEngine:
-        return cls(workers=workers)
+    def from_settings(cls, settings: dict[str, typing.Any]) -> PluginEngine:
+        return cls(workers=settings.get('workers'))
+
+    @classmethod
+    def check(cls, settings: dict[str, typing.Any]) -> list[Check]:
+        return []
 
     def prepare(
         self, languages: typing.Iterable[Language], reporter: typing.Callable[[str], None] | None = None
@@ -59,17 +65,17 @@ class PluginEngine(OcrEngine):
     def supports(self, language: Language) -> bool:
         return True
 
-    def recognize(self, pgs: Pgs, items: list[PgsSubtitleItem]) -> None:
+    def recognize(self, items: list[Item], language: Language, debug_dir: str | None) -> list[Reading]:
         PluginEngine.calls.append([item.index for item in items])
-        for item in items:
-            item.text = f'Plugin {item.index}'
+        return [Reading(f'Plugin {item.index}') for item in items]
 
 
 class BlindEngine(PluginEngine):
     """An engine of another package that reads nothing."""
 
-    def recognize(self, pgs: Pgs, items: list[PgsSubtitleItem]) -> None:
+    def recognize(self, items: list[Item], language: Language, debug_dir: str | None) -> list[Reading]:
         PluginEngine.calls.append([item.index for item in items])
+        return [Reading(None) for _ in items]
 
 
 class EnglishEngine(PluginEngine):
@@ -78,9 +84,8 @@ class EnglishEngine(PluginEngine):
     def supports(self, language: Language) -> bool:
         return bool(language == Language('eng'))
 
-    def recognize(self, pgs: Pgs, items: list[PgsSubtitleItem]) -> None:
-        for item in items:
-            item.text = f'English {item.index}'
+    def recognize(self, items: list[Item], language: Language, debug_dir: str | None) -> list[Reading]:
+        return [Reading(f'English {item.index}') for item in items]
 
 
 class RoutingEngine(BlindEngine):
@@ -97,14 +102,15 @@ class TunedEngine(PluginEngine):
         PluginOption('model', help='Model of the tuned engine.'),
         PluginOption('size', int, default=1, envvar='PGSRIP_TUNED_SIZE'),
         PluginOption('fast', flag=True, default=True),
+        PluginOption('workers', int, default=None),
     )
     #: the settings of each created engine
     settings: typing.ClassVar[list[dict[str, typing.Any]]] = []
 
     @classmethod
-    def from_settings(cls, settings: dict[str, typing.Any], workers: int | None) -> PluginEngine:
+    def from_settings(cls, settings: dict[str, typing.Any]) -> PluginEngine:
         TunedEngine.settings.append(settings)
-        return cls(workers=workers)
+        return cls(workers=settings['workers'])
 
     @classmethod
     def check(cls, settings: dict[str, typing.Any]) -> list[Check]:
@@ -123,7 +129,7 @@ class RemoteEngine(PluginEngine):
 
 @pytest.fixture
 def media_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: typing.Any) -> typing.Any:
-    """A directory with the placeholder sample (3 cues), and a temporary folder of its own."""
+    """A directory with the placeholder sample (3 cues), and a temporary directory of its own."""
     temp_dir = tmp_path / 'temp'
     temp_dir.mkdir()
     monkeypatch.setattr(tempfile, 'tempdir', str(temp_dir))
@@ -159,10 +165,10 @@ def fake_tesseract(monkeypatch: pytest.MonkeyPatch) -> list[int]:
     """Tesseract reads every cue as 'Tesseract <index>'. Add an index to the list to make that cue doubtful."""
     doubtful: list[int] = []
 
-    def recognize(engine: TesseractEngine, pgs: Pgs, items: list[PgsSubtitleItem]) -> None:
-        for item in items:
-            item.text = f'Tesseract {item.index}'
-            item.doubtful = item.index in doubtful
+    def recognize(
+        engine: TesseractEngine, items: list[Item], language: Language, debug_dir: str | None
+    ) -> list[Reading]:
+        return [Reading(f'Tesseract {item.index}', doubtful=item.index in doubtful) for item in items]
 
     monkeypatch.setattr(TesseractEngine, 'prepare', lambda *args, **kwargs: None)
     monkeypatch.setattr(TesseractEngine, 'supports', lambda *args: True)
@@ -176,7 +182,12 @@ def blind_tesseract(monkeypatch: pytest.MonkeyPatch) -> list[TesseractEngine]:
     engines: list[TesseractEngine] = []
     monkeypatch.setattr(TesseractEngine, 'prepare', lambda *args, **kwargs: None)
     monkeypatch.setattr(TesseractEngine, 'supports', lambda *args: True)
-    monkeypatch.setattr(TesseractEngine, 'recognize', lambda engine, *args: engines.append(engine))
+
+    def recognize(engine: TesseractEngine, items: list[Item], *args: typing.Any) -> list[Reading]:
+        engines.append(engine)
+        return [Reading(None) for _ in items]
+
+    monkeypatch.setattr(TesseractEngine, 'recognize', recognize)
     return engines
 
 
@@ -292,10 +303,9 @@ class FakeItem:
 
 
 def test_the_chain_uses_the_engine_that_engine_for_gives() -> None:
-    item = FakeItem()
-    pgs: typing.Any = types.SimpleNamespace(items=[item], language=Language('eng'))
+    items: typing.Any = [FakeItem()]
 
-    cues = PgsRipper(pgs, Options(engines=[RoutingEngine()])).rip()
+    cues, _ = read_cues(items, Language('eng'), [RoutingEngine()])
 
     assert [(cue.text, cue.engine) for cue in cues] == [('Plugin 0', 'PluginEngine')]
     assert PluginEngine.calls == [[0]]
@@ -316,10 +326,10 @@ def fake_rapidocr(monkeypatch: pytest.MonkeyPatch) -> list[Language]:
     """RapidOCR reads every cue as 'RapidOCR <index>', doubtful. The list gets the languages that it prepared."""
     prepared: list[Language] = []
 
-    def recognize(engine: RapidOcrEngine, pgs: Pgs, items: list[PgsSubtitleItem]) -> None:
-        for item in items:
-            item.text = f'RapidOCR {item.index}'
-            item.doubtful = True
+    def recognize(
+        engine: RapidOcrEngine, items: list[Item], language: Language, debug_dir: str | None
+    ) -> list[Reading]:
+        return [Reading(f'RapidOCR {item.index}', doubtful=True) for item in items]
 
     monkeypatch.setattr(RapidOcrEngine, 'prepare', lambda engine, languages, reporter=None: prepared.extend(languages))
     monkeypatch.setattr(RapidOcrEngine, 'supports', lambda engine, language: language in prepared)
@@ -386,17 +396,17 @@ def test_auto_fails_a_track_that_no_engine_can_read(
 @pytest.mark.usefixtures('fake_tesseract', 'fake_rapidocr')
 def test_the_cues_of_auto_have_the_name_of_the_engine_that_read_them(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(TesseractEngine, 'supports', lambda engine, language: False)
-    engine = AutoEngine()
+    engine = AutoEngine(TesseractEngine(), RapidOcrEngine())
     engine.prepare([Language('heb')])
-    pgs: typing.Any = types.SimpleNamespace(items=[FakeItem()], language=Language('heb'))
+    items: typing.Any = [FakeItem()]
 
-    cues = PgsRipper(pgs, Options(engines=[engine])).rip()
+    cues, _ = read_cues(items, Language('heb'), [engine])
 
     assert [(cue.text, cue.engine) for cue in cues] == [('RapidOCR 0', 'RapidOcrEngine')]
 
 
 def test_the_default_engine_of_the_options_is_auto() -> None:
-    assert [type(engine) for engine in Options().engines] == [AutoEngine]
+    assert [type(engine) for engine in engines(Options())] == [AutoEngine]
 
 
 def test_auto_is_valid_only_alone(media_dir: typing.Any) -> None:
@@ -460,6 +470,59 @@ def test_the_tesseract_threshold_option_sets_the_engine_threshold(
     assert [engine.threshold for engine in blind_tesseract] == [50]
 
 
+def test_the_tesseract_confidence_and_width_options_set_the_first_pass(
+    media_dir: typing.Any, blind_tesseract: list[TesseractEngine]
+) -> None:
+    result = rip('--tesseract-confidence', '50', '--tesseract-width', '20000', str(media_dir))
+
+    assert result.exit_code == 0, result.output
+    assert [(engine.confidence, engine.width) for engine in blind_tesseract] == [(50, 20000)]
+
+
+@pytest.mark.usefixtures('blind_tesseract')
+def test_the_tesseract_width_has_a_range(media_dir: typing.Any) -> None:
+    result = rip('--tesseract-width', '40000', str(media_dir))
+
+    assert result.exit_code == 2
+    assert '10240<=x<=31744' in result.output
+
+
+def test_the_tesseract_environment_variables_set_the_options(
+    media_dir: typing.Any, blind_tesseract: list[TesseractEngine], monkeypatch: pytest.MonkeyPatch, tmp_path: typing.Any
+) -> None:
+    monkeypatch.setenv('PGSRIP_TESSDATA_DIR', str(tmp_path / 'tessdata'))
+    monkeypatch.setenv('PGSRIP_TESSDATA_REPO', 'fast')
+
+    result = rip('--engine', 'tesseract', str(media_dir))
+
+    assert result.exit_code == 0, result.output
+    assert [(engine.tessdata.data_dir, engine.tessdata.repository) for engine in blind_tesseract] == [
+        (str(tmp_path / 'tessdata'), 'fast')
+    ]
+
+
+def test_the_engines_do_not_read_the_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: typing.Any) -> None:
+    monkeypatch.setenv('PGSRIP_TESSDATA_DIR', str(tmp_path))
+    monkeypatch.setenv('PGSRIP_RAPIDOCR_DIR', str(tmp_path))
+
+    assert TesseractEngine().tessdata.data_dir is None
+    assert RapidOcrEngine().model_dir is None
+
+
+def test_the_help_shows_the_defaults_and_the_environment_variables() -> None:
+    result = CliRunner().invoke(pgsrip, ['rip', '--help'])
+
+    assert result.exit_code == 0, result.output
+    for name in ('PGSRIP_TESSDATA_DIR', 'PGSRIP_TESSDATA_REPO', 'PGSRIP_RAPIDOCR_DIR', 'default: 80'):
+        assert name in result.output
+
+
+def test_the_tesseract_defaults() -> None:
+    engine = TesseractEngine()
+
+    assert (engine.confidence, engine.width, engine.threshold) == (65, 31744, 80)
+
+
 @pytest.mark.parametrize(
     'options, tesseract_workers, plugin_workers',
     [
@@ -495,15 +558,13 @@ def test_a_cue_with_a_word_below_the_threshold_is_doubtful(threshold: int | None
     columns = ('level', 'page_num', 'block_num', 'par_num', 'line_num', 'word_num')
     rows = [(5, 1, 1, 1, 1, 1, 10, 10, 20, 20, 96, 'Hello'), (5, 1, 1, 1, 1, 2, 40, 10, 20, 20, 70, 'there')]
     keys = (*columns, 'left', 'top', 'width', 'height', 'conf', 'text')
-    data = TsvData({key: [row[i] for row in rows] for i, key in enumerate(keys)}, confidence=65)
-    item: typing.Any = types.SimpleNamespace(place=(0, 0, 100, 100), text=None, doubtful=False, confidence=None)
+    data = TsvResult({key: [row[i] for row in rows] for i, key in enumerate(keys)}, confidence=65)
+    reading = TesseractEngine(**({} if threshold is None else {'threshold': threshold})).read_item(
+        data, Box(0, 0, 100, 100), 65
+    )
 
-    text = TesseractEngine(threshold=threshold).accept(data, item, 65)
-
-    assert text == 'Hello there'
-    assert item.doubtful is doubtful
     # the lowest word confidence, from 0 to 1
-    assert item.confidence == 0.7
+    assert reading == Reading('Hello there', 0.7, doubtful)
 
 
 def test_a_config_file_sets_the_engine_chain_and_the_tesseract_section(
@@ -511,7 +572,7 @@ def test_a_config_file_sets_the_engine_chain_and_the_tesseract_section(
 ) -> None:
     config = tmp_path / 'config.yml'
     config.write_text(
-        'engine: [tesseract, plugin]\nmax_workers: 3\ntesseract:\n  threshold: 50\n  workers: 2\n  repository: fast\n',
+        'engine: [tesseract, plugin]\nworkers: 3\ntesseract:\n  threshold: 50\n  workers: 2\n  repository: fast\n',
         encoding='utf-8',
     )
 
@@ -543,7 +604,7 @@ def test_the_options_of_a_plugin_engine_go_to_its_settings(media_dir: typing.Any
     result = rip('--engine', 'tuned', '--tuned-model', 'small', '--no-tuned-fast', str(media_dir))
 
     assert result.exit_code == 0, result.output
-    assert TunedEngine.settings == [{'model': 'small', 'size': 1, 'fast': False}]
+    assert TunedEngine.settings == [{'model': 'small', 'size': 1, 'fast': False, 'workers': None}]
 
 
 def test_a_config_file_section_sets_the_options_of_a_plugin_engine(media_dir: typing.Any, tmp_path: typing.Any) -> None:
@@ -553,7 +614,7 @@ def test_a_config_file_section_sets_the_options_of_a_plugin_engine(media_dir: ty
     result = rip('--config', str(config), str(media_dir))
 
     assert result.exit_code == 0, result.output
-    assert TunedEngine.settings == [{'model': 'small', 'size': 3, 'fast': True}]
+    assert TunedEngine.settings == [{'model': 'small', 'size': 3, 'fast': True, 'workers': 2}]
     assert [engine.workers for engine in PluginEngine.created] == [2]
 
 
@@ -671,7 +732,11 @@ def test_doctor_shows_the_engine_of_auto(
             raise OSError('tesseract not found')
         return ['eng']
 
+    real_version = importlib.metadata.version
+
     def version(name: str) -> str:
+        if name not in ('rapidocr', 'onnxruntime'):
+            return real_version(name)
         if not rapidocr:
             raise importlib.metadata.PackageNotFoundError(name)
         return '1.0'
@@ -718,9 +783,51 @@ def test_doctor_accepts_the_rip_options_of_a_config_file(
     doctor: typing.Callable[..., typing.Any], tmp_path: typing.Any
 ) -> None:
     config = tmp_path / 'config.yml'
-    config.write_text('language: [en]\nmax_workers: 2\ntuned:\n  model: large\n', encoding='utf-8')
+    config.write_text('language: [en]\nworkers: 2\ntuned:\n  model: large\n', encoding='utf-8')
 
     result = doctor('--config', str(config))
 
     assert 'Unknown option' not in result.output
     assert any(line.startswith('tuned model') and line.endswith('large') for line in result.output.splitlines())
+
+
+@dataclasses.dataclass(eq=False)
+class WideItem:
+    """An item with a box and a bitmap, for the composites of tesseract."""
+
+    width: int
+    height: int = 10
+
+    @property
+    def box(self) -> Box:
+        return Box(0, 0, self.height, self.width)
+
+    @property
+    def bitmap(self) -> typing.Any:
+        return np.zeros((self.height, self.width), dtype=np.uint8)
+
+
+def test_an_item_wider_than_the_maximum_width_gets_a_composite_of_its_own() -> None:
+    items: typing.Any = [WideItem(width=500)]
+
+    composites = Composite.from_items(items, Gap(10, 10), max_width=100, max_height=MAX_TESS_DIMENSION)
+
+    assert [[item for item, _ in composite.placed] for composite in composites] == [items]
+
+
+def test_tesseract_reads_nothing_when_no_word_is_in_the_box() -> None:
+    data = TsvResult({}, confidence=65)
+
+    assert TesseractEngine().read_item(data, Box(0, 0, 100, 100), 65) is None
+
+
+def test_the_next_engine_reads_the_cues_where_tesseract_finds_no_word(
+    media_dir: typing.Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr('pgsrip.engines.tessdata.tess.get_languages', lambda: ['eng'])
+    monkeypatch.setattr('pgsrip.engines.tesseract.tess.image_to_data', lambda image, **config: {})
+
+    result = rip('--engine', 'tesseract', '--engine', 'plugin', str(media_dir))
+
+    assert result.exit_code == 0, result.output
+    assert read_texts(media_dir) == ['Plugin 0', 'Plugin 1', 'Plugin 2']

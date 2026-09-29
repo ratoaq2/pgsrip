@@ -6,26 +6,26 @@ run for real with `--media-backend real`/`both`. See docs/rip-e2e.md.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import tempfile
-import types
 import typing
 
 import numpy as np
 import pysrt
 import pytest
 import yaml
+from babelfish import Language
 from click.testing import CliRunner
 
+from pgsrip.api import decode, rip
 from pgsrip.cli import pgsrip
-from pgsrip.core import rip_pgs
-from pgsrip.engines.tesseract import MAX_TESS_DIMENSION, FullImage, TesseractEngine
-from pgsrip.formats.pgs import PgsReader
-from pgsrip.media import PgsSubtitleItem
-from pgsrip.media_path import MediaPath
+from pgsrip.engines.base import Reading
+from pgsrip.engines.tesseract import BORDER, MAX_TESS_DIMENSION, Composite, Gap, TesseractEngine
+from pgsrip.formats.pgs import Item, read_display_sets, read_items
+from pgsrip.media import Media, Workspace
 from pgsrip.options import Options
-from pgsrip.sources.base import Media
 from pgsrip.utils import MAX_DEFAULT_WORKERS, default_workers
 from pgsrip.writers.srt import SrtWriter
 
@@ -34,6 +34,7 @@ from .fabricate import (
     BACKENDS,
     MIN_MKVMERGE_VERSION,
     SAMPLE,
+    TSV_KEYS,
     FakeMkvToolNix,
     FakeTesseract,
     MediaSpec,
@@ -60,7 +61,6 @@ def isolated_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: typing.Any) 
     temp_dir = tmp_path / 'temp'
     temp_dir.mkdir()
     monkeypatch.setattr(tempfile, 'tempdir', str(temp_dir))
-    monkeypatch.setenv('OMP_THREAD_LIMIT', '1')  # TesseractEngine.process sets and never restores it
 
 
 @pytest.fixture
@@ -71,8 +71,9 @@ def toolnix() -> FakeMkvToolNix:
 @pytest.fixture
 def fake_ocr(toolnix: FakeMkvToolNix, monkeypatch: pytest.MonkeyPatch) -> FakeTesseract:
     ocr = FakeTesseract(toolnix)
-    monkeypatch.setattr(TesseractEngine, 'process', ocr.wrap_process(TesseractEngine.process))
-    monkeypatch.setattr(FullImage, 'from_items', ocr.wrap_from_items(FullImage.from_items))
+    monkeypatch.setattr('pgsrip.api.decode', ocr.wrap_decode(decode))
+    monkeypatch.setattr(TesseractEngine, 'read_pass', ocr.wrap_process(TesseractEngine.read_pass))
+    monkeypatch.setattr(Composite, 'from_items', ocr.wrap_from_items(Composite.from_items))
     monkeypatch.setattr('pgsrip.engines.tesseract.tess.image_to_data', ocr.image_to_data)
     return ocr
 
@@ -184,7 +185,7 @@ def test_all_silently_disables_one_per_language(
     fabricate_media: typing.Callable[[dict[str, typing.Any]], typing.Any], fake_ocr: FakeTesseract
 ) -> None:
     """Pinned as-is: `--all --one-per-language` writes both files (`one_per_lang` vs `one_per_language` in
-    `Media.get_pgs_medias` — `--all` sets `one_per_lang=False`, which is also the flag `one_per_language` collapsing is
+    `Media.subtitles` — `--all` sets `all_tracks=True`, which is also the flag `one_per_language` collapsing is
     gated on)."""
     scenario = {
         'media': {
@@ -227,12 +228,11 @@ def test_a_corrupt_track_is_reported_with_the_scrub_command_to_run(
     result = CliRunner().invoke(pgsrip, ['rip', str(media_dir)])
 
     assert result.exit_code == 1, result.output
-    # the message text (`max() arg is an empty sequence`) differs across 3.11-3.14: match the type only.
-    assert '<ValueError>' in result.output
+    assert '<CorruptDataError> No subtitle image in' in result.output
     assert 'pgsrip scrub' in result.output
 
 
-def test_no_temporary_folder_is_left_behind(
+def test_no_temporary_directory_is_left_behind(
     fabricate_media: typing.Callable[[dict[str, typing.Any]], typing.Any], fake_ocr: FakeTesseract, tmp_path: typing.Any
 ) -> None:
     scenario = {'media': {'name': 'movie.mkv', 'tracks': [{'language': 'en', 'cues': 1, 'texts': ['Hi there']}]}}
@@ -246,54 +246,51 @@ def test_no_temporary_folder_is_left_behind(
 
 
 @pytest.fixture
-def sample_items() -> list[PgsSubtitleItem]:
-    media_path = MediaPath(SAMPLE)
-    display_sets = list(PgsReader.decode(media_path.get_data(), media_path))
-    return PgsSubtitleItem.create_items(media_path, display_sets)
+def sample_items() -> list[Item]:
+    with open(SAMPLE, 'rb') as f:
+        display_sets = list(read_display_sets(f.read(), SAMPLE))
+    return read_items(display_sets, SAMPLE)
 
 
-def test_every_subtitle_image_is_composed_where_its_place_says(sample_items: list[PgsSubtitleItem]) -> None:
-    """The contract the whole fake OCR rests on: `item.place` is where `from_items` actually drew it."""
-    composites = FullImage.from_items(sample_items, (42, 112), MAX_TESS_DIMENSION, MAX_TESS_DIMENSION)
+def test_every_subtitle_image_is_composed_where_its_place_says(sample_items: list[Item]) -> None:
+    """The contract the whole fake OCR rests on: the box of `placed` is where `from_items` actually drew it."""
+    composites = Composite.from_items(sample_items, Gap(42, 112), MAX_TESS_DIMENSION, MAX_TESS_DIMENSION)
     assert len(composites) == 1
-    for item in sample_items:
-        assert item.place is not None
-        top, left, bottom, right = item.place
-        assert np.array_equal(composites[0].data[top:bottom, left:right], item.bitmap)
+    assert sorted(item.index for item, _ in composites[0].placed) == [item.index for item in sample_items]
+    for item, (top, left, bottom, right) in composites[0].placed:
+        assert np.array_equal(composites[0].image[top:bottom, left:right], item.bitmap)
 
 
-def test_composites_are_bounded_in_height(sample_items: list[PgsSubtitleItem]) -> None:
+def test_composites_are_bounded_in_height(sample_items: list[Item]) -> None:
     """Issue #136: a long track must be split into several composites, each small enough for tesseract."""
     # the sample ink is about 28 x 405 px. 600 px wide fits one item per area; 340 px tall fits two areas
     # plus gap and border.
     max_width, max_height = 600, 340
-    composites = FullImage.from_items(sample_items, (42, 112), max_width, max_height)
+    composites = Composite.from_items(sample_items, Gap(42, 112), max_width, max_height)
 
     assert len(composites) == 2
-    assert sorted(item.index for c in composites for item in c.items) == [0, 1, 2]
+    assert sorted(item.index for c in composites for item, _ in c.placed) == [0, 1, 2]
     for composite in composites:
-        height, width = composite.data.shape
+        height, width = composite.image.shape
         assert height <= max_height
-        assert width <= max_width + 2 * FullImage.border
-        for item in composite.items:
-            assert item.place is not None
-            top, left, bottom, right = item.place
-            assert np.array_equal(composite.data[top:bottom, left:right], item.bitmap)
+        assert width <= max_width + 2 * BORDER
+        for item, (top, left, bottom, right) in composite.placed:
+            assert np.array_equal(composite.image[top:bottom, left:right], item.bitmap)
 
 
-def test_an_area_taller_than_the_bound_gets_a_composite_of_its_own(sample_items: list[PgsSubtitleItem]) -> None:
-    composites = FullImage.from_items(sample_items, (42, 112), 600, 1)
+def test_an_area_taller_than_the_bound_gets_a_composite_of_its_own(sample_items: list[Item]) -> None:
+    composites = Composite.from_items(sample_items, Gap(42, 112), 600, 1)
 
-    assert [[item.index for item in c.items] for c in composites] == [[0], [1], [2]]
+    assert [[item.index for item, _ in c.placed] for c in composites] == [[0], [1], [2]]
 
 
 @pytest.mark.parametrize('parts', [1, 2, 3, 4])
-def test_composites_split_the_areas_evenly_for_parallel_ocr(sample_items: list[PgsSubtitleItem], parts: int) -> None:
+def test_composites_split_the_areas_evenly_for_parallel_ocr(sample_items: list[Item], parts: int) -> None:
     # 600 px wide gives one area per item: 3 areas.
-    composites = FullImage.from_items(sample_items, (42, 112), 600, MAX_TESS_DIMENSION, parts)
+    composites = Composite.from_items(sample_items, Gap(42, 112), 600, MAX_TESS_DIMENSION, parts)
 
     assert len(composites) == min(parts, 3)
-    assert sorted(item.index for c in composites for item in c.items) == [0, 1, 2]
+    assert sorted(item.index for c in composites for item, _ in c.placed) == [0, 1, 2]
 
 
 @pytest.mark.parametrize(
@@ -312,9 +309,9 @@ def test_a_pass_split_into_several_composites_rips_every_cue_once(
     composites: int,
 ) -> None:
     # the committed sample has 3 small cues: narrow the bounds instead of fabricating thousands of cues.
-    from_items = FullImage.from_items
+    from_items = Composite.from_items
     monkeypatch.setattr(
-        FullImage, 'from_items', lambda items, gap, _w, _h, parts: from_items(items, gap, 600, max_height, parts)
+        Composite, 'from_items', lambda items, gap, _w, _h, parts: from_items(items, gap, 600, max_height, parts)
     )
     scenario = {'media': {'name': 'movie.mkv', 'tracks': [{'language': 'en', 'texts': ['One', 'Two', 'Three']}]}}
     media_dir = fabricate_media(scenario)
@@ -348,18 +345,19 @@ def test_a_second_writer_writes_its_missing_file_and_the_existing_srt_does_not_c
     fabricate_media: typing.Callable[[dict[str, typing.Any]], typing.Any], fake_ocr: FakeTesseract
 ) -> None:
     scenario = {
-        'media': {'name': 'movie.mkv', 'tracks': [{'language': 'en', 'texts': ['One', 'Two']}]},
+        'media': {'name': 'movie.mkv', 'tracks': [{'language': 'en', 'texts': ['One', 'Two', 'Three']}]},
         'existing': {'movie.en.srt': 'old srt'},
     }
     media_dir = fabricate_media(scenario)
 
-    with Options(writers=[SrtWriter(), FakeWriter()]) as options:
-        (pgs,) = Media(str(media_dir / 'movie.mkv')).get_pgs_medias(options)
-        assert rip_pgs(pgs, options)
+    options = Options(writers=[SrtWriter(), FakeWriter()])
+    with Workspace() as workspace:
+        (subtitle,) = Media(str(media_dir / 'movie.mkv')).subtitles(options, workspace)
+        assert rip(subtitle, options)
 
     assert len(fake_ocr.passes) == 1
     assert (media_dir / 'movie.en.srt').read_text(encoding='utf-8') == 'old srt'
-    assert (media_dir / 'movie.en.fake').read_text(encoding='utf-8') == 'One\nTwo'
+    assert (media_dir / 'movie.en.fake').read_text(encoding='utf-8') == 'One\nTwo\nThree'
 
 
 def test_an_unknown_format_is_a_usage_error(
@@ -382,25 +380,29 @@ def test_the_default_worker_count_is_capped(monkeypatch: pytest.MonkeyPatch) -> 
     assert default_workers() == MAX_DEFAULT_WORKERS
 
 
+@dataclasses.dataclass(eq=False)
+class FakeItem:
+    height: int = 50
+    width: int = 500
+
+
 def test_the_retry_passes_stop_when_a_pass_would_repeat_the_last_one(monkeypatch: pytest.MonkeyPatch) -> None:
     # 20 or more items that no pass can read: the passes must stop, not repeat the same pass forever
-    items: typing.Any = [types.SimpleNamespace(height=50, width=500) for _ in range(25)]
-    pgs: typing.Any = types.SimpleNamespace(items=items, language=None)
+    items: typing.Any = [FakeItem() for _ in range(25)]
     engine = TesseractEngine()
     monkeypatch.setattr(engine.tessdata, 'ensure', lambda *args, **kwargs: None)
     passes: list[tuple[int, int]] = []
 
     def process(
-        pgs: typing.Any, items: list[typing.Any], confidence: int, max_width: int, *args: typing.Any
+        items: list[typing.Any], language: typing.Any, confidence: int, max_width: int, *args: typing.Any
     ) -> typing.Any:
         passes.append((confidence, max_width))
         assert len(passes) <= 20, f'the passes do not stop: {passes[-3:]}'
-        return items
+        return {}
 
-    monkeypatch.setattr(engine, 'process', process)
+    monkeypatch.setattr(engine, 'read_pass', process)
 
-    engine.recognize(pgs, items)
-
+    assert engine.recognize(items, Language('eng'), None) == [Reading(None)] * 25
     assert len(passes) == len(set(passes))
 
 
@@ -424,7 +426,7 @@ def write_config(path: typing.Any, languages: list[str]) -> str:
 
 
 @pytest.mark.parametrize('extension', ['.json', '.yml', '.yaml'])
-def test_the_config_file_in_the_current_folder_sets_the_defaults(
+def test_the_config_file_in_the_current_directory_sets_the_defaults(
     extension: str,
     tmp_path: typing.Any,
     monkeypatch: pytest.MonkeyPatch,
@@ -442,7 +444,7 @@ def test_the_config_file_in_the_current_folder_sets_the_defaults(
 
 
 @pytest.mark.parametrize('extension', ['.json', '.yml', '.yaml'])
-def test_the_config_file_in_the_user_config_folder_sets_the_defaults(
+def test_the_config_file_in_the_user_config_directory_sets_the_defaults(
     extension: str,
     user_config_dir: typing.Any,
     fabricate_media: typing.Callable[[dict[str, typing.Any]], typing.Any],
@@ -457,7 +459,7 @@ def test_the_config_file_in_the_user_config_folder_sets_the_defaults(
     assert written_subtitles(media_dir) == {'movie.de.srt'}
 
 
-def test_the_config_file_in_the_current_folder_wins_over_the_user_config_folder(
+def test_the_config_file_in_the_current_directory_wins_over_the_user_config_directory(
     tmp_path: typing.Any,
     user_config_dir: typing.Any,
     monkeypatch: pytest.MonkeyPatch,
@@ -532,7 +534,7 @@ def test_the_command_line_wins_over_the_config_file(
         ('config.yml', '- de\n', 'must contain option names and values'),
         ('config.json', '{"language": ', 'Cannot read'),
         ('config.yml', 'srt_age: 1d\n', 'Unknown option in'),
-        ('config.yml', 'format: [vtt]\n', "Invalid value for '--format'"),
+        ('config.yml', 'formats: [vtt]\n', "Invalid value for '--format'"),
     ],
 )
 def test_a_wrong_config_file_is_an_error(
@@ -552,3 +554,23 @@ def test_a_wrong_config_file_is_an_error(
     assert result.exit_code == 2
     assert error in result.output
     assert written_subtitles(media_dir) == set()
+
+
+def test_tesseract_restores_the_environment_after_a_rip(
+    monkeypatch: pytest.MonkeyPatch, sample_items: list[Item]
+) -> None:
+    monkeypatch.delenv('OMP_THREAD_LIMIT', raising=False)
+    seen: list[str | None] = []
+
+    def image_to_data(image: typing.Any, **config: typing.Any) -> dict[str, list[typing.Any]]:
+        seen.append(os.environ.get('OMP_THREAD_LIMIT'))
+        return {key: [] for key in TSV_KEYS}
+
+    monkeypatch.setattr('pgsrip.engines.tesseract.tess.image_to_data', image_to_data)
+    engine = TesseractEngine()
+    monkeypatch.setattr(engine.tessdata, 'ensure', lambda *args, **kwargs: None)
+    engine.recognize(sample_items, Language('eng'), None)
+
+    # one tesseract process for each composite, in parallel: each one must use one core
+    assert seen and set(seen) == {'1'}
+    assert 'OMP_THREAD_LIMIT' not in os.environ

@@ -9,6 +9,6 @@ paths:
 
 The tests make media from parameters, rip it through the CLI, and check the `.srt` files. Tesseract is
 always a fake. MKVToolNix is a fake by default, and real with `--media-backend real`. A test of a writer
-that the CLI does not have calls `rip_pgs` directly.
+that the CLI does not have calls `api.rip` directly.
 
 Read `docs/rip-e2e.md` for the fabrication API and the backend model.

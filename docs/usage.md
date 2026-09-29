@@ -43,6 +43,9 @@ uses RapidOCR for the tracks in this language, and the [engine chain](#a-chain-o
 | `--tesseract-repository fast` | `PGSRIP_TESSDATA_REPO=fast` | Download the smaller and faster models of [tessdata_fast](https://github.com/tesseract-ocr/tessdata_fast). |
 | | `PGSRIP_TESSDATA_URL` | Download from a mirror. Set the base URL of the mirror. |
 
+The command line reads `PGSRIP_TESSDATA_DIR` and `PGSRIP_TESSDATA_REPO`. The Python library does not read them:
+use `TesseractEngine(tessdata=Tessdata(data_dir=..., repository=...))` (`pgsrip.engines.tessdata`).
+
 The default source is [tessdata_best](https://github.com/tesseract-ocr/tessdata_best). It gives the best OCR
 quality.
 
@@ -78,15 +81,16 @@ pgsrip --without commentary mymedia.mkv
 
 ### One track or more for each language
 
-By default, pgsrip keeps one track for each combination of language and flags. Thus, it rips a plain English
-track and an SDH English track. SDH means subtitles for the deaf and hard of hearing.
+By default, pgsrip keeps one track for each combination of language and file name flags. Thus, it rips a plain
+English track and an SDH English track. SDH means subtitles for the deaf and hard of hearing. The `default` and
+`original` flags are not in the file name: 2 tracks that differ only in these flags are duplicates.
 
 - `--one-per-language` keeps only one track for each language. It ignores the flags.
 - `--all` rips all the selected tracks. It does not remove duplicates.
 
 ### Filtered files
 
-`--language` and `--age` remove some files from the rip. Use `-vvv` to see these files.
+`--language` and `--age` remove some files from the rip. Use `-vv` to see these files.
 
 ## File names
 
@@ -102,7 +106,7 @@ movie.pt-BR.forced.srt    a forced Brazilian Portuguese track
 Two selected tracks of one media file can get the same name. Then pgsrip adds `.track<n>` to the name. The first
 track keeps the plain name. pgsrip numbers each next track in order, for example `movie.en.srt` and
 `movie.en.track2.srt`. The name is the same at each run. It does not change with the other tracks or with the
-`.srt` files that are in the folder.
+`.srt` files that are in the directory.
 
 ## Parallel processes
 
@@ -166,7 +170,7 @@ doubtful when a character of the cue has a score below 90. The threshold never r
 | Option | Default | What it does |
 | --- | --- | --- |
 | `--rapidocr-threshold` | `90` | A cue with a character score below this value (0 to 100) is doubtful. |
-| `--rapidocr-model` | `small` | Size of the PP-OCRv6 model: `tiny`, `small`, or `medium`. Japanese always uses `small` or `medium`. |
+| `--rapidocr-model` | `small` | PP-OCRv6 model: `tiny`, `small`, or `medium`. Japanese uses `small` in place of `tiny`. The PP-OCRv5 languages always use the `mobile` model. |
 | `--rapidocr-border` | `4` | White border around each line, in pixels. |
 | `--rapidocr-batch` | `6` | Text lines in one model call. |
 | `--rapidocr-dir` | | Directory of the models. Also `PGSRIP_RAPIDOCR_DIR`. The default is the user cache directory (for example `~/.cache/pgsrip/rapidocr`). |
@@ -193,6 +197,11 @@ The first engine reads all the cues. Each next engine reads only these cues:
 Tesseract marks a cue as doubtful when a word of the cue has a confidence below 80. `--tesseract-threshold`
 changes this value (0 to 100). A higher value sends more cues to the next engine. When the next engine gives no
 text for a cue, pgsrip keeps the tesseract text.
+
+Two more options change how tesseract reads (see `docs/ocr_batching.md`). `--tesseract-confidence` (0 to 100,
+default 65) is the word confidence that the first pass accepts. The next passes go lower, down to 0.
+`--tesseract-width` (10240 to 31744, default 31744) is the maximum width in pixels of each image that goes to
+tesseract.
 
 pgsrip skips an engine of the chain for a track in a language that the engine cannot read. It shows one line for
 each such engine before the rip starts. When no engine of the chain can read the language, the track fails.
@@ -223,25 +232,30 @@ The class declares its options, and creates the engine from their values (see `O
 ```python
 import click
 
-from pgsrip.engines.base import OcrEngine
+from pgsrip.engines.base import OcrEngine, OcrEngineFactory
 from pgsrip.plugin import PluginOption
 
 
-class MyEngine(OcrEngine):
+class MyEngine(OcrEngine, OcrEngineFactory):
     options = (
         PluginOption('model', click.Choice(['small', 'large']), default='small', help='Model to use.'),
         PluginOption('url', required=True, envvar='MYOCR_URL', help='URL of the server.'),
         PluginOption('gpu', flag=True, help='Use the GPU.'),
+        PluginOption('workers', click.IntRange(1, 50), help='Number of jobs that run in parallel.'),
     )
 
     @classmethod
-    def from_settings(cls, settings, workers):
-        return cls(settings['model'], settings['url'], settings['gpu'], workers=workers)
+    def from_settings(cls, settings):
+        return cls(settings['model'], settings['url'], settings['gpu'], workers=settings['workers'])
+
+    @classmethod
+    def check(cls, settings):
+        return []
 ```
 
 pgsrip makes a command line option from each declared option, with the engine name as prefix:
-`--myocr-model`, `--myocr-url`, and `--myocr-gpu/--no-myocr-gpu`. Each engine also gets `--myocr-workers`.
-`workers` is its value, or the `-w` value, or `None`. A configuration file sets the options in a section:
+`--myocr-model`, `--myocr-url`, `--myocr-gpu/--no-myocr-gpu`, and `--myocr-workers`. An option named
+`workers` with no value gets the `-w` value, or `None`. A configuration file sets the options in a section:
 
 ```yaml
 myocr:
@@ -250,8 +264,11 @@ myocr:
 ```
 
 - The value of a `required` option is necessary only when the engine is in `--engine`.
-- An `envvar` option also reads this environment variable.
+- Each option declares its `default`. The help shows it when it is not `None`.
+- An `envvar` option also reads this environment variable. The help shows it. The engine does not read the
+  environment itself.
 - The `--myocr-*` options on the command line need `--engine myocr`.
+- `from_settings` raises `ValueError` when a value is wrong: pgsrip shows it as a usage error.
 
 pgsrip loads every plug-in class when it starts, also for `pgsrip --help`. Import the large libraries of the
 engine (for example onnxruntime) only in its methods. A plug-in that cannot be loaded is left out, with a
@@ -263,16 +280,18 @@ The engine has 3 methods (see `OcrEngine` in `pgsrip/engines/base.py`):
   when the engine cannot rip at all.
 - `supports(language)`: `True` when the engine can read this language. pgsrip calls it after `prepare`. When
   it returns `False`, pgsrip skips the engine for the tracks in this language.
-- `recognize(pgs, items)`: set `item.text` for each item that the engine can read. Leave `None` for the next
-  engine of the chain. Set `item.doubtful` when the text can be wrong. Set `item.confidence` (0 to 1) when the
-  engine has one. Raise `OcrError` when the engine fails: pgsrip then writes no subtitle file for that track.
+- `recognize(items, language, debug_dir)`: return one `pgsrip.engines.base.Reading(text, confidence,
+  doubtful)` for each item, in the same order. Do not change the items. `text=None` leaves the item for the
+  next engine of the chain. `doubtful=True` when the text can be wrong. `confidence` is from 0 to 1, or
+  `None`. `debug_dir` is a directory for the debug files, or `None` without `--keep-temp-files`. Raise
+  `OcrError` when the engine fails: pgsrip then writes no subtitle file for that track.
 
-Subclass `OcrEngine` to get the default `engine_for(language)`: the engine itself when it supports the
-language, else `None`. Override `engine_for` only when the engine sends a track to another engine. A class
+The built-in plug-ins subclass their Protocols, so mypy checks their methods. Subclass `OcrEngine` to get the
+default `engine_for(language)`: the engine itself when it supports the language, else `None`. Override `engine_for` only when the engine sends a track to another engine. A class
 that does not subclass `OcrEngine` must also write `engine_for`.
 
-The class can also have a `check(settings)` classmethod. It returns a list of `pgsrip.diagnostics.Check`.
-`pgsrip doctor` shows the checks of all engines, and the debug log shows the checks of the engines in
+The class must have a `check(settings)` classmethod. It returns a list of `pgsrip.diagnostics.Check`, or
+`[]`. `pgsrip doctor` shows the checks of all engines, and the debug log shows the checks of the engines in
 `--engine`. A check must not fail when an option has no value: show `not set`.
 
 Use the engine by name, alone or in a chain. A plug-in cannot replace `tesseract`.
@@ -290,7 +309,7 @@ it:
 pgsrip --post-processor cleanit --post-processor myfix mymedia.mkv
 ```
 
-`--no-post-process` keeps the text of the OCR engines.
+`--no-post-processor` keeps the text of the OCR engines.
 
 pgsrip leaves out the cues that have no text at the end of the chain.
 
@@ -315,9 +334,9 @@ cleanit:
 
 ### The cues as JSON
 
-Each run has one temporary folder `pgsrip-XXXX` in the system temporary directory. It holds one folder for each
-track, for example `mymedia.en-XXXX`. With `--keep-temp-files`, pgsrip keeps them, and it writes 2 files in the
-folder of each track:
+Each run has one temporary directory `pgsrip-XXXX` in the system temporary directory. It holds one directory for
+each track, for example `mymedia.en-XXXX`. With `--keep-temp-files`, pgsrip keeps them, and it writes 2 files in
+the directory of each track:
 
 - `ocr.json`: the cues after the chain of OCR engines.
 - `cues.json`: the cues after the chain of post-processors.
@@ -336,31 +355,37 @@ myfix = "myfix.postprocessor:MyFix"
 ```
 
 The class declares its options like an [OCR engine](#add-an-ocr-engine), with `PluginOption`. pgsrip makes
-the `--myfix-*` options and reads the `myfix` section of a configuration file. A post-processor has no
-`workers` option. `from_settings` gets only the settings (see `PostProcessorFactory` in
+the `--myfix-*` options and reads the `myfix` section of a configuration file. `from_settings` gets the
+settings, and `check` gives the lines of `pgsrip doctor` (see `PostProcessorFactory` in
 `pgsrip/postprocessors/base.py`). Raise `ValueError` when a value is wrong: pgsrip shows it as a usage
 error.
 
 ```python
 from pgsrip.plugin import PluginOption
+from pgsrip.postprocessors.base import PostProcessor, PostProcessorFactory
 
 
-class MyFix:
+class MyFix(PostProcessor, PostProcessorFactory):
     options = (PluginOption('model', default='small', help='Model to use.'),)
 
     @classmethod
     def from_settings(cls, settings):
         return cls(settings['model'])
 
-    def process(self, pgs, cues):
+    @classmethod
+    def check(cls, settings):
+        return []
+
+    def process(self, cues, track):
         for cue in cues:
             if cue.text and cue.doubtful:
                 cue.text = self.fix(cue.text, cue.item.image)
         return cues
 ```
 
-`process(pgs, cues)` gets all the cues of one track, and returns the new list (see `PostProcessor` in
-`pgsrip/postprocessors/base.py` and `Cue` in `pgsrip/ripper.py`). It can change, remove, add, or merge cues. A
+`process(cues, track)` gets all the cues of one track and the `Track` (id, name, language, flags), and returns
+the new list (see `PostProcessor` in
+`pgsrip/postprocessors/base.py` and `Cue` in `pgsrip/cue.py`). It can change, remove, add, or merge cues. A
 cue with `text=None` was not read by any engine. `cue.item` gives the subtitle image. An error stops the track:
 pgsrip then writes no subtitle file for that track.
 

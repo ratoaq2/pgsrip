@@ -125,7 +125,7 @@ pgsrip mymedia.mks
 pgsrip mymedia.en.sup
 ```
 
-Rip all the files in a folder, only in English and Brazilian Portuguese:
+Rip all the files in a directory, only in English and Brazilian Portuguese:
 
 ```text
 $ pgsrip -l en -l pt-BR ~/medias/
@@ -144,7 +144,7 @@ When pgsrip does not rip a file, it tells you why:
 
 ```text
 $ pgsrip -l fr ~/medias/
-~/medias/mymedia.mkv ignored: mkvmerge not found, install MKVToolNix and make sure that it is in the PATH
+~/medias/mymedia.mkv ignored: mkvmerge not found. Install MKVToolNix: https://mkvtoolnix.download/downloads.html
 0 PGS subtitle collected from 0 file / 1 path ignored
 ```
 
@@ -165,7 +165,7 @@ file of one `--format` is missing, pgsrip writes only that file.
 | `-a`, `--age` | Rip only the videos that are newer than this age, for example `12h` or `1w2d`. |
 | `-A`, `--output-age` | With `-f`, do not replace a subtitle file that is newer than this age, for example `12h` or `1w2d`. |
 | `-e`, `--encoding` | Write the subtitle files with this encoding. |
-| `-w`, `--max-workers` | Number of OCR jobs that run at the same time, for example tesseract processes. The default is the number of CPUs, at most 4. `--tesseract-workers` overrides it for tesseract. |
+| `-w`, `--workers` | Number of OCR jobs that run at the same time, for example tesseract processes. The default is the number of CPUs, at most 4. `--tesseract-workers` overrides it for tesseract. |
 | `--no-tesseract-download` | Do not download language data. Use only the installed languages. |
 | `--engine NAME` | OCR engine: [`auto`](docs/usage.md#the-default-engine-auto) (default: tesseract, else RapidOCR), `tesseract`, [`rapidocr`](docs/usage.md#rapidocr), or an engine of a plug-in. Use it more than one time for a [chain](docs/usage.md#ocr-engines). |
 | `--log-file FILE` | Write a debug log to this file. |
@@ -175,7 +175,8 @@ Run `pgsrip --help` for all options. [docs/usage.md](docs/usage.md) gives more d
 ### Configuration file
 
 A configuration file can contain the options of `pgsrip rip`. The keys are the option names, with `_` in
-place of `-`. For `--with` and `--without`, use `with_flags` and `without_flags`.
+place of `-`. For `--with`, `--without`, `--all`, and `--format`, use `with_flags`, `without_flags`,
+`all_tracks`, and `formats`.
 
 A section groups the options with the same prefix. For example, `threshold` in the `tesseract` section is
 `--tesseract-threshold`.
@@ -184,7 +185,7 @@ A section groups the options with the same prefix. For example, `threshold` in t
 language:
   - en
   - pt-BR
-max_workers: 4
+workers: 4
 without_flags:
   - commentary
 engine:
@@ -202,11 +203,11 @@ cleanit:
 
 pgsrip reads the configuration files in this order. A later file overrides an earlier file.
 
-1. `config.json`, `config.yml`, or `config.yaml` in the pgsrip user configuration folder:
+1. `config.json`, `config.yml`, or `config.yaml` in the pgsrip user configuration directory:
    - Linux: `~/.config/pgsrip/` (or `$XDG_CONFIG_HOME/pgsrip/`)
    - macOS: `~/Library/Application Support/pgsrip/`
    - Windows: `%LOCALAPPDATA%\pgsrip\pgsrip\`
-2. `pgsrip.json`, `pgsrip.yml`, or `pgsrip.yaml` in the current folder.
+2. `pgsrip.json`, `pgsrip.yml`, or `pgsrip.yaml` in the current directory.
 3. Each file that you give with `--config`, in the order of the command line.
 
 An option on the command line overrides the configuration files. An unknown key is an error.
@@ -232,16 +233,23 @@ For the rules, see [File names](docs/usage.md#file-names).
 
 ```python
 from babelfish import Language
-from pgsrip import pgsrip, Media, Options
+from pgsrip import Options, pending, prepare, rip, scan
 
-media = Media('/subtitle/path/mymedia.mkv')
-with Options(languages={Language('eng')}, overwrite=True) as options:
-    pgsrip.rip(media, options)
+options = Options(languages=frozenset({Language('eng')}), force=True)
+subtitles = [
+    subtitle
+    for media in scan('/subtitle/path/mymedia.mkv', options).media
+    for subtitle in pending(media.subtitles(options), options)
+]
+prepare(subtitles, options, reporter=print)
+for subtitle in subtitles:
+    rip(subtitle, options)
 ```
 
-The `with` block removes the temporary folder of the run at the end.
+`prepare` gets the OCR engines ready for the languages of the subtitles. Call it before `rip`: without it,
+RapidOCR does not read a track.
 
-The OCR engines are an option too, in chain order. The default is `[AutoEngine()]` (`pgsrip.engines.auto`): tesseract,
+The OCR engines are an option too, in chain order. The default is auto (`pgsrip.engines.auto`): tesseract,
 else RapidOCR, for each language. This example uses tesseract only:
 
 ```python

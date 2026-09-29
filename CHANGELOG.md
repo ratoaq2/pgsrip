@@ -2,6 +2,174 @@
 
 ## Unreleased
 
+  - Breaking: `-w/--max-workers` is now `-w/--workers`, and the
+    `max_workers` configuration key is now `workers`
+  - Breaking: `-v` lists all the ignored paths, and `-vv` also lists the
+    filtered-out paths. Before, it was `-vv` and `-vvv`
+  - Breaking: `scrub` names its copies with a free name `.track2`, `.track3`.
+    Before, it was `.track0`, `.track1`
+  - Breaking: pgsrip rips an MKV track with no language as `und`, like a
+    `.sup` file with no language. Before, it skipped the track
+  - New: `--tesseract-confidence` (0 to 100, default 65) sets the word
+    confidence of the first tesseract pass. `--tesseract-width` (10240 to
+    31744, default 31744) sets the maximum width of the images that go to
+    tesseract
+  - New: `rip --help` shows the default of each engine and post-processor
+    option, and the environment variables `PGSRIP_TESSDATA_DIR`,
+    `PGSRIP_TESSDATA_REPO`, and `PGSRIP_RAPIDOCR_DIR`
+  - Changed: `--keep-temp-files` writes `null` in `cues.json` for a missing
+    time. Before, it wrote the text `None`
+  - Changed: `doctor` also shows the versions of appdirs and pyyaml
+  - Fixed: a second run does not rip the duplicate of a track that it ripped
+    before, for example `movie.en.track2.srt` next to `movie.en.srt`
+  - Fixed: 2 tracks of the same language that differ only in the default or
+    original flag do not write the same file. Without `--all`, pgsrip rips
+    only the first. With `--all`, the second is `.track2`. Before, with
+    `--force`, the second track replaced the file of the first
+  - Fixed: a corrupted display set is logged and dropped. Before, the whole
+    track failed. This applies to an unknown segment type, a display set with
+    no composition segment or with no palette, a value that does not exist,
+    and a composition or window segment that is too short
+  - Fixed: the palette of a subtitle image is the palette that its
+    composition segment names. Before, pgsrip joined all the palettes of the
+    display set
+  - Fixed: tesseract: a cue where tesseract finds no word goes to the next
+    pass and to the next engine, and the "not ripped" warning lists it.
+    Before, the cue was dropped with no message
+  - Fixed: tesseract: a subtitle image wider than the composite width does
+    not stop the rip of the track
+  - Fixed: `rip` and `scrub` exit with code 1 when the `--log-file` cannot be
+    opened
+  - Fixed: `scrub` exits with code 1 when a scrub fails, and when it finds no
+    media. Before, it exited with 0
+  - Fixed: `scrub` does not write a scrubbed file that pgsrip cannot read
+    back. It shows the error
+  - Fixed: `--age ''` is an error. Before, it was accepted and filtered
+    nothing
+  - Fixed: `--language` does not keep a media whose only track of the
+    language is disabled
+  - Fixed: `--debug` and `--log-file` log each line one time when a script
+    runs 2 commands in one process. The log file closes when the command ends
+  - Fixed: the help of `-a`, `-A`, `-f`, `--all`, and `--keep-temp-files` tells
+    what the option does
+  - Breaking: library: `pgsrip.core` merges into `pgsrip.api`. `pgsrip`
+    exports `scan`, `ScanResult`, `Skipped`, `pending`, `prepare`, `rip`,
+    `Options`, `Media`, `Subtitle`, `Workspace`, and `PgsripError`.
+    `from pgsrip import pgsrip` goes away
+  - Breaking: library: `scan_path` is now `scan`, and returns a
+    `ScanResult(media, filtered_out, ignored)`. Each skipped path is a
+    `Skipped(path, reason)`: `ScannedPath` and `get_reason` go away
+  - Breaking: library: `rip_pgs` is now `rip(subtitle, options)`. It raises
+    the error that stops the rip, in place of the `on_error` callback.
+    `rip(media)` goes away. Call `prepare(subtitles, options, reporter)`
+    before `rip`: it gets the OCR engines ready for the languages of the
+    subtitles. Without it, `rip` does not use RapidOCR
+  - Breaking: library: `Pgs` is now `Subtitle(track, source_path, output_base,
+    extraction, workspace)`. `Subtitle.read()` gives the PGS data. It does not
+    decode the data and has no `items`. `Pgs.pending_writers` is now
+    `pgsrip.api.pending_writers`
+  - Breaking: library: `Media.get_pgs_medias` is now
+    `Media.subtitles(options, workspace)`. The selection does not look at the
+    output files: `pgsrip.api.pending` does. `Media` and `Extraction` move
+    from `pgsrip.sources.base` to `pgsrip.media`. `Media.media_path` is now
+    `Media.path`
+  - Breaking: library: `Options` is a frozen dataclass of plain values. Its
+    fields have the names of the CLI options: `force` (was `overwrite`),
+    `all_tracks` (was `one_per_lang`, inverted), `with_flags` and
+    `without_flags` (were `include_flags` and `exclude_flags`). `languages` is
+    a `frozenset`. None in `engines`, `post_processors`, or `writers` means the
+    default. `Options` is not a context manager: `Workspace` (from
+    `pgsrip.media`) holds the temporary directory of the run, and
+    `Workspace(keep=True)` replaces `keep_temp_files`
+  - Breaking: library: `Track` has one `flags` field (a `TrackFlags`) in place
+    of one field for each flag, and no `external` field.
+    `TrackFlags.version` is now the boolean `TrackFlags.alternate`.
+    `TrackFlags.matches(with_flags, without_flags)`: the arguments were
+    `include` and `exclude`
+  - Breaking: library: `MediaPath.translate` is now `MediaPath.replace`, and
+    it also takes `base_path`. `MediaPath.m_age` is now `MediaPath.age`, and
+    `MediaPath.track_id` is now `MediaPath.track_number`
+  - Breaking: library: all the errors of pgsrip are a `PgsripError` (from
+    `pgsrip.errors`): `SourceError`, `CorruptDataError` (from
+    `pgsrip.formats.pgs`, for a track with no subtitle image, before a
+    `ValueError`), `OcrError`, `TessdataError`, and `ScrubError`. `Media`
+    raises `SourceError` (from `pgsrip.sources.base`) when it cannot read the
+    file: for an unsupported extension, when the tool is not installed, and
+    when the tool fails. `Source.missing` is now `Source.install_hint`
+  - Breaking: library: `pgsrip.formats.pgs` has new names. `PgsReader.decode`
+    and `PgsReader.read_segments` are now the functions `read_display_sets`
+    and `read_segments`. `BaseSegment` is now `Segment`, `Palette` is now
+    `PaletteEntry`, and `PgsSubtitleItem` (from `pgsrip.media`) is now `Item`.
+    `PgsSubtitleItem.create_items` is now `read_items`, and `Item.box` replaces
+    `shape`. `PgsImage` is a `NamedTuple`, with module functions in place of
+    its class methods. `pgsrip.utils.from_hex` is now
+    `pgsrip.formats.pgs.to_int`
+  - Breaking: library: `read_segments`, `read_display_sets`, `read_items`,
+    `scrub_data`, and `verify` take a `name` (a `str`) for their log
+    messages, not a `MediaPath`. `output_path` and `default_name` move from
+    `pgsrip.formats.scrub` to `pgsrip.cli`
+  - Breaking: library: names with no `get_` prefix: `tesseract_code`,
+    `required_codes`, and `config_arg` (in `pgsrip.engines.tessdata`).
+    `required_codes(languages)` has no `psm_value`, and `OSD_CODE` and
+    `OSD_PAGE_SEGMENTATION_MODES` go away. `is_writable` moves from
+    `pgsrip.engines.tessdata` to `pgsrip.utils`. `get_user_cache_dir` goes
+    away: `pgsrip.utils.cache_dir(name)` gives a directory in the user cache
+    directory of pgsrip, with appdirs
+  - Breaking: library: `TesseractEngine` has no `oem` and `psm` arguments, and
+    `TesseractEngineMode` and `TesseractPageSegmentationMode` go away: pgsrip
+    always uses `--oem 1 --psm 6`. `FullImage` is now `Composite`, and
+    `ImageArea` is now `Row`. `FullImage.data` is now `Composite.image`,
+    `FullImage.items` is now `Composite.placed`, and `ImageArea.shape` is now
+    `Row.box`. `TsvData` is now `TsvResult`, and `TsvDataItem` is now
+    `TsvWord`. `TsvWord.matches` and `TsvResult.select` take a `Box`
+  - Breaking: library: `TesseractEngine`, `Tessdata`, and `RapidOcrEngine` do
+    not read the environment variables. Only the command line reads them.
+    `Tessdata(directory=)` is now `Tessdata(data_dir=)`, and `Tessdata` has
+    no `timeout`. `Tessdata.ensure(codes, on_download)`: the second argument
+    was `reporter`. `RapidOcrEngine(directory=)` is now
+    `RapidOcrEngine(model_dir=)`, and `RapidOcrEngine.model_dir` (the
+    directory that it uses) is now `RapidOcrEngine.target_dir`
+  - Breaking: library: `RapidOcrEngine` fields `recognizers_by_language`,
+    `recognizers_by_model`, and `failed_models` (were `languages`,
+    `recognizers`, and `failed`). `ctc` is now `ctc_decode`
+  - Breaking: library: `ENGINES` and `ENGINE_ENTRY_POINTS` move from
+    `pgsrip.cli.plugins` to `pgsrip.engines`, `POST_PROCESSORS` and
+    `POST_PROCESSOR_ENTRY_POINTS` to `pgsrip.postprocessors`, `AUTO` and
+    `AUTO_ENGINES` to `pgsrip.engines.auto`. `check_auto()` is now
+    `AutoEngine.check(settings)`. `AutoEngine` needs its 2 engines, and
+    `AutoEngine.from_engines(tesseract, rapidocr)` checks their type
+  - Breaking: plug-in API: `OcrEngine.recognize(items, language, debug_dir)`
+    returns one `Reading(text, confidence, doubtful)` (from
+    `pgsrip.engines.base`) for each item. It does not change the items: `Item`
+    has no `text`, `doubtful`, `confidence`, and `place`. `debug_dir` is None
+    without `--keep-temp-files`. `PgsToSrtRipper` (`pgsrip.ripper`) is now the
+    function `read_cues(items, language, engines, debug_dir)` in
+    `pgsrip.engines.chain`. It returns the cues and the time of each engine
+  - Breaking: plug-in API: `Item` has plain values: `start`, `end`, `image`,
+    `x_offset`, and `y_offset` are never None. `read_items` makes the items:
+    `Item(index, start, end, image, x_offset, y_offset, name)`. `Item` has no
+    `media_path` and no `language`. `PgsSubtitleItem.auto_fix` and
+    `pgsrip.utils.pairwise` go away
+  - Breaking: plug-in API: `Cue` moves from `pgsrip.ripper` to `pgsrip.cue`.
+    `Cue.start` and `Cue.end` are `int`
+  - Breaking: plug-in API: `PostProcessor.process(cues, track)` and
+    `Writer.write(path, cues, track, encoding)` get the `Track` (id, name,
+    language, flags). Before, they were `process(pgs, cues)` and
+    `write(path, pgs, cues, encoding)`
+  - Breaking: plug-in API: `OcrEngineFactory.from_settings(settings)` has no
+    `workers` argument, like `PostProcessorFactory.from_settings`. An engine
+    that uses workers declares a `workers` option: with no value, it gets the
+    `-w` value. pgsrip does not add `--<engine>-workers` to the other
+    engines. The `check(settings)` classmethod is required for both kinds
+  - Breaking: plug-in API: an OCR engine factory raises `ValueError` for a
+    wrong setting, like a post-processor factory. Before, it was `OcrError`
+  - Fixed: library: a `Subtitle` releases its extracted track at the end of
+    its `with` block. A second `rip` of the same subtitle extracts the track
+    again. Before, it read a removed file. The next read of another track
+    does not extract a finished track again, and leaves no temporary
+    directory
+  - Fixed: library: after a rip, the environment of the process is the same as
+    before. Before, tesseract left `OMP_THREAD_LIMIT=1` in `os.environ`
   - New: `--format` selects the output format. `srt` is the default and the
     only format. Use it more than one time to write more than one file. When
     the file of one format is missing, pgsrip writes only that file
@@ -9,8 +177,8 @@
     configuration key is now `output_age`
   - Breaking: library: `Options(writers=[...])` sets the output writers. The
     default is `[SrtWriter()]`, from `pgsrip.writers.srt`. `Options.srt_age` is
-    now `Options.output_age`, `Pgs.srt_path` is now `Pgs.output_path(writer)`,
-    and `PgsToSrtRipper` is now `PgsRipper`
+    now `Options.output_age`, and `Pgs.srt_path` is now
+    `Subtitle.output_path(writer)`
   - New: a chain of OCR engines. Use `--engine` more than one time. Each next
     engine reads the cues that the engines before it could not read or are not
     sure of. `--tesseract-threshold` (default 80) sets which tesseract cues go
@@ -45,15 +213,13 @@
   - New: `doctor` shows the checks of every OCR engine. It accepts `--config`
     and the `--<engine>-*` options
   - New: `--tesseract-workers` sets the number of tesseract processes. It
-    overrides `-w/--max-workers` for tesseract only
+    overrides `-w/--workers` for tesseract only
   - Breaking: the tessdata options of `rip` and `doctor` are now
     `--tesseract-dir`, `--tesseract-repository` and `--no-tesseract-download`
   - Breaking: library: `Options(engines=[...])` sets the OCR engines. The
     `confidence`, `tesseract_*` and `max_workers` arguments of `Options` move
     to `pgsrip.engines.tesseract.TesseractEngine`. The `tessdata_*` and
-    `download_tessdata` arguments move to `TesseractEngine(tessdata=Tessdata(...))`.
-    `TesseractEngineMode` and `TesseractPageSegmentationMode` move to
-    `pgsrip.engines.tesseract`
+    `download_tessdata` arguments move to `TesseractEngine(tessdata=Tessdata(...))`
   - New: a configuration file with the default values of the `rip` options.
     pgsrip reads `config.{json,yml,yaml}` in the user configuration folder,
     `pgsrip.{json,yml,yaml}` in the current folder, and each `--config` file.
@@ -63,7 +229,7 @@
     `--cleanit-config`. `--config` is now the pgsrip configuration file
   - New: a chain of post-processors changes the text after the OCR engines.
     cleanit is the default post-processor. Use `--post-processor` more than
-    one time for a chain, and `--no-post-process` to keep the text of the OCR
+    one time for a chain, and `--no-post-processor` to keep the text of the OCR
     engines. Other packages can add a post-processor with a
     `pgsrip.postprocessors` entry point
   - New: `--cleanit-tag` is the long name of `-t/--tag`. The `cleanit` section
@@ -74,9 +240,8 @@
   - Breaking: library: `Options(config_path=..., tags=...)` is now
     `Options(post_processors=[CleanitPostProcessor(config_path, tags)])`, from
     `pgsrip.postprocessors.cleanit`. `Options.config` and `Options.tags` are
-    removed.
-    `PgsRipper.rip()` returns the cues, and the writers of `pgsrip.writers`
-    write the files
+    removed. `read_cues` returns the cues, and the writers of
+    `pgsrip.writers` write the files
   - Breaking: plug-ins: `pgsrip.ripper.EngineOption` is now
     `pgsrip.plugin.PluginOption`
   - Breaking: the modules move into sub-packages. Plug-ins import
@@ -85,20 +250,19 @@
     `pgsrip.postprocessors.base`. The OCR engines are in `pgsrip.engines`, and
     the post-processors are in `pgsrip.postprocessors`
   - Breaking: library: `Mkv` and `Sup` are removed. Use
-    `Media('/path/mymedia.mkv')`: it finds the source that reads the file.
-    `Media.get_pgs_medias` returns a list
+    `Media('/path/mymedia.mkv')`: it finds the source that reads the file
   - Changed: `--with` and `--without` also apply to `.sup` files. The flags
     come from the file name, for example `mymedia.en.forced.sup`
   - Changed: pgsrip extracts all the selected tracks of a file with one
     `mkvextract` call. Before, each track read the full file again
-  - Fix: a track that pgsrip did not rip left its temporary folder
-  - Changed: one temporary folder `pgsrip-XXXX` for each run, with one folder
-    for each track in it. Library: use `with Options(...) as options:` to
-    remove it at the end
+  - Fixed: a track that pgsrip did not rip left its temporary directory
+  - Changed: one temporary directory `pgsrip-XXXX` for each run, with one
+    directory for each track in it. Library: use
+    `with Workspace() as workspace:` to remove it at the end
   - Changed: `-l/--language` looks only at the languages of the PGS tracks of
     a media, not at the audio and video tracks. A media with no PGS track in
     the selected languages is now filtered out, with its reason
-  - Fix: a track with 20 or more cues that tesseract could not read made the
+  - Fixed: a track with 20 or more cues that tesseract could not read made the
     rip run forever
   - Fixed: `pgsrip` requires click 8.5.0 or later, so `click.ParamType` stays
     subscriptable

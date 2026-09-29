@@ -1,15 +1,13 @@
 import pytest
 
-from pgsrip.formats.pgs import PgsReader, SegmentType
-from pgsrip.media import PgsSubtitleItem
-from pgsrip.media_path import MediaPath
+from pgsrip.formats.pgs import SegmentType, decode_rle_image, read_display_sets, read_items
 
 from .test_scrub import HEIGHT, WIDTH, display_set, ods, pcs, pds, segment, text_image_data, wds
 
 
 @pytest.fixture
-def media_path():
-    return MediaPath('mymedia.en.sup')
+def name():
+    return 'mymedia.en.sup'
 
 
 def clear_set(number=0, pts=0):
@@ -36,23 +34,23 @@ def stream():
     )
 
 
-def create_items(data, media_path):
-    return PgsSubtitleItem.create_items(media_path, PgsReader.decode(data, media_path))
+def create_items(data, name):
+    return read_items(read_display_sets(data, name), name)
 
 
-def test_a_cue_at_pts_0_does_not_stop_the_rip(stream, media_path):
+def test_a_cue_at_pts_0_does_not_stop_the_rip(stream, name):
     """Regression for #135: PTS 0 was read as a None timestamp, and min() over None and a
     SubRipTime raised TypeError, which stopped the rip of the whole file."""
-    items = create_items(stream, media_path)
+    items = create_items(stream, name)
 
     assert len(items) == 2
     assert items[1].start == 4000
     assert items[1].end == 6000
 
 
-def test_a_cue_at_pts_0_keeps_its_timestamps(stream, media_path):
+def test_a_cue_at_pts_0_keeps_its_timestamps(stream, name):
     """PTS 0 is a valid timestamp: the cue must not take the time of its clear set as start."""
-    items = create_items(stream, media_path)
+    items = create_items(stream, name)
 
     assert items[0].start == 0
     assert items[0].end == 3000
@@ -69,7 +67,7 @@ def palette_update_set(number=0, pts=0):
     )
 
 
-def test_a_palette_update_without_window_does_not_stop_the_rip(media_path):
+def test_a_palette_update_without_window_does_not_stop_the_rip(name):
     """Regression for #120: a display set without WDS raised IndexError."""
     data = b''.join(
         [
@@ -81,13 +79,13 @@ def test_a_palette_update_without_window_does_not_stop_the_rip(media_path):
         ]
     )
 
-    items = create_items(data, media_path)
+    items = create_items(data, name)
 
     assert len(items) == 2
     assert (items[0].x_offset, items[0].y_offset) == (100, 900)
 
 
-def test_an_object_split_over_three_segments_is_decoded(media_path):
+def test_an_object_split_over_three_segments_is_decoded(name):
     """Regression for #120: the middle segment of an object has the sequence type 0x00."""
     image_data = text_image_data()
     first, middle, last = image_data[:4], image_data[4:8], image_data[8:]
@@ -105,10 +103,10 @@ def test_an_object_split_over_three_segments_is_decoded(media_path):
         ]
     )
 
-    items = create_items(data, media_path)
+    items = create_items(data, name)
 
     assert len(items) == 1
     image = items[0].image
     assert image is not None
     assert image.rle_data == image_data
-    assert image.shape == (HEIGHT, WIDTH)
+    assert decode_rle_image(image.rle_data, image.palette).shape == (HEIGHT, WIDTH)
