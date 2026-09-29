@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
+
+**release date:** 2026-09-29
 
   - New: `--engine openai` reads the subtitle images with a vision model
     behind an OpenAI-compatible API, for example llama.cpp with GLM-OCR. The
