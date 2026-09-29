@@ -1,6 +1,6 @@
 [project]
 name = "pgsrip"
-version = "0.3.0"
+version = "0.3.1-dev"
 description = "Rip your PGS subtitles"
 authors = [
     { name = "Rato" },
