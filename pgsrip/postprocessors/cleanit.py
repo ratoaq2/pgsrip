@@ -8,23 +8,25 @@ from cleanit import Config
 
 from pgsrip.diagnostics import Check
 from pgsrip.plugin import PluginOption
+from pgsrip.postprocessors.base import PostProcessor, PostProcessorFactory
 
 if typing.TYPE_CHECKING:
-    from pgsrip.media import Pgs
-    from pgsrip.ripper import Cue
+    from pgsrip.cue import Cue
+    from pgsrip.sources.base import Track
 
 
-class CleanitPostProcessor:
+class CleanitPostProcessor(PostProcessor, PostProcessorFactory):
     """The default post-processor: applies the cleanit rules of the track language to each cue."""
 
     options: typing.ClassVar[tuple[PluginOption, ...]] = (
-        PluginOption('config', click.Path(), help='cleanit configuration path to be used.'),
+        PluginOption('config', click.Path(), default=None, help='Path of the cleanit configuration file.'),
         PluginOption(
             'tag',
             multiple=True,
+            default=('default',),
             aliases=('-t', '--tag'),
             help='Rule tags to be used, e.g. ocr, tidy, no-sdh, no-style, no-lyrics, no-spam '
-            '(can be used multiple times). Default: default.',
+            '(can be used multiple times).',
         ),
     )
 
@@ -55,8 +57,8 @@ class CleanitPostProcessor:
 
         return [Check('cleanit config', path)]
 
-    def process(self, pgs: Pgs, cues: list[Cue]) -> list[Cue]:
-        rules = self.config.select_rules(tags=self.tags, languages={pgs.language})
+    def process(self, cues: list[Cue], track: Track) -> list[Cue]:
+        rules = self.config.select_rules(tags=self.tags, languages={track.language})
         for cue in cues:
             if cue.text:
                 cue.text = rules.apply(cue.text, '')[0]

@@ -23,7 +23,7 @@ or subtitle samples from `plans/`.
 - `plans/_samples/` holds media that is not linked to one item.
 
 The SessionStart hook (`.claude/hooks/session_start.py`) finds the issue number in the branch name and
-shows the status of the matching folder.
+shows the status of the matching directory.
 
 ## Folder content
 

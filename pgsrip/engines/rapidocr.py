@@ -15,24 +15,22 @@ import cv2
 import numpy as np
 import numpy.typing as npt
 
-from pgsrip import __url__
 from pgsrip.diagnostics import Check
-from pgsrip.engines.base import OcrEngine, OcrError
-from pgsrip.engines.tessdata import get_user_cache_dir, is_writable
+from pgsrip.engines.base import OcrEngine, OcrEngineFactory, OcrError, Reading
 from pgsrip.plugin import PluginOption
-from pgsrip.utils import default_workers, split_lines
+from pgsrip.utils import cache_dir, default_workers, is_writable
 
 if typing.TYPE_CHECKING:
     from babelfish import Language
 
-    from pgsrip.media import Pgs, PgsSubtitleItem
+    from pgsrip.formats.pgs import Item
 
 logger = logging.getLogger(__name__)
 
-MODEL_DIR_ENV = 'PGSRIP_RAPIDOCR_DIR'
-RAPIDOCR_HINT = (
-    f'Install pgsrip with RapidOCR: uv tool install "pgsrip[rapidocr]" (other ways: {__url__}#install-pgsrip)'
-)
+#: the packages of the rapidocr extra
+PACKAGES = ('rapidocr', 'onnxruntime')
+INSTALL_URL = 'https://github.com/ratoaq2/pgsrip#install-pgsrip'
+RAPIDOCR_HINT = f'Install pgsrip with RapidOCR: uv tool install "pgsrip[rapidocr]" (other ways: {INSTALL_URL})'
 #: a cue with a character score below this value (0-100) is doubtful: the next engine of the chain reads it again.
 DEFAULT_THRESHOLD = 90
 MODELS = ('tiny', 'small', 'medium')
@@ -41,6 +39,8 @@ DEFAULT_MODEL = 'small'
 DEFAULT_BORDER = 4
 #: the lines of one model call
 DEFAULT_BATCH = 6
+#: a part of a cue lower than this share of its tallest part is not a text line, e.g. the dots of an umlaut.
+MIN_LINE_SHARE = 0.4
 
 #: the languages of the PP-OCRv6 model, as ISO 639-1 codes (rapidocr/utils/model_resolver.py)
 V6_LANGUAGES = frozenset(
@@ -77,7 +77,35 @@ def model_of(language: Language, model: str) -> tuple[str, str, str] | None:
     return None
 
 
-def ctc(preds: npt.NDArray[np.float32], characters: list[str]) -> tuple[str, float]:
+def split_lines(bitmap: npt.NDArray[np.uint8]) -> list[npt.NDArray[np.uint8]]:
+    """Cut a subtitle bitmap at its empty rows: one image for each text line.
+
+    A line recognition model reads one line of text. One image for each line also keeps the line breaks.
+    A part that is too low to be a line (the dots of an umlaut) goes with the part below it.
+    """
+    parts: list[list[int]] = []
+    for row in np.flatnonzero((bitmap == 0).any(axis=1)).tolist():
+        if parts and parts[-1][1] == row:
+            parts[-1][1] = row + 1
+        else:
+            parts.append([row, row + 1])
+
+    tallest = max((end - start for start, end in parts), default=0)
+    lines: list[list[int]] = []
+    start: int | None = None
+    for part_start, part_end in parts:
+        start = part_start if start is None else start
+        if part_end - part_start >= MIN_LINE_SHARE * tallest:
+            lines.append([start, part_end])
+            start = None
+    if start is not None and lines:
+        # a low part at the bottom, e.g. a line of dots: it goes with the line above it
+        lines[-1][1] = parts[-1][1]
+
+    return [bitmap[top:bottom] for top, bottom in lines] or [bitmap]
+
+
+def ctc_decode(preds: npt.NDArray[np.float32], characters: list[str]) -> tuple[str, float]:
     """Greedy CTC decode of the model output for one line: the text, and the lowest character score.
 
     A line with no character gives the score 0. Spaces do not count for the score.
@@ -114,7 +142,7 @@ def read_lines(recognizer: typing.Any, images: list[npt.NDArray[typing.Any]]) ->
         data = np.concatenate([recognizer.resize_norm_img(images[i], max_ratio)[np.newaxis, :] for i in chunk])
         preds = recognizer.session(data.astype(np.float32))
         for row, i in enumerate(chunk):
-            results[i] = ctc(preds[row], characters)
+            results[i] = ctc_decode(preds[row], characters)
 
     if normalize_lang(recognizer.cfg.lang_type) in recognizer.RTL_LANGS:
         texts = reorder_bidi_for_display(tuple(text for text, _ in results))
@@ -123,7 +151,12 @@ def read_lines(recognizer: typing.Any, images: list[npt.NDArray[typing.Any]]) ->
     return results
 
 
-class RapidOcrEngine(OcrEngine):
+def installed_versions() -> list[str]:
+    """The versions of the packages of the rapidocr extra. Raise PackageNotFoundError when one is missing."""
+    return [f'{name} {importlib.metadata.version(name)}' for name in PACKAGES]
+
+
+class RapidOcrEngine(OcrEngine, OcrEngineFactory):
     """Reads each text line of each cue. All the lines of a track go to the model in batches."""
 
     options: typing.ClassVar[tuple[PluginOption, ...]] = (
@@ -133,14 +166,23 @@ class RapidOcrEngine(OcrEngine):
             default=DEFAULT_THRESHOLD,
             help='A cue with a character below this RapidOCR score goes to the next --engine.',
         ),
-        PluginOption('model', click.Choice(MODELS), default=DEFAULT_MODEL, help='Size of the PP-OCRv6 model.'),
+        PluginOption(
+            'model',
+            click.Choice(MODELS),
+            default=DEFAULT_MODEL,
+            help='PP-OCRv6 model: tiny, small or medium. The PP-OCRv5 languages use the mobile model.',
+        ),
         PluginOption('border', click.IntRange(0, 50), default=DEFAULT_BORDER, help='White border around each line.'),
         PluginOption('batch', click.IntRange(1, 256), default=DEFAULT_BATCH, help='Text lines in one model call.'),
         PluginOption(
+            'workers', click.IntRange(1, 50), default=None, help='Number of ONNX Runtime threads. Default: -w.'
+        ),
+        PluginOption(
             'dir',
             click.Path(),
-            help=f'Directory where the RapidOCR models are stored. Defaults to {MODEL_DIR_ENV} or a user cache '
-            f'directory.',
+            default=None,
+            envvar='PGSRIP_RAPIDOCR_DIR',
+            help='Directory where the RapidOCR models are stored. Default: a user cache directory.',
         ),
         PluginOption(
             'download',
@@ -151,33 +193,33 @@ class RapidOcrEngine(OcrEngine):
     )
 
     @classmethod
-    def from_settings(cls, settings: dict[str, typing.Any], workers: int | None) -> RapidOcrEngine:
+    def from_settings(cls, settings: dict[str, typing.Any]) -> RapidOcrEngine:
         return cls(
             threshold=settings['threshold'],
             model=settings['model'],
             border=settings['border'],
             batch=settings['batch'],
-            directory=settings['dir'],
+            model_dir=settings['dir'],
             download=settings['download'],
-            workers=workers,
+            workers=settings['workers'],
         )
 
     @classmethod
     def check(cls, settings: dict[str, typing.Any]) -> list[Check]:
         """The rapidocr and onnxruntime versions, and the models, for `pgsrip doctor`."""
         try:
-            versions = [f'{name} {importlib.metadata.version(name)}' for name in ('rapidocr', 'onnxruntime')]
+            versions = installed_versions()
         except importlib.metadata.PackageNotFoundError as e:
             # not a failure: tesseract can still rip
             return [Check('rapidocr', f'not installed: {e.name} is missing', hint=RAPIDOCR_HINT)]
 
-        engine = cls.from_settings(settings, None)
+        engine = cls.from_settings(settings)
         checks = [
             Check('rapidocr', ', '.join(versions)),
             Check('rapidocr download', 'enabled' if engine.download else 'disabled'),
         ]
         try:
-            directory = engine.model_dir
+            directory = engine.target_dir
         except OcrError as e:
             return [*checks, Check('rapidocr directory', str(e), ok=False, hint='Set --rapidocr-dir')]
 
@@ -194,7 +236,7 @@ class RapidOcrEngine(OcrEngine):
         model: str = DEFAULT_MODEL,
         border: int = DEFAULT_BORDER,
         batch: int = DEFAULT_BATCH,
-        directory: str | None = None,
+        model_dir: str | None = None,
         download: bool = True,
         workers: int | None = None,
     ):
@@ -202,15 +244,16 @@ class RapidOcrEngine(OcrEngine):
         self.model = model
         self.border = border
         self.batch = batch
-        self.directory = directory or os.getenv(MODEL_DIR_ENV) or None
+        #: the directory of the option, None for the default: see `target_dir`
+        self.model_dir = model_dir
         self.download = download
         self.workers = workers or default_workers()
         #: the loaded recognizers, by model file
-        self.recognizers: dict[Path, typing.Any] = {}
+        self.recognizers_by_model: dict[Path, typing.Any] = {}
         #: the model files that could not be loaded
-        self.failed: set[Path] = set()
+        self.failed_models: set[Path] = set()
         #: the recognizer of each language that `prepare` got ready
-        self.languages: dict[Language, typing.Any] = {}
+        self.recognizers_by_language: dict[Language, typing.Any] = {}
 
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__} [{self}]>'
@@ -221,19 +264,19 @@ class RapidOcrEngine(OcrEngine):
             f'model:{self.model}, '
             f'border:{self.border}, '
             f'batch:{self.batch}, '
-            f'directory:{self.directory}, '
+            f'model_dir:{self.model_dir}, '
             f'download:{self.download}, '
             f'workers:{self.workers}'
         )
 
     @property
-    def model_dir(self) -> str:
+    def target_dir(self) -> str:
         """The directory option, else the first writable cache directory."""
-        if self.directory:
-            return self.directory
+        if self.model_dir:
+            return self.model_dir
 
         candidates = [
-            os.path.join(get_user_cache_dir(), 'pgsrip', 'rapidocr'),
+            cache_dir('rapidocr'),
             os.path.join(tempfile.gettempdir(), 'pgsrip', 'rapidocr'),
         ]
         for candidate in candidates:
@@ -258,7 +301,7 @@ class RapidOcrEngine(OcrEngine):
         }
         ParseParams.update_batch(cfg, params)
         cfg.Rec.engine_cfg = cfg.EngineConfig[cfg.Rec.engine_type.value]
-        cfg.Rec.model_root_dir = self.model_dir
+        cfg.Rec.model_root_dir = self.target_dir
         cfg.Rec.font_path = None
         return cfg.Rec
 
@@ -269,21 +312,21 @@ class RapidOcrEngine(OcrEngine):
 
         info = FileInfo(cfg.engine_type, cfg.ocr_version, cfg.task_type, cfg.lang_type, cfg.model_type)
         path = Path(cfg.model_root_dir) / Path(InferSession.get_model_url(info)['model_dir']).name
-        if path in self.failed:
+        if path in self.failed_models:
             raise OcrError(f'{path.name} could not be loaded')
-        if path not in self.recognizers:
+        if path not in self.recognizers_by_model:
             if not path.is_file():
                 if not self.download:
                     raise OcrError(f'{path.name} is not in {cfg.model_root_dir} and the download is disabled')
                 if reporter:
                     reporter(f'Downloading RapidOCR model {path.name}...')
             try:
-                self.recognizers[path] = TextRecognizer(cfg)
+                self.recognizers_by_model[path] = TextRecognizer(cfg)
             except Exception:
-                self.failed.add(path)
+                self.failed_models.add(path)
                 raise
 
-        return self.recognizers[path]
+        return self.recognizers_by_model[path]
 
     def prepare(
         self, languages: typing.Iterable[Language], reporter: typing.Callable[[str], None] | None = None
@@ -305,22 +348,22 @@ class RapidOcrEngine(OcrEngine):
         rapidocr_logger.setLevel(logging.ERROR)
         for language in languages:
             model = model_of(language, self.model)
-            if model is None or language in self.languages:
+            if model is None or language in self.recognizers_by_language:
                 continue
 
             try:
-                self.languages[language] = self.load(self.config(*model), reporter)
+                self.recognizers_by_language[language] = self.load(self.config(*model), reporter)
             except Exception as e:
                 logger.debug('Cannot load the RapidOCR model for %s', language, exc_info=True)
                 if reporter:
                     reporter(f'Cannot load the RapidOCR model for {language}: <{type(e).__name__}> {e}')
 
     def supports(self, language: Language) -> bool:
-        return language in self.languages
+        return language in self.recognizers_by_language
 
-    def recognize(self, pgs: Pgs, items: list[PgsSubtitleItem]) -> None:
+    def recognize(self, items: list[Item], language: Language, debug_dir: str | None) -> list[Reading]:
         border = self.border
-        cues = [
+        line_images = [
             [
                 cv2.cvtColor(
                     cv2.copyMakeBorder(line, border, border, border, border, cv2.BORDER_CONSTANT, value=255),
@@ -330,18 +373,22 @@ class RapidOcrEngine(OcrEngine):
             ]
             for item in items
         ]
+        images = [image for lines in line_images for image in lines]
         try:
-            results = iter(read_lines(self.languages[pgs.language], [image for cue in cues for image in cue]))
+            results = iter(read_lines(self.recognizers_by_language[language], images))
         except Exception as e:
-            raise OcrError(f'RapidOCR cannot read {pgs}: <{type(e).__name__}> {e}') from e
+            raise OcrError(f'RapidOCR cannot read {language}: <{type(e).__name__}> {e}') from e
 
-        for item, cue in zip(items, cues, strict=True):
-            lines = [next(results) for _ in cue]
+        readings = []
+        for lines_of_item in line_images:
+            lines = [next(results) for _ in lines_of_item]
             text = '\n'.join(line for line, _ in lines if line)
             if not text:
+                readings.append(Reading(None))
                 continue
 
             # the threshold never removes text: a doubtful cue keeps it when no next engine reads it
-            item.text = text
-            item.confidence = min(score for _, score in lines)
-            item.doubtful = item.confidence * 100 < self.threshold
+            confidence = min(score for _, score in lines)
+            readings.append(Reading(text, confidence, confidence * 100 < self.threshold))
+
+        return readings

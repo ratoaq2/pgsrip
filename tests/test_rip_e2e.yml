@@ -222,7 +222,7 @@
     tracks:
       - {language: en, cues: 0}
       - {language: de, cues: 1, texts: ['Hallo']}
-  failures: ['<ValueError>']
+  failures: ['<CorruptDataError>']
   expected:
     movie.de.srt: [['00:00:01,000', '00:00:03,000', 'Hallo']]
 

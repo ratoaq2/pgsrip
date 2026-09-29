@@ -10,38 +10,36 @@ reads through the very same code path.
 from __future__ import annotations
 
 import enum
-import hashlib
 import logging
-import os
 import typing
-from copy import copy
 
 import cv2
 import numpy as np
 import numpy.typing as npt
 
+from pgsrip.errors import PgsripError
 from pgsrip.formats.pgs import (
-    BaseSegment,
+    MIN_INK_LUMINANCE,
+    OBJECT_HEADER_SIZE,
+    SIZE_FIELD_OFFSET,
     DisplaySet,
     ObjectDefinitionSegment,
     ObjectSequenceType,
-    PgsReader,
+    Segment,
+    read_display_sets,
 )
-from pgsrip.media_path import MediaPath
 
 logger = logging.getLogger(__name__)
 
-# a run length is stored in 14 bits, a segment size in 2 bytes
+#: a run length is stored in 14 bits
 MAX_RUN_LENGTH = 0x3FFF
+#: a segment size is stored in 2 bytes
 MAX_SEGMENT_SIZE = 0xFFFF
-# a palette entry is only used as text when it is bright enough to be decoded as ink
-MIN_TEXT_LUMINANCE = 128
 PLACEHOLDER_TEXT = 'Lorem ipsum dolor sit amet'
-SUP_EXTENSION = '.sup'
 TEXT_FONT = cv2.FONT_HERSHEY_SIMPLEX
 
 
-class ScrubError(Exception):
+class ScrubError(PgsripError):
     """Raised when a PGS stream cannot be scrubbed."""
 
 
@@ -137,18 +135,18 @@ def find_text_color(display_set: DisplaySet) -> int | None:
     """Return the palette entry to draw placeholder text with, or None when there is no usable one."""
     brightest: tuple[int, int] | None = None
     for pds in display_set.pds_segments:
-        for index, palette in enumerate(pds.palettes):
+        for index, palette in enumerate(pds.entries):
             if index and palette.alpha and (brightest is None or palette.y > brightest[1]):
                 brightest = (index, palette.y)
 
-    return brightest[0] if brightest and brightest[1] >= MIN_TEXT_LUMINANCE else None
+    return brightest[0] if brightest and brightest[1] >= MIN_INK_LUMINANCE else None
 
 
 def create_image_data(width: int, height: int, index: int, color: int | None) -> bytes:
     """Build the run length data that replaces an original subtitle bitmap."""
     if color:
         data = encode_runs(synthetic_rows(width, height, color, index))
-        if len(data) + 11 <= MAX_SEGMENT_SIZE:
+        if len(data) + OBJECT_HEADER_SIZE <= MAX_SEGMENT_SIZE:
             return data
 
         logger.debug('Placeholder text does not fit in a segment for display set %d, using a blank image', index)
@@ -156,12 +154,12 @@ def create_image_data(width: int, height: int, index: int, color: int | None) ->
     return encode_runs(blank_rows(width, height))
 
 
-def rebuild_segment(segment: BaseSegment, data: bytes) -> bytes:
+def rebuild_segment(segment: Segment, data: bytes) -> bytes:
     """Return the segment with new data, with its size field updated."""
     if len(data) > MAX_SEGMENT_SIZE:
         raise ScrubError(f'Redacted segment is too large: {len(data)} bytes')
 
-    return segment.bytes[:11] + len(data).to_bytes(2, 'big') + data
+    return segment.bytes[:SIZE_FIELD_OFFSET] + len(data).to_bytes(2, 'big') + data
 
 
 def redact_object(segment: ObjectDefinitionSegment, index: int, color: int | None) -> bytes:
@@ -180,10 +178,10 @@ def redact_object(segment: ObjectDefinitionSegment, index: int, color: int | Non
 
     width, height = segment.width, segment.height
     if not width or not height:
-        return rebuild_segment(segment, data[:11])
+        return rebuild_segment(segment, data[:OBJECT_HEADER_SIZE])
 
     image_data = create_image_data(width, height, index, color)
-    header = bytearray(data[:11])
+    header = bytearray(data[:OBJECT_HEADER_SIZE])
     # the object data length counts the width and height fields too
     header[4:7] = (len(image_data) + 4).to_bytes(3, 'big')
 
@@ -239,73 +237,27 @@ def scrub_display_sets(
     return bytes(data), ScrubStats(display_set_count, written, objects, redacted, len(data))
 
 
-def verify(data: bytes, media_path: MediaPath, expected: int) -> bool:
-    """Check that the scrubbed stream can be read back as the same number of display sets."""
+def verify(data: bytes, name: str, expected: int) -> None:
+    """Raise ScrubError when the scrubbed stream cannot be read back as the same number of display sets."""
     try:
-        found = len(list(PgsReader.decode(data, media_path)))
+        found = len(list(read_display_sets(data, name)))
     except Exception as e:
-        logger.warning('Cannot read the scrubbed stream back: <%s> [%s]', type(e).__name__, e)
-        return False
+        raise ScrubError(f'Cannot read the scrubbed stream back: <{type(e).__name__}> {e}') from e
 
     if found != expected:
-        logger.warning('Scrubbed stream has %d display sets instead of %d', found, expected)
-        return False
-
-    return True
+        raise ScrubError(f'The scrubbed stream has {found} display sets instead of {expected}')
 
 
 def scrub_data(
     data: bytes,
-    media_path: MediaPath,
+    name: str,
     redaction: Redaction = Redaction.ALL,
     keep_images: typing.Container[int] = frozenset(),
     only: typing.Container[int] | None = None,
 ) -> tuple[bytes, ScrubStats]:
     """Scrub a whole PGS stream."""
-    display_sets = list(PgsReader.decode(data, media_path))
+    display_sets = list(read_display_sets(data, name))
     scrubbed, stats = scrub_display_sets(display_sets, redaction, keep_images, only)
-    verify(scrubbed, media_path, stats.written_display_sets)
+    verify(scrubbed, name, stats.written_display_sets)
 
     return scrubbed, stats
-
-
-def default_name(media_path: MediaPath, keep_name: bool) -> str:
-    """Name the scrubbed file after the media, or after a hash of its name."""
-    name = os.path.basename(media_path.base_path)
-    if keep_name:
-        return name
-
-    return f'pgsrip-{hashlib.sha256(name.encode("utf8")).hexdigest()[:8]}'
-
-
-def output_path(media_path: MediaPath, output: str | None, keep_name: bool, used: set[str]) -> str:
-    """Build the path of the scrubbed file, without ever reusing one or writing over the source .sup.
-
-    media_path is expected to already carry the subtitle's language/flags/track_id, e.g. a Pgs.media_path,
-    so the scrubbed file follows the same <base>.<language>[.<flag>]*[.track<id>].<ext> grammar as a
-    ripped .srt.
-    """
-    source = os.path.normcase(os.path.abspath(str(media_path)))
-    if output and output.lower().endswith(SUP_EXTENSION):
-        base = output[: -len(SUP_EXTENSION)]
-    elif output and (os.path.isdir(output) or output.endswith(('/', os.sep))):
-        base = os.path.join(output, default_name(media_path, keep_name))
-    elif output:
-        base = output
-    else:
-        base = default_name(media_path, keep_name)
-
-    target = copy(media_path)
-    target.base_path = base
-    target.extension = SUP_EXTENSION[1:]
-
-    path = str(target)
-    track_id = target.track_id
-    while path in used or os.path.normcase(os.path.abspath(path)) == source:
-        track_id = 0 if track_id is None else track_id + 1
-        target.track_id = track_id
-        path = str(target)
-
-    used.add(path)
-
-    return path

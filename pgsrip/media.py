@@ -1,272 +1,277 @@
 from __future__ import annotations
 
-import functools
-import json
 import logging
 import os
 import shutil
 import tempfile
 import typing
+from datetime import timedelta
 from types import TracebackType
 
-import numpy as np
-import numpy.typing as npt
 from babelfish import Language
 
-from pgsrip.formats.pgs import DisplaySet, Palette, PgsImage, PgsReader
 from pgsrip.media_path import MediaPath
 from pgsrip.options import Options
-from pgsrip.utils import format_time, pairwise
+from pgsrip.sources import EXTENSIONS, SOURCES
+from pgsrip.sources.base import Source, SourceError, Track
 
 if typing.TYPE_CHECKING:
-    from pgsrip.sources.base import Track
     from pgsrip.writers.base import Writer
 
 logger = logging.getLogger(__name__)
 
 
-class PgsSubtitleItem:
-    def __init__(self, index: int, media_path: MediaPath, display_sets: list[DisplaySet]):
-        self.index = index
-        self.media_path = media_path
-        timestamps = [ds.pcs.presentation_timestamp for ds in display_sets]
-        self.start: int | None = min((t for t in timestamps if t is not None), default=None)
-        self.end: int | None = max((t for t in timestamps if t is not None), default=None)
-        self.image = PgsSubtitleItem.generate_image(display_sets)
-        x_offsets = [w.x_offset for ds in display_sets if (w := ds.wds) and w.num_windows > 0]
-        self.x_offset: int | None = min((x for x in x_offsets if x is not None), default=None)
-        y_offsets = [w.y_offset for ds in display_sets if (w := ds.wds) and w.num_windows > 0]
-        self.y_offset: int | None = min((y for y in y_offsets if y is not None), default=None)
-        self.text: str | None = None
-        # the OCR engine is not sure of the text: the next engine of the chain reads the item again
-        self.doubtful = False
-        # from 0 to 1, None when the OCR engine gives no confidence
-        self.confidence: float | None = None
-        self.place: tuple[int, int, int, int] | None = None
+class Workspace:
+    """The temporary directory of a run: one directory for each subtitle. Use it in a `with` block.
 
-    @staticmethod
-    def create_items(media_path: MediaPath, display_sets: typing.Iterable[DisplaySet]) -> list[PgsSubtitleItem]:
-        current_sets: list[DisplaySet] = []
-        index = 0
-        candidates: list[PgsSubtitleItem] = []
-        for ds in display_sets:
-            if current_sets and ds.is_start():
-                candidates.append(PgsSubtitleItem(index, media_path, current_sets))
-                current_sets = []
-                index += 1
+    With `keep`, the files stay at the end of the block, for debug.
+    """
 
-            current_sets.append(ds)
-
-        if current_sets:
-            candidates.append(PgsSubtitleItem(index, media_path, current_sets))
-
-        results = []
-        for item, next_item in pairwise(candidates):
-            if item.auto_fix(next_item=next_item):
-                results.append(item)
-
-        return results
-
-    @staticmethod
-    def generate_image(display_sets: typing.Iterable[DisplaySet]) -> PgsImage | None:
-        for ds in display_sets:
-            if not ds.pcs.is_start():
-                continue
-
-            palettes: list[Palette] = []
-            for pds in ds.pds_segments:
-                palettes += pds.palettes
-            img_data = b''
-            for ods in ds.ods_segments:
-                img_data += ods.img_data
-
-            return PgsImage(img_data, palettes)
-
-        return None
+    def __init__(self, keep: bool = False):
+        self.keep = keep
+        self._dir: str | None = None
 
     @property
-    def language(self) -> Language:
-        return self.media_path.language
+    def dir(self) -> str:
+        """The temporary directory of the run. It is made on first use."""
+        if self._dir is None:
+            self._dir = tempfile.mkdtemp(prefix='pgsrip-')
+            logger.debug('Using temporary directory %s', self._dir)
+        return self._dir
 
-    @functools.cached_property
-    def _ink(self) -> tuple[tuple[int, int], npt.NDArray[np.uint8]]:
-        """The (top, left) origin of the ink box in the image, and the image cropped to it.
+    def __enter__(self) -> Workspace:
+        return self
 
-        PGS objects often span the whole frame width: OCR only the ink. Decoded here, not with
-        `image.data`, so the full image is not kept in memory.
-        """
-        assert self.image is not None
-        data = PgsImage.decode_rle_image(self.image.rle_data, self.image.palettes)
-        ink = data == 0
-        rows = np.flatnonzero(ink.any(axis=1))
-        cols = np.flatnonzero(ink.any(axis=0))
-        if not len(rows):
-            return (0, 0), data[:0, :0].copy()
+    def __exit__(
+        self, exc_type: type[BaseException] | None, exc: BaseException | None, traceback: TracebackType | None
+    ) -> None:
+        if self._dir is None:
+            return
 
-        return (int(rows[0]), int(cols[0])), data[rows[0] : rows[-1] + 1, cols[0] : cols[-1] + 1].copy()
-
-    @property
-    def bitmap(self) -> npt.NDArray[np.uint8]:
-        return self._ink[1]
-
-    @property
-    def height(self) -> int:
-        return int(self.bitmap.shape[0])
-
-    @property
-    def width(self) -> int:
-        return int(self.bitmap.shape[1])
-
-    @property
-    def h_center(self) -> int:
-        shape = self.shape
-        return shape[0] + (shape[2] - shape[0]) // 2
-
-    @property
-    def shape(self) -> tuple[int, int, int, int]:
-        height, width = self.height, self.width
-        assert self.y_offset is not None
-        assert self.x_offset is not None
-        top, left = self._ink[0]
-        y_offset, x_offset = self.y_offset + top, self.x_offset + left
-
-        return y_offset, x_offset, y_offset + height, x_offset + width
-
-    def auto_fix(self, next_item: PgsSubtitleItem | None) -> bool:
-        valid = True
-        if self.image is None:
-            logger.warning('Corrupted %r: No Image', self)
-            valid = False
-        if self.y_offset is None:
-            logger.warning('Corrupted %r: No y_offset', self)
-            valid = False
-        if self.x_offset is None:
-            logger.warning('Corrupted %r: No x_offset', self)
-            valid = False
-        if self.start is None:
-            logger.warning('Corrupted %r: No Start timestamp', self)
-            valid = False
-        elif self.end is None or self.end <= self.start:
-            if next_item and next_item.start is not None and self.start + 10000 >= next_item.start:
-                self.end = max(self.start + 1, next_item.start - 1)
-                logger.info('Fix applied for %r: Subtitle end timestamp was fixed', self)
-            else:
-                logger.warning('Corrupted %r: Subtitle with corrupted end timestamp', self)
-                valid = False
-
-        return valid
-
-    def intersect(self, item: PgsSubtitleItem) -> bool:
-        shape = self.shape
-
-        return shape[0] <= item.h_center <= shape[2]
-
-    def __repr__(self) -> str:
-        return f'<{self.__class__.__name__} [{self}]>'
-
-    def __str__(self) -> str:
-        end = format_time(self.end) if self.end is not None else ''
-        return f'{self.media_path} [{format_time(self.start)} --> {end}]'
+        if self.keep:
+            logger.info('Keeping temporary files in %s', self._dir)
+        else:
+            logger.debug('Removing temporary files in %s', self._dir)
+            shutil.rmtree(self._dir)
+        self._dir = None
 
 
-class Pgs:
+class Subtitle:
+    """One selected track to rip: where its data comes from, and where its files go.
+
+    Use it in a `with` block for one rip. At the end of the block, its temporary directory is removed.
+    """
+
     def __init__(
         self,
-        media_path: MediaPath,
-        options: Options,
-        data_reader: typing.Callable[[], bytes],
-        temp_folder: str | None = None,
-        track: Track | None = None,
+        track: Track,
+        source_path: MediaPath,
+        output_base: MediaPath,
+        extraction: Extraction,
+        workspace: Workspace | None = None,
     ):
-        self.media_path = media_path
-        # the file to point a bug report at, which is not the media path of an extracted track
-        self.source_path = media_path
-        self.options = options
-        self.data_reader = data_reader
-        self._temp_folder = temp_folder
         self.track = track
-        self._items: list[PgsSubtitleItem] | None = None
+        #: the media file, to point a bug report at
+        self.source_path = source_path
+        #: the base of the output paths: the media path with the language and the flags of the track
+        self.output_base = output_base
+        #: the extraction that this subtitle shares with the other selected subtitles of its media
+        self.extraction = extraction
+        self.workspace = workspace
+        self._temp_dir: str | None = None
 
     @property
     def language(self) -> Language:
-        return self.media_path.language
+        return self.track.language
 
     @property
-    def temp_folder(self) -> str:
-        """The folder for the extracted track and the debug files, in the temporary folder of the run.
+    def temp_dir(self) -> str:
+        """The directory for the extracted track and the debug files, in the directory of the workspace.
 
         It is made on first use. The unique suffix prevents a clash between 2 files with the same name.
         """
-        if self._temp_folder is None:
-            name = os.path.splitext(os.path.basename(str(self.media_path)))[0]
-            self._temp_folder = tempfile.mkdtemp(prefix=f'{name}-', dir=self.options.temp_folder)
-            logger.debug('%s is using temporary folder %s', self, self._temp_folder)
-        return self._temp_folder
-
-    def output_path(self, writer: Writer) -> MediaPath:
-        return self.media_path.translate(extension=writer.extension)
+        if self._temp_dir is None:
+            name = os.path.splitext(os.path.basename(str(self.output_base)))[0]
+            workspace_dir = self.workspace.dir if self.workspace is not None else None
+            self._temp_dir = tempfile.mkdtemp(prefix=f'{name}-', dir=workspace_dir)
+            logger.debug('%s is using temporary directory %s', self, self._temp_dir)
+        return self._temp_dir
 
     @property
-    def items(self) -> list[PgsSubtitleItem]:
-        if self._items is None:
-            data = self.data_reader()
-            self._items = self.decode(data, self.media_path)
-        return self._items
+    def debug_dir(self) -> str | None:
+        """The directory for the debug files, or None when the workspace does not keep the files."""
+        return self.temp_dir if self.workspace is not None and self.workspace.keep else None
 
-    def pending_writers(self, options: Options) -> list[Writer]:
-        """The writers whose file must be written. An existing file is written again only with --force."""
-        pending = []
-        for writer in options.writers:
-            path = self.output_path(writer)
-            if not path.exists():
-                pending.append(writer)
-            elif not options.overwrite:
-                logger.debug('Skipping %s since %s already exists', self, path)
-            elif options.output_age and path.m_age < options.output_age:
-                logger.debug('Skipping since %s is too new', path)
-            else:
-                pending.append(writer)
+    def read(self) -> bytes:
+        """The PGS data of the track."""
+        return self.extraction.read(self)
 
-        return pending
-
-    def matches(self, options: Options) -> bool:
-        return bool(self.pending_writers(options))
-
-    def decode(self, data: bytes, media_path: MediaPath) -> list[PgsSubtitleItem]:
-        display_sets = list(PgsReader.decode(data, media_path))
-        logger.info(f'Decoding {media_path}')
-
-        if self.options.keep_temp_files:
-            self.dump_display_sets(display_sets)
-
-        return PgsSubtitleItem.create_items(media_path, display_sets)
-
-    def dump_display_sets(self, display_sets: list[DisplaySet]) -> None:
-        new_line = '\n'
-        with open(os.path.join(self.temp_folder, 'display-sets.txt'), mode='w', encoding='utf8') as f:
-            f.write(f'{new_line.join([str(ds) for ds in display_sets])}')
-        with open(os.path.join(self.temp_folder, 'display-sets.json'), mode='w', encoding='utf8') as f:
-            json.dump([ds.to_json() for ds in display_sets], f, indent=2, ensure_ascii=False, default=lambda x: str(x))
+    def output_path(self, writer: Writer) -> MediaPath:
+        return self.output_base.replace(extension=writer.extension)
 
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__} [{self}]>'
 
     def __str__(self) -> str:
         # a track of a container: the file name, the track id, and the language
-        if self.track is not None and str(self.source_path) != str(self.media_path):
-            return f'{self.media_path.translate(language=Language("und"))} [{self.track.id}:{self.language}]'
+        if str(self.source_path) != str(self.output_base):
+            return f'{self.output_base.replace(language=Language("und"))} [{self.track.id}:{self.language}]'
 
-        return str(self.media_path)
+        return str(self.output_base)
 
-    def __enter__(self) -> Pgs:
+    def __enter__(self) -> Subtitle:
         return self
 
     def __exit__(
         self, exc_type: type[BaseException] | None, exc: BaseException | None, traceback: TracebackType | None
     ) -> None:
-        self._items = None
-        if self._temp_folder is None or self.options.keep_temp_files:
+        # the next read of another subtitle does not extract this one
+        self.extraction.release(self)
+        if self._temp_dir is None or (self.workspace is not None and self.workspace.keep):
             return
 
-        logger.debug('Removing temporary files in %s', self._temp_folder)
-        shutil.rmtree(self._temp_folder)
+        logger.debug('Removing temporary files in %s', self._temp_dir)
+        shutil.rmtree(self._temp_dir)
+        self._temp_dir = None
+
+
+class Extraction:
+    """One call of the source for all the selected tracks of a media, on the first read.
+
+    The bytes stay on disk until each track reads them. When the call fails, each track gets the same error.
+    """
+
+    def __init__(self, source: Source, path: MediaPath):
+        self.source = source
+        self.path = path
+        #: the subtitles that the next call extracts, if they are not on disk
+        self.pending: list[Subtitle] = []
+        #: the .sup path of each extracted track, by track id
+        self._paths: dict[int, str] = {}
+        self._error: Exception | None = None
+
+    def extract(self, subtitle: Subtitle) -> None:
+        """Extract this subtitle, and the pending subtitles that are not on disk."""
+        targets: dict[int, str] = {}
+        for target in dict.fromkeys([subtitle, *self.pending]):
+            if target.track.id not in self._paths:
+                targets[target.track.id] = os.path.join(target.temp_dir, f'{target.track.id}.{target.language}.sup')
+
+        logger.debug('Extracting %d tracks from %s', len(targets), self.path)
+        self._paths.update(self.source.extract(str(self.path), targets))
+
+    def release(self, subtitle: Subtitle) -> None:
+        """Nothing reads this subtitle now: do not extract it with the others, and forget its file."""
+        if subtitle in self.pending:
+            self.pending.remove(subtitle)
+        self._paths.pop(subtitle.track.id, None)
+
+    def read(self, subtitle: Subtitle) -> bytes:
+        if self._error is None and subtitle.track.id not in self._paths:
+            try:
+                self.extract(subtitle)
+            except Exception as e:
+                self._error = e
+
+        if self._error is not None:
+            raise self._error
+
+        with open(self._paths[subtitle.track.id], mode='rb') as f:
+            return f.read()
+
+
+class Media:
+    def __init__(self, path: str, source: Source | None = None):
+        self.path = MediaPath(path)
+        if source is None:
+            self.source, self.tracks = self.find_source(path)
+        else:
+            self.source, self.tracks = source, source.probe(path)
+        self.languages = {t.language for t in self.tracks if not t.disabled}
+
+    @staticmethod
+    def find_source(path: str) -> tuple[Source, list[Track]]:
+        """The first built-in source that reads the file, and the tracks that it finds."""
+        extension = os.path.splitext(path.lower())[1]
+        source_types = [s for s in SOURCES if extension in s.extensions]
+        if not source_types:
+            raise SourceError(f'unsupported extension, expected one of {", ".join(sorted(EXTENSIONS))}')
+
+        for source_type in source_types:
+            source = source_type()
+            try:
+                return source, source.probe(path)
+            except FileNotFoundError as e:
+                logger.debug('Cannot use %s for %s: %s', source_type.__name__, path, e)
+
+        raise SourceError(source_types[0].install_hint)
+
+    def __repr__(self) -> str:
+        return f'<{self.__class__.__name__} [{self.path}]>'
+
+    def __str__(self) -> str:
+        return str(self.path)
+
+    @property
+    def age(self) -> timedelta:
+        return self.path.age
+
+    def filter_reason(self, options: Options) -> str | None:
+        """Return why this media does not match the options, or None when it does."""
+        if options.age and self.age > options.age:
+            return f'file is older than {options.age}'
+
+        if options.languages and not self.languages.intersection(options.languages):
+            available = ', '.join(sorted(str(lang) for lang in self.languages if lang)) or 'none'
+            return f'no track for the selected languages (available: {available})'
+
+        return None
+
+    def subtitles(self, options: Options, workspace: Workspace | None = None) -> list[Subtitle]:
+        """The tracks that the options select. It does not look at the output files: see `pgsrip.api.pending`."""
+        candidates: list[Track] = []
+        for t in self.tracks:
+            if t.disabled:
+                continue
+            if options.languages and t.language not in options.languages:
+                logger.debug('Skipping track %s:%s in %s: language not selected', t.id, t.language, self)
+                continue
+            candidates.append(t)
+
+        candidates.sort(key=lambda x: x.id)
+
+        # 2 tracks with the same language and the same file name tokens write the same file.
+        # The groups use all the candidates, not the selected tracks: the `.track<n>` suffix of a track is
+        # the same with and without `all_tracks`, `with_flags` and `without_flags`.
+        groups: dict[tuple[Language, tuple[str, ...]], list[Track]] = {}
+        for t in candidates:
+            groups.setdefault((t.language, t.flags.tokens()), []).append(t)
+        # the first track of a group (lowest id) has no suffix. The next tracks get 2, 3, ...
+        suffixes = {t.id: i + 1 for members in groups.values() for i, t in enumerate(members) if i > 0}
+
+        selected: set[tuple[Language, tuple[str, ...] | None]] = set()
+        subtitles: list[Subtitle] = []
+        extraction = Extraction(self.source, self.path)
+        for t in candidates:
+            key = (t.language, None if options.one_per_language else t.flags.tokens())
+            if not options.all_tracks and key in selected:
+                logger.debug('Skipping track %s:%s in %s: duplicate of a selected track', t.id, t.language, self)
+                continue
+            if not t.flags.matches(options.with_flags, options.without_flags):
+                logger.debug('Skipping track %s:%s in %s: flags not selected', t.id, t.language, self)
+                continue
+
+            logger.debug('Selecting track %s:%s in %s', t.id, t.language, self)
+            subtitles.append(
+                Subtitle(
+                    t,
+                    self.path,
+                    self.path.replace(language=t.language, flags=t.flags, track_number=suffixes.get(t.id)),
+                    extraction,
+                    workspace,
+                )
+            )
+            selected.add(key)
+
+        extraction.pending.extend(subtitles)
+        return subtitles

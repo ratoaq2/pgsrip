@@ -1,187 +1,223 @@
 from __future__ import annotations
 
 import enum
+import functools
 import logging
 import typing
 
-import cv2
 import numpy as np
 import numpy.typing as npt
 
-from pgsrip.media_path import MediaPath
-from pgsrip.utils import format_time, from_hex, safe_get, to_time
+from pgsrip.errors import PgsripError
+from pgsrip.utils import format_time
 
 logger = logging.getLogger(__name__)
+
+#: every segment starts with: 'PG', PTS (4 bytes), DTS (4 bytes), type (1 byte), size (2 bytes)
+SEGMENT_HEADER_SIZE = 13
+PTS_FIELD = slice(2, 6)
+DTS_FIELD = slice(6, 10)
+TYPE_FIELD_OFFSET = 10
+SIZE_FIELD_OFFSET = 11
+#: the PTS and the DTS count 90 ticks in each millisecond
+TICKS_PER_MS = 90
+#: the first object segment starts with: id (2), version (1), sequence (1), data length (3), width (2), height (2)
+OBJECT_HEADER_SIZE = 11
+#: a palette entry at least this bright is ink (black in the decoded image), else background (white)
+MIN_INK_LUMINANCE = 128
+#: a subtitle with no end time ends before the next one, when the next one starts within this gap
+MAX_END_FIX_GAP_MS = 10_000
+
+
+class CorruptDataError(PgsripError):
+    """The PGS data of a track has no subtitle that pgsrip can read."""
+
+
+class Box(typing.NamedTuple):
+    """A rectangle in pixels. The bottom row and the right column are not in it."""
+
+    top: int
+    left: int
+    bottom: int
+    right: int
+
+
+def to_int(b: bytes) -> int | None:
+    """The big-endian int of the bytes, or None for no bytes (corrupted data)."""
+    return int.from_bytes(b, 'big') if b else None
+
+
+def safe_get(b: bytes, i: int) -> int:
+    """The byte at i, or 0 after the end of corrupted data."""
+    try:
+        return b[i]
+    except IndexError:
+        return 0
+
+
+def to_time(value: float | None) -> int | None:
+    """The time in int milliseconds. It truncates, as `SubRipTime.from_ordinal` does."""
+    return int(value) if value is not None else None
 
 
 @enum.unique
 class SegmentType(enum.Enum):
-    PDS = int('0x14', 16)
-    ODS = int('0x15', 16)
-    PCS = int('0x16', 16)
-    WDS = int('0x17', 16)
-    END = int('0x80', 16)
+    PDS = 0x14
+    ODS = 0x15
+    PCS = 0x16
+    WDS = 0x17
+    END = 0x80
 
 
 @enum.unique
 class CompositionState(enum.Enum):
-    NORMAL_CASE = from_hex(b'\x00')
-    ACQUISITION_POINT = from_hex(b'\x40')
-    EPOCH_START = from_hex(b'\x80')
+    NORMAL_CASE = 0x00
+    ACQUISITION_POINT = 0x40
+    EPOCH_START = 0x80
 
 
 @enum.unique
 class ObjectSequenceType(enum.Enum):
-    MIDDLE = from_hex(b'\x00')
-    LAST = from_hex(b'\x40')
-    FIRST = from_hex(b'\x80')
-    FIRST_AND_LAST = from_hex(b'\xc0')
+    MIDDLE = 0x00
+    LAST = 0x40
+    FIRST = 0x80
+    FIRST_AND_LAST = 0xC0
 
 
-class Palette(typing.NamedTuple):
+class PaletteEntry(typing.NamedTuple):
     y: int
     cr: int
     cb: int
     alpha: int
 
 
-class PgsReader:
-    @classmethod
-    def read_segments(cls, data: bytes, media_path: MediaPath) -> typing.Iterator[BaseSegment]:
-        offset = 0
-        length = len(data)
-        while offset < length:
-            if length - offset < 13:
-                logger.warning(
-                    '%s Ignoring invalid PGS segment data with less than 13 bytes at offset %d', media_path, offset
-                )
-                break
+def read_segments(data: bytes, name: str) -> typing.Iterator[Segment]:
+    offset = 0
+    length = len(data)
+    while offset < length:
+        if length - offset < SEGMENT_HEADER_SIZE:
+            logger.warning(
+                '%s Ignoring invalid PGS segment data with less than %d bytes at offset %d',
+                name,
+                SEGMENT_HEADER_SIZE,
+                offset,
+            )
+            break
 
-            if data[offset : offset + 2] != b'PG':
-                logger.warning('%s Ignoring invalid PGS segment data at offset %d', media_path, offset)
-                break
+        if data[offset : offset + 2] != b'PG':
+            logger.warning('%s Ignoring invalid PGS segment data at offset %d', name, offset)
+            break
 
-            segment_type = SEGMENT_TYPE[SegmentType(data[offset + 10])]
-            size_field = from_hex(data[offset + 11 : offset + 13])
-            assert size_field is not None
-            size = 13 + size_field
-            yield segment_type(data[offset : offset + size])
-            offset += size
+        try:
+            segment_class = SEGMENT_CLASSES[SegmentType(data[offset + TYPE_FIELD_OFFSET])]
+        except ValueError as e:
+            logger.warning('%s Ignoring invalid PGS segment data at offset %d: %s', name, offset, e)
+            break
 
-    @classmethod
-    def decode(cls, data: bytes, media_path: MediaPath) -> typing.Iterator[DisplaySet]:
-        segments: list[BaseSegment] = []
-        index = 0
-        for s in cls.read_segments(data, media_path):
-            segments.append(s)
-            if s.type == SegmentType.END:
-                yield DisplaySet(index, segments)
-                segments = []
-                index += 1
+        size_field = to_int(data[offset + SIZE_FIELD_OFFSET : offset + SEGMENT_HEADER_SIZE])
+        assert size_field is not None
+        size = SEGMENT_HEADER_SIZE + size_field
+        yield segment_class(data[offset : offset + size])
+        offset += size
 
 
-class PgsImage:
-    def __init__(self, data: bytes, palettes: list[Palette]):
-        self.rle_data = data
-        self.palettes = palettes
-        self._data: npt.NDArray[np.uint8] | None = None
-
-    @property
-    def data(self) -> npt.NDArray[np.uint8]:
-        if self._data is None:
-            self._data = self.decode_rle_image(self.rle_data, self.palettes)
-        return self._data
-
-    @classmethod
-    def decode_rle_image(cls, data: bytes, palettes: list[Palette], binary: bool = True) -> npt.NDArray[np.uint8]:
-        # parse the runs only: the pixels are built at once with np.repeat, not one by one.
-        lengths: list[int] = []
-        colors: list[int] = []
-        total = 0
-        cols = 1
-        i = 0
-        while i < len(data):
-            length, color, count = cls.decode_rle_position(data, i)
-            if not length and cols < 2:
-                cols = total
-            lengths.append(length)
-            colors.append(color)
-            total += length
-            i += count
-
-        rows = (total + cols - 1) // cols
-        # corrupted image: pad the missing pixels with palette 0
-        lengths.append(cols * rows - total)
-        colors.append(0)
-        color_indexes = np.array(colors, dtype=np.intp)
-
-        lut = np.array([cls.get_color(palette, binary) for palette in palettes], dtype=np.uint8)
-        pixels = np.repeat(lut[color_indexes], lengths, axis=0)
-        if binary:
-            return pixels.reshape(rows, cols)
-
-        image = cv2.cvtColor(pixels.reshape(rows, cols, 3), cv2.COLOR_YCR_CB2BGR)
-        alpha_lut = np.array([palette[3] for palette in palettes], dtype=np.uint8)
-        a_channel = np.repeat(alpha_lut[color_indexes], lengths).reshape(rows, cols)
-        b_channel, g_channel, r_channel = cv2.split(image)
-        image = cv2.merge((b_channel, g_channel, r_channel, a_channel))
-        return typing.cast('npt.NDArray[np.uint8]', image)
-
-    @classmethod
-    def get_color(cls, palette: Palette, binary: bool) -> list[int] | tuple[int, ...]:
-        return ([0] if palette[0] > 127 else [255]) if binary else palette[:3]
-
-    @classmethod
-    def decode_rle_position(cls, data: bytes, i: int) -> tuple[int, int, int]:
-        first = safe_get(data, i)
-        if first:
-            return 1, first, 1
-
-        second = safe_get(data, i + 1)
-        if second < 64:
-            return second, 0, 2
-
-        third = safe_get(data, i + 2)
-        if second < 128:
-            return ((second - 64) << 8) + third, 0, 3
-        elif second < 192:
-            return second - 128, third, 3
-
-        fourth = safe_get(data, i + 3)
-        return ((second - 192) << 8) + third, fourth, 4
-
-    @property
-    def shape(self) -> tuple[int, ...]:
-        return self.data.shape
+def read_display_sets(data: bytes, name: str) -> typing.Iterator[DisplaySet]:
+    segments: list[Segment] = []
+    index = 0
+    for s in read_segments(data, name):
+        segments.append(s)
+        if s.type == SegmentType.END:
+            yield DisplaySet(index, segments)
+            segments = []
+            index += 1
 
 
-class BaseSegment:
+class PgsImage(typing.NamedTuple):
+    """The RLE data of a subtitle image, and its palette."""
+
+    rle_data: bytes
+    palette: list[PaletteEntry]
+
+
+def decode_rle_image(data: bytes, palette: list[PaletteEntry]) -> npt.NDArray[np.uint8]:
+    """The image of the RLE data: 0 (ink) or 255 (background) for each pixel."""
+    # parse the runs only: the pixels are built at once with np.repeat, not one by one.
+    lengths: list[int] = []
+    colors: list[int] = []
+    total = 0
+    cols = 1
+    i = 0
+    while i < len(data):
+        length, color, count = decode_rle_position(data, i)
+        if not length and cols < 2:
+            cols = total
+        lengths.append(length)
+        colors.append(color)
+        total += length
+        i += count
+
+    rows = (total + cols - 1) // cols
+    # corrupted image: pad the missing pixels with palette 0
+    lengths.append(cols * rows - total)
+    colors.append(0)
+    color_indexes = np.array(colors, dtype=np.intp)
+
+    lut = np.array([pixel_color(entry) for entry in palette], dtype=np.uint8)
+    return np.repeat(lut[color_indexes], lengths).reshape(rows, cols)
+
+
+def pixel_color(entry: PaletteEntry) -> int:
+    """Black ink for a bright palette entry, else white."""
+    return 0 if entry.y >= MIN_INK_LUMINANCE else 255
+
+
+def decode_rle_position(data: bytes, i: int) -> tuple[int, int, int]:
+    """The run at i: the number of pixels, the palette index, and the number of bytes."""
+    first = safe_get(data, i)
+    if first:
+        return 1, first, 1
+
+    second = safe_get(data, i + 1)
+    if second < 64:
+        return second, 0, 2
+
+    third = safe_get(data, i + 2)
+    if second < 128:
+        return ((second - 64) << 8) + third, 0, 3
+    elif second < 192:
+        return second - 128, third, 3
+
+    fourth = safe_get(data, i + 3)
+    return ((second - 192) << 8) + third, fourth, 4
+
+
+class Segment:
     def __init__(self, b: bytes):
         self.bytes = b
 
     @property
     def presentation_timestamp(self) -> int | None:
-        value = from_hex(self.bytes[2:6])
-        return to_time(value / 90) if value is not None else None
+        value = to_int(self.bytes[PTS_FIELD])
+        return to_time(value / TICKS_PER_MS) if value is not None else None
 
     @property
     def decoding_timestamp(self) -> int | None:
-        value = from_hex(self.bytes[6:10])
-        return to_time(value / 90) if value is not None else None
+        value = to_int(self.bytes[DTS_FIELD])
+        return to_time(value / TICKS_PER_MS) if value is not None else None
 
     @property
     def type(self) -> SegmentType:
-        return SegmentType(self.bytes[10])
+        return SegmentType(self.bytes[TYPE_FIELD_OFFSET])
 
     @property
     def size(self) -> int:
-        value = from_hex(self.bytes[11:13])
+        value = to_int(self.bytes[SIZE_FIELD_OFFSET:SEGMENT_HEADER_SIZE])
         assert value is not None
         return value
 
     @property
     def data(self) -> bytes:
-        return self.bytes[13:]
+        return self.bytes[SEGMENT_HEADER_SIZE:]
 
     def to_json(self) -> dict[str, typing.Any]:
         attributes: dict[str, str] = {
@@ -197,16 +233,20 @@ class BaseSegment:
                 return format_time(v)
             return v.name if isinstance(v, enum.Enum) else v
 
-        return {k: to_value(k, getattr(self, v)) for k, v in attributes.items() if getattr(self, v) is not None}
+        values: dict[str, typing.Any] = {}
+        for k, v in attributes.items():
+            try:
+                value = getattr(self, v)
+            except (ValueError, IndexError):
+                # corrupted data: the debug files show it
+                value = 'invalid'
+            if value is not None:
+                values[k] = to_value(k, value)
+
+        return values
 
     def attributes(self) -> dict[str, str]:
         raise NotImplementedError
-
-    def __len__(self) -> int:
-        return self.size
-
-    def __bool__(self) -> bool:
-        return True
 
     def __str__(self) -> str:
         strings = []
@@ -217,17 +257,17 @@ class BaseSegment:
         return ', '.join(strings)
 
     def __repr__(self) -> str:
-        return f'<{self.__class__.__name__}: [{self}]>'
+        return f'<{self.__class__.__name__} [{self}]>'
 
 
-class PresentationCompositionSegment(BaseSegment):
+class PresentationCompositionSegment(Segment):
     @property
     def width(self) -> int | None:
-        return from_hex(self.data[0:2])
+        return to_int(self.data[0:2])
 
     @property
     def height(self) -> int | None:
-        return from_hex(self.data[2:4])
+        return to_int(self.data[2:4])
 
     @property
     def frame_rate(self) -> int:
@@ -235,7 +275,7 @@ class PresentationCompositionSegment(BaseSegment):
 
     @property
     def composition_number(self) -> int | None:
-        return from_hex(self.data[5:7])
+        return to_int(self.data[5:7])
 
     @property
     def composition_state(self) -> CompositionState:
@@ -250,7 +290,7 @@ class PresentationCompositionSegment(BaseSegment):
         return self.data[9]
 
     @property
-    def number_composition_objects(self) -> int:
+    def object_count(self) -> int:
         return self.data[10]
 
     def attributes(self) -> dict[str, str]:
@@ -258,45 +298,45 @@ class PresentationCompositionSegment(BaseSegment):
             'width': 'width',
             'height': 'height',
             'frame_rate': 'frame_rate',
-            'number': 'composition_number',
+            'composition_number': 'composition_number',
             'state': 'composition_state',
             'palette_update': 'palette_update',
             'palette_id': 'palette_id',
-            'num_objects': 'number_composition_objects',
+            'object_count': 'object_count',
         }
 
     def is_start(self) -> bool:
         return self.composition_state in (CompositionState.EPOCH_START, CompositionState.ACQUISITION_POINT)
 
 
-class WindowDefinitionSegment(BaseSegment):
+class WindowDefinitionSegment(Segment):
     @property
-    def num_windows(self) -> int:
+    def window_count(self) -> int:
         return self.data[0]
 
     @property
     def window_id(self) -> int | None:
-        return safe_get(self.data, 1, None)
+        return self.data[1] if len(self.data) > 1 else None
 
     @property
     def x_offset(self) -> int | None:
-        return from_hex(self.data[2:4])
+        return to_int(self.data[2:4])
 
     @property
     def y_offset(self) -> int | None:
-        return from_hex(self.data[4:6])
+        return to_int(self.data[4:6])
 
     @property
     def width(self) -> int | None:
-        return from_hex(self.data[6:8])
+        return to_int(self.data[6:8])
 
     @property
     def height(self) -> int | None:
-        return from_hex(self.data[8:10])
+        return to_int(self.data[8:10])
 
     def attributes(self) -> dict[str, str]:
         return {
-            'num_windows': 'num_windows',
+            'window_count': 'window_count',
             'window_id': 'window_id',
             'x_offset': 'x_offset',
             'y_offset': 'y_offset',
@@ -305,15 +345,14 @@ class WindowDefinitionSegment(BaseSegment):
         }
 
 
-class PaletteDefinitionSegment(BaseSegment):
+class PaletteDefinitionSegment(Segment):
     def __init__(self, b: bytes):
         super().__init__(b)
-        self.palettes = [Palette(0, 0, 0, 0)] * 256
-        # Slice from byte 2 til end of segment. Divide by 5 to determine number of palette entries
-        # Iterate entries. Explode the 5 bytes into namedtuple Palette. Must be exploded
+        self.entries = [PaletteEntry(0, 0, 0, 0)] * 256
+        # the entries start at byte 2. Each entry has 5 bytes: the palette index, then a PaletteEntry
         for entry in range(len(self.data[2:]) // 5):
             i = 2 + entry * 5
-            self.palettes[self.data[i]] = Palette(*self.data[i + 1 : i + 5])
+            self.entries[self.data[i]] = PaletteEntry(*self.data[i + 1 : i + 5])
 
     @property
     def palette_id(self) -> int:
@@ -327,10 +366,10 @@ class PaletteDefinitionSegment(BaseSegment):
         return {'palette_id': 'palette_id', 'version': 'version'}
 
 
-class ObjectDefinitionSegment(BaseSegment):
+class ObjectDefinitionSegment(Segment):
     @property
     def id(self) -> int | None:
-        return from_hex(self.data[0:2])
+        return to_int(self.data[0:2])
 
     @property
     def version(self) -> int:
@@ -341,47 +380,47 @@ class ObjectDefinitionSegment(BaseSegment):
         return ObjectSequenceType(self.data[3])
 
     @property
-    def data_len(self) -> int | None:
+    def data_length(self) -> int | None:
         if self.sequence_type in (ObjectSequenceType.FIRST, ObjectSequenceType.FIRST_AND_LAST):
-            return from_hex(self.data[4:7])
+            return to_int(self.data[4:7])
         return None
 
     @property
     def width(self) -> int | None:
         if self.sequence_type in (ObjectSequenceType.FIRST, ObjectSequenceType.FIRST_AND_LAST):
-            return from_hex(self.data[7:9])
+            return to_int(self.data[7:9])
         return None
 
     @property
     def height(self) -> int | None:
         if self.sequence_type in (ObjectSequenceType.FIRST, ObjectSequenceType.FIRST_AND_LAST):
-            return from_hex(self.data[9:11])
+            return to_int(self.data[9:11])
         return None
 
     @property
-    def img_data(self) -> bytes:
+    def image_data(self) -> bytes:
         if self.sequence_type in (ObjectSequenceType.MIDDLE, ObjectSequenceType.LAST):
             return self.data[4:]
 
-        return self.data[11:]
+        return self.data[OBJECT_HEADER_SIZE:]
 
     def attributes(self) -> dict[str, str]:
         return {
             'id': 'id',
             'version': 'version',
             'sequence_type': 'sequence_type',
-            'data_len': 'data_len',
+            'data_length': 'data_length',
             'width': 'width',
             'height': 'height',
         }
 
 
-class EndSegment(BaseSegment):
+class EndSegment(Segment):
     def attributes(self) -> dict[str, str]:
         return {}
 
 
-SEGMENT_TYPE: dict[SegmentType, type[BaseSegment]] = {
+SEGMENT_CLASSES: dict[SegmentType, type[Segment]] = {
     SegmentType.PDS: PaletteDefinitionSegment,
     SegmentType.ODS: ObjectDefinitionSegment,
     SegmentType.PCS: PresentationCompositionSegment,
@@ -391,7 +430,7 @@ SEGMENT_TYPE: dict[SegmentType, type[BaseSegment]] = {
 
 
 class DisplaySet:
-    def __init__(self, index: int, segments: list[BaseSegment]):
+    def __init__(self, index: int, segments: list[Segment]):
         self.index = index
         self.segments = segments
 
@@ -411,34 +450,21 @@ class DisplaySet:
     def ods_segments(self) -> list[ObjectDefinitionSegment]:
         return [s for s in self.segments if isinstance(s, ObjectDefinitionSegment)]
 
-    @property
-    def end(self) -> EndSegment:
-        return [s for s in self.segments if isinstance(s, EndSegment)][0]
-
     def is_start(self) -> bool:
         return self.pcs.is_start()
 
-    def is_valid(self) -> bool:
-        valid = True
-        counts: dict[SegmentType, int] = {}
-        for s in self.segments:
-            counts[s.type] = counts.get(s.type, 0) + 1
-            if (
-                isinstance(s, PresentationCompositionSegment)
-                and s.composition_state == CompositionState.ACQUISITION_POINT
-            ):
-                logger.warning('ACQUISITION_POINT found %s, %r', s, self)
+    def error(self) -> str | None:
+        """Why the display set cannot be read, or None."""
+        if not any(isinstance(s, PresentationCompositionSegment) for s in self.segments):
+            return 'no PCS'
+        try:
+            # the enum properties raise ValueError on a value that does not exist, the others IndexError on no data
+            _ = self.pcs.composition_state, self.pcs.palette_id, [ods.sequence_type for ods in self.ods_segments]
+            _ = self.wds.window_count if self.wds else None
+        except (ValueError, IndexError) as e:
+            return str(e)
 
-        for t in (SegmentType.PCS, SegmentType.WDS, SegmentType.END):
-            count = counts.get(t)
-            if not count:
-                logger.warning('No %s found for %r', t, self)
-                valid = False
-            elif count > 1:
-                logger.warning('Multiple %s found for %r', t, self)
-                valid = False
-
-        return valid
+        return None
 
     def to_json(self) -> dict[str, typing.Any]:
         return {'index': self.index, 'segments': [s.to_json() for s in self.segments]}
@@ -451,4 +477,148 @@ class DisplaySet:
         return '\n'.join(strings)
 
     def __repr__(self) -> str:
-        return f'<{self.__class__.__name__}: {self}]>'
+        return f'<{self.__class__.__name__} [{self}]>'
+
+
+def first_image(display_sets: typing.Iterable[DisplaySet]) -> PgsImage | None:
+    """The image of the first display set that starts a subtitle."""
+    for ds in display_sets:
+        if not ds.pcs.is_start():
+            continue
+
+        # the palette of the composition, else the last one. No palette: the item is dropped.
+        palettes = {pds.palette_id: pds.entries for pds in ds.pds_segments}
+        palette = palettes.get(ds.pcs.palette_id) or next(reversed(palettes.values()), [])
+        image_data = b''
+        for ods in ds.ods_segments:
+            image_data += ods.image_data
+
+        return PgsImage(image_data, palette)
+
+    return None
+
+
+def read_items(display_sets: typing.Iterable[DisplaySet], name: str) -> list[Item]:
+    """Group the display sets into items. A corrupted item is fixed, or dropped."""
+    groups: list[list[DisplaySet]] = []
+    for ds in display_sets:
+        error = ds.error()
+        if error:
+            logger.warning('%s Ignoring corrupted display set %d: %s', name, ds.index, error)
+            continue
+
+        if not groups or ds.is_start():
+            groups.append([])
+        groups[-1].append(ds)
+
+    starts = [start_time(group) for group in groups]
+    items = []
+    for index, group in enumerate(groups):
+        next_start = starts[index + 1] if index + 1 < len(starts) else None
+        item = make_item(index, group, next_start, name)
+        if item is not None:
+            items.append(item)
+
+    return items
+
+
+def start_time(display_sets: list[DisplaySet]) -> int | None:
+    return min((t for ds in display_sets if (t := ds.pcs.presentation_timestamp) is not None), default=None)
+
+
+def make_item(index: int, display_sets: list[DisplaySet], next_start: int | None, name: str) -> Item | None:
+    """The item of a group of display sets. Fix a missing end time with the start of the next item.
+
+    None when the item is corrupted.
+    """
+    start = start_time(display_sets)
+    end = max((t for ds in display_sets if (t := ds.pcs.presentation_timestamp) is not None), default=None)
+    image = first_image(display_sets)
+    windows = [w for ds in display_sets if (w := ds.wds) and w.window_count > 0]
+    x_offset = min((x for w in windows if (x := w.x_offset) is not None), default=None)
+    y_offset = min((y for w in windows if (y := w.y_offset) is not None), default=None)
+    label = f'{name} [{format_time(start)} --> {format_time(end)}]'
+
+    errors = []
+    if image is None:
+        errors.append('no image')
+    elif not image.palette:
+        errors.append('no palette')
+    if y_offset is None:
+        errors.append('no y_offset')
+    if x_offset is None:
+        errors.append('no x_offset')
+    if start is None:
+        errors.append('no start timestamp')
+    elif end is None or end <= start:
+        if next_start is not None and start + MAX_END_FIX_GAP_MS >= next_start:
+            end = max(start + 1, next_start - 1)
+            logger.info('Fixed item %s: the end timestamp is the start of the next item', label)
+        else:
+            errors.append('no valid end timestamp')
+
+    for error in errors:
+        logger.warning('Corrupted item %s: %s', label, error)
+    if errors or image is None or start is None or end is None or x_offset is None or y_offset is None:
+        return None
+
+    return Item(index, start, end, image, x_offset, y_offset, name)
+
+
+class Item:
+    """One subtitle image, with its start and end time: the input of the OCR engines. `read_items` makes it."""
+
+    def __init__(self, index: int, start: int, end: int, image: PgsImage, x_offset: int, y_offset: int, name: str):
+        self.index = index
+        #: in milliseconds
+        self.start = start
+        #: in milliseconds
+        self.end = end
+        self.image = image
+        #: the position of the window on the screen
+        self.x_offset = x_offset
+        self.y_offset = y_offset
+        #: the subtitle of the item, for the log messages
+        self.name = name
+
+    @functools.cached_property
+    def _ink(self) -> tuple[tuple[int, int], npt.NDArray[np.uint8]]:
+        """The (top, left) origin of the ink box in the image, and the image cropped to it.
+
+        PGS objects often span the whole frame width: OCR only the ink. Only the cropped image is kept in
+        memory.
+        """
+        data = decode_rle_image(self.image.rle_data, self.image.palette)
+        ink = data == 0
+        rows = np.flatnonzero(ink.any(axis=1))
+        cols = np.flatnonzero(ink.any(axis=0))
+        if not len(rows):
+            return (0, 0), data[:0, :0].copy()
+
+        return (int(rows[0]), int(cols[0])), data[rows[0] : rows[-1] + 1, cols[0] : cols[-1] + 1].copy()
+
+    @property
+    def bitmap(self) -> npt.NDArray[np.uint8]:
+        return self._ink[1]
+
+    @property
+    def height(self) -> int:
+        return int(self.bitmap.shape[0])
+
+    @property
+    def width(self) -> int:
+        return int(self.bitmap.shape[1])
+
+    @property
+    def box(self) -> Box:
+        """The box of the ink on the screen."""
+        top, left = self._ink[0]
+        top, left = self.y_offset + top, self.x_offset + left
+
+        return Box(top, left, top + self.height, left + self.width)
+
+    def __repr__(self) -> str:
+        return f'<{self.__class__.__name__} [{self}]>'
+
+    def __str__(self) -> str:
+        return f'{self.name} [{format_time(self.start)} --> {format_time(self.end)}]'

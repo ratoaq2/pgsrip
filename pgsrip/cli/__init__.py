@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import functools
+import hashlib
 import json
 import logging
 import os
 import re
 import typing
 from datetime import timedelta
-from types import TracebackType
 
 import click
 import yaml
@@ -14,10 +15,9 @@ from appdirs import AppDirs
 from babelfish import Error as BabelfishError
 from babelfish import Language
 
-from pgsrip import Pgs, __url__, __version__, api
+from pgsrip import __url__, __version__, api
+from pgsrip.api import ScanResult, Skipped
 from pgsrip.cli.plugins import (
-    AUTO,
-    AUTO_ENGINES,
     ENGINE,
     ENGINE_KIND,
     POST_PROCESSOR,
@@ -30,54 +30,28 @@ from pgsrip.cli.plugins import (
     plugin_checks,
     post_processor_names,
 )
-from pgsrip.core import get_reason
 from pgsrip.diagnostics import format_checks, run_checks
-from pgsrip.engines.auto import check_auto
+from pgsrip.engines.auto import AUTO, AUTO_ENGINES, AutoEngine
 from pgsrip.engines.base import OcrError
-from pgsrip.formats.scrub import Redaction, output_path, scrub_data
+from pgsrip.formats.scrub import Redaction, scrub_data
+from pgsrip.media import Media, Subtitle, Workspace
+from pgsrip.media_path import MediaPath
 from pgsrip.options import Options
 from pgsrip.sources import source_checks
-from pgsrip.sources.base import Media
 from pgsrip.track_flags import FLAG_CHOICES
+from pgsrip.utils import MAX_DEFAULT_WORKERS
 from pgsrip.writers import WRITERS
-
-if typing.TYPE_CHECKING:
-    from click._termui_impl import ProgressBar
 
 logger = logging.getLogger('pgsrip')
 
 
-T = typing.TypeVar('T')
-
-
-class DebugProgressBar(typing.Generic[T]):
-    def __init__(self, debug: bool, iterable: typing.Iterable[T], **kwargs: typing.Any):
-        self.debug = debug
-        self.iterable = iterable
-        self.progressbar: ProgressBar[T] = click.progressbar(iterable, **kwargs)
-
-    def __iter__(self) -> typing.Iterator[T]:
-        if not self.debug:
-            yield from self.progressbar.__iter__()
-            return
-
-        yield from self.iterable
-
-    def __enter__(self) -> ProgressBar[T] | DebugProgressBar[T]:
-        if not self.debug:
-            return self.progressbar.__enter__()
-
-        return self
-
-    def __exit__(
-        self, exc_type: type[BaseException] | None, exc: BaseException | None, traceback: TracebackType | None
-    ) -> None:
-        if not self.debug:
-            return self.progressbar.__exit__(exc_type, exc, traceback)
-
-    def update(self, n_steps: int, current_item: T | None = None) -> None:
-        if not self.debug:
-            return self.progressbar.update(n_steps, current_item)
+#: the arguments that the group handles. The default command gets all the other arguments
+GROUP_ARGUMENTS = frozenset({'--help', '-h', '--version'})
+#: how many paths a report lists before it cuts the list
+MAX_REPORTED_PATHS = 10
+CONFIG_EXTENSIONS = ('.json', '.yml', '.yaml')
+SUP_EXTENSION = '.sup'
+WRITERS_BY_NAME = {w.name: w for w in WRITERS}
 
 
 class LanguageParamType(click.ParamType[Language, str]):
@@ -87,16 +61,16 @@ class LanguageParamType(click.ParamType[Language, str]):
         try:
             return Language.fromietf(value)
         except (BabelfishError, ValueError):
-            self.fail(f'{click.style(f"{value}", bold=True)} is not a valid language')
+            self.fail(f'{click.style(value, bold=True)} is not a valid language')
 
 
 class AgeParamType(click.ParamType[timedelta, str]):
     name = 'age'
 
     def convert(self, value: str, param: click.Parameter | None, ctx: click.Context | None) -> timedelta:
-        match = re.match(r'^(?:(?P<weeks>\d+?)w)?(?:(?P<days>\d+?)d)?(?:(?P<hours>\d+?)h)?$', value)
-        if not match:
-            self.fail(f'{value} is not a valid age')
+        match = re.match(r'^(?:(?P<weeks>\d+)w)?(?:(?P<days>\d+)d)?(?:(?P<hours>\d+)h)?$', value)
+        if not value or not match:
+            self.fail(f'{click.style(value, bold=True)} is not a valid age')
 
         return timedelta(**{k: int(v) for k, v in match.groupdict('0').items()})
 
@@ -119,7 +93,6 @@ class RangeParamType(click.ParamType[frozenset[int], str]):
 
 LANGUAGE = LanguageParamType()
 AGE = AgeParamType()
-WRITERS_BY_NAME = {w.name: w for w in WRITERS}
 RANGE = RangeParamType()
 
 
@@ -133,7 +106,7 @@ def quote(path: str) -> str:
     return f'"{path}"' if ' ' in path else path
 
 
-def echo_failures(failures: list[tuple[Pgs, Exception]], log_file: str | None) -> None:
+def echo_failures(failures: list[tuple[Subtitle, Exception]], log_file: str | None) -> None:
     """Report the subtitles that could not be ripped, and how to report them."""
     if not failures:
         return
@@ -143,11 +116,11 @@ def echo_failures(failures: list[tuple[Pgs, Exception]], log_file: str | None) -
         f'{click.style(str(len(failures)), bold=True, fg="red")} '
         f'PGS subtitle{"s" if len(failures) > 1 else ""} could not be ripped:'
     )
-    for pgs, error in failures[:MAX_REPORTED_PATHS]:
-        click.echo(f'  {pgs}: <{type(error).__name__}> [{error}]')
+    for subtitle, error in failures[:MAX_REPORTED_PATHS]:
+        click.echo(f'  {subtitle}: <{type(error).__name__}> {error}')
 
     # a scrubbed sample cannot reproduce an OCR engine failure, e.g. missing tesseract data
-    sources = sorted({str(pgs.source_path) for pgs, error in failures if not isinstance(error, OcrError)})
+    sources = sorted({str(subtitle.source_path) for subtitle, error in failures if not isinstance(error, OcrError)})
     if not sources:
         return
 
@@ -161,40 +134,44 @@ def echo_failures(failures: list[tuple[Pgs, Exception]], log_file: str | None) -
     click.echo(f'Attach it to a new issue: {click.style(f"{__url__}/issues", bold=True)}')
 
 
-# arguments that the group handles itself, everything else belongs to the default command
-GROUP_ARGUMENTS = frozenset({'--help', '-h', '--version'})
-
-# how many ignored paths are listed before the list is cut short
-MAX_REPORTED_PATHS = 10
-
-
-def echo_paths(paths: list[str], label: str, color: str, limit: int | None) -> None:
+def echo_paths(paths: list[Skipped], label: str, color: str, limit: int | None) -> None:
     """Print each path with the reason why it was not ripped."""
-    for path in paths[:limit] if limit else paths:
-        reason = get_reason(path)
-        message = f'{click.style(str(path), fg=color, bold=True)} {label}'
-        click.echo(f'{message}: {reason}' if reason else message)
+    for path, reason in paths[:limit] if limit else paths:
+        click.echo(f'{click.style(path, fg=color, bold=True)} {label}: {reason}')
 
     remaining = len(paths) - limit if limit else 0
     if remaining > 0:
-        click.echo(f'... and {remaining} more, use {click.style("-vv", bold=True)} to see them all')
+        click.echo(f'... and {remaining} more, use {click.style("-v", bold=True)} to see them all')
 
 
-def configure_logging(debug: bool, log_file: str | None) -> None:
-    """Send debug messages to the console, to a log file, or to both."""
+def configure_logging(ctx: click.Context, debug: bool, log_file: str | None) -> None:
+    """Send debug messages to the console, to a log file, or to both, until the command ends."""
     if not debug and not log_file:
         return
 
+    level = logger.level
+    handlers: list[logging.Handler] = []
+
+    def restore() -> None:
+        for handler in handlers:
+            logger.removeHandler(handler)
+            handler.close()
+        logger.setLevel(level)
+
+    ctx.call_on_close(restore)
     logger.setLevel(logging.DEBUG)
     if debug:
-        handler = logging.StreamHandler()
-        handler.setFormatter(logging.Formatter(logging.BASIC_FORMAT))
-        logger.addHandler(handler)
+        stream_handler = logging.StreamHandler()
+        stream_handler.setFormatter(logging.Formatter(logging.BASIC_FORMAT))
+        handlers.append(stream_handler)
 
     if log_file:
         file_handler = logging.FileHandler(log_file, mode='w', encoding='utf8')
         file_handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(name)s %(message)s'))
-        logger.addHandler(file_handler)
+        handlers.append(file_handler)
+
+    for handler in handlers:
+        logger.addHandler(handler)
 
 
 def log_environment(ctx: click.Context | None = None) -> None:
@@ -206,35 +183,23 @@ def log_environment(ctx: click.Context | None = None) -> None:
     if ctx:
         checks += (
             plugin_checks(ctx, ENGINE_KIND, engine_names(ctx.params))
-            + ([check_auto()] if ctx.params['engine'] == (AUTO,) else [])
+            + (AutoEngine.check({}) if ctx.params['engine'] == (AUTO,) else [])
             + plugin_checks(ctx, POST_PROCESSOR_KIND, post_processor_names(ctx.params))
         )
     for line in format_checks(run_checks(checks)).splitlines():
         logger.info(line)
 
 
-def prepare_engines(pgs_medias: list[Pgs], options: Options) -> bool:
-    """Get the OCR engines ready for every collected subtitle, before any ripping starts."""
-    if not pgs_medias:
-        return True
+def scan_paths(paths: tuple[str, ...], options: Options) -> ScanResult:
+    """The media files of all the paths, in one result."""
+    result = ScanResult([], [], [])
+    for path in paths:
+        media, filtered_out, ignored = api.scan(path, options)
+        result.media.extend(media)
+        result.filtered_out.extend(filtered_out)
+        result.ignored.extend(ignored)
 
-    languages = list(dict.fromkeys(pgs.language for pgs in pgs_medias))
-    try:
-        for engine in options.engines:
-            engine.prepare(languages, reporter=click.echo)
-    except OcrError as e:
-        click.echo(click.style(str(e), fg='red'))
-        return False
-
-    for engine in options.engines:
-        unsupported = sorted(str(language) for language in languages if engine.engine_for(language) is None)
-        if unsupported:
-            click.echo(f'{type(engine).__name__} cannot read {", ".join(unsupported)}')
-
-    return True
-
-
-CONFIG_EXTENSIONS = ('.json', '.yml', '.yaml')
+    return result
 
 
 def read_config(path: str) -> dict[str, typing.Any]:
@@ -268,8 +233,8 @@ def read_config(path: str) -> dict[str, typing.Any]:
 def set_default_config(ctx: click.Context, param: click.Parameter, configs: tuple[str, ...]) -> None:
     """Use the values of the configuration files as option defaults. A later file wins."""
     found = [
-        os.path.join(folder, f'{name}{extension}')
-        for folder, name in ((AppDirs('pgsrip').user_config_dir, 'config'), (os.getcwd(), 'pgsrip'))
+        os.path.join(directory, f'{name}{extension}')
+        for directory, name in ((AppDirs('pgsrip').user_config_dir, 'config'), (os.getcwd(), 'pgsrip'))
         for extension in CONFIG_EXTENSIONS
     ]
     # the files hold rip options: a command with fewer options, e.g. doctor, reads only its own
@@ -312,26 +277,41 @@ config_option = click.option(
     callback=set_default_config,
     is_eager=True,
     expose_value=False,
-    help='pgsrip configuration file (.json, .yml or .yaml) with default option values (can be used multiple times).',
+    help='Configuration file (.json, .yml or .yaml) with default option values (can be used multiple times).',
 )
-
-
-@pgsrip.command(cls=PluginCommand)
-@config_option
-@click.option(
+language_option = click.option(
     '-l',
     '--language',
     type=LANGUAGE,
     multiple=True,
     help='Language as IETF code, e.g. en, pt-BR (can be used multiple times).',
 )
-@click.option('-e', '--encoding', help='Save subtitles using the following encoding.')
-@click.option('-a', '--age', type=AGE, help='Filter videos newer than AGE, e.g. 12h, 1w2d.')
+#: the help of --all is different for each command
+all_option = functools.partial(click.option, '--all', 'all_tracks', is_flag=True, default=False)
+debug_option = click.option(
+    '--debug', is_flag=True, help='Print useful information for debugging and for reporting bugs.'
+)
+log_file_option = click.option(
+    '--log-file',
+    type=click.Path(dir_okay=False, writable=True),
+    help='Write a full debug log to this file, to attach it to a bug report.',
+)
+
+
+@pgsrip.command(cls=PluginCommand)
+@config_option
+@language_option
+@click.option('-e', '--encoding', help='Write the subtitle files with this encoding.')
+@click.option('-a', '--age', type=AGE, help='Rip only the videos that are newer than AGE, e.g. 12h, 1w2d.')
 @click.option(
-    '-A', '--output-age', type=AGE, help='Filter videos whose subtitle files are newer than AGE, e.g. 12h, 1w2d.'
+    '-A',
+    '--output-age',
+    type=AGE,
+    help='With --force, do not write again a subtitle file newer than AGE, e.g. 12h, 1w2d.',
 )
 @click.option(
     '--format',
+    'formats',
     type=click.Choice([w.name for w in WRITERS]),
     multiple=True,
     default=('srt',),
@@ -343,14 +323,9 @@ config_option = click.option(
     '--force',
     is_flag=True,
     default=False,
-    help='re-rip and overwrite existing subtitle files, even if they already exist',
+    help='Rip again and replace the subtitle files that exist.',
 )
-@click.option(
-    '--all',
-    is_flag=True,
-    default=False,
-    help='rip all tracks for a given language, even another track for that language was already ripped',
-)
+@all_option(help='Rip all the selected tracks. Do not remove duplicates.')
 @click.option(
     '--with',
     'with_flags',
@@ -374,10 +349,11 @@ config_option = click.option(
 )
 @click.option(
     '-w',
-    '--max-workers',
+    '--workers',
     type=click.IntRange(1, 50),
     default=None,
-    help='Number of OCR jobs to run in parallel, e.g. tesseract processes. Default: the number of CPUs, at most 4.',
+    help='Number of OCR jobs to run in parallel, e.g. tesseract processes. '
+    f'Default: the number of CPUs, at most {MAX_DEFAULT_WORKERS}.',
 )
 @click.option(
     '--engine',
@@ -399,144 +375,148 @@ config_option = click.option(
     help='Post-processor that changes the text after the OCR engines: cleanit, or a post-processor of an installed '
     'plug-in. Use it more than one time for a chain: each post-processor gets the result of the one before it.',
 )
-@click.option('--no-post-process', is_flag=True, help='Do not change the text after the OCR engines.')
+@click.option('--no-post-processor', is_flag=True, help='Do not change the text after the OCR engines.')
 @click.option(
     '--keep-temp-files',
     is_flag=True,
-    help='Do not delete temporary files created, '
-    'e.g. extracted sup files, generated png files '
-    'and other useful debug files',
+    help='Do not delete the temporary files, e.g. the extracted .sup files, the PNG files and other debug files.',
 )
-@click.option('--debug', is_flag=True, help='Print useful information for debugging and for reporting bugs.')
+@debug_option
+@log_file_option
 @click.option(
-    '--log-file',
-    type=click.Path(dir_okay=False, writable=True),
-    help='Write a full debug log to this file, to attach it to a bug report.',
+    '-v',
+    '--verbose',
+    count=True,
+    help='List all the ignored paths. Use -vv to also list the filtered-out paths.',
 )
-@click.option('-v', '--verbose', count=True, help='Display debug messages')
 @click.argument('path', type=click.Path(), required=True, nargs=-1)
 @click.pass_context
 def rip(
     ctx: click.Context,
     /,
-    language: tuple[Language] | None,
+    language: tuple[Language, ...],
     encoding: str | None,
     age: timedelta | None,
     output_age: timedelta | None,
-    format: tuple[str, ...],
+    formats: tuple[str, ...],
     force: bool,
-    all: bool,
+    all_tracks: bool,
     with_flags: tuple[str, ...],
     without_flags: tuple[str, ...],
     one_per_language: bool,
     debug: bool,
     log_file: str | None,
-    max_workers: int | None,
+    workers: int | None,
     engine: tuple[str, ...],
     post_processor: tuple[str, ...],
-    no_post_process: bool,
+    no_post_processor: bool,
     keep_temp_files: bool,
     verbose: int,
-    path: tuple[str],
+    path: tuple[str, ...],
     **plugin_params: typing.Any,
 ) -> None:
     """Rip the PGS subtitles of each media PATH into subtitle files."""
     try:
-        configure_logging(debug, log_file)
+        configure_logging(ctx, debug, log_file)
     except OSError as e:
-        click.echo(click.style(f'Cannot write the log file: {e}', fg='red'))
-        return
+        raise click.FileError(str(log_file), hint=str(e)) from e
 
-    # the temporary folder of the run is removed when the command ends, also on an error
-    options = ctx.with_resource(
-        Options(
-            languages=set(language or []),
-            encoding=encoding,
-            overwrite=force,
-            one_per_lang=not all,
-            one_per_language=one_per_language,
-            include_flags=frozenset(with_flags),
-            exclude_flags=frozenset(without_flags),
-            keep_temp_files=keep_temp_files,
-            engines=create_engines(ctx),
-            post_processors=create_post_processors(ctx),
-            age=age,
-            output_age=output_age,
-            # one writer for each format, in the order of the option
-            writers=[WRITERS_BY_NAME[name]() for name in dict.fromkeys(format)],
-        )
+    options = Options(
+        languages=frozenset(language),
+        encoding=encoding,
+        force=force,
+        all_tracks=all_tracks,
+        one_per_language=one_per_language,
+        with_flags=frozenset(with_flags),
+        without_flags=frozenset(without_flags),
+        age=age,
+        output_age=output_age,
+        engines=create_engines(ctx),
+        post_processors=create_post_processors(ctx),
+        # one writer for each format, in the order of the option
+        writers=[WRITERS_BY_NAME[name]() for name in dict.fromkeys(formats)],
     )
+    # the temporary directory of the run is removed when the command ends, also on an error
+    workspace = ctx.with_resource(Workspace(keep=keep_temp_files))
 
     log_environment(ctx)
 
-    collected_medias: list[Media] = []
-    filtered_out_paths: list[str] = []
-    discarded_paths: list[str] = []
-    for p in path:
-        c, f, d = api.scan_path(p, options)
-        collected_medias.extend(c)
-        filtered_out_paths.extend(f)
-        discarded_paths.extend(d)
+    media_files, filtered_out_paths, ignored_paths = scan_paths(path, options)
 
-    if verbose > 2:
+    if verbose > 1:
         echo_paths(filtered_out_paths, 'filtered out', 'yellow', limit=None)
-    echo_paths(discarded_paths, 'ignored', 'red', limit=None if debug or verbose > 1 else MAX_REPORTED_PATHS)
+    echo_paths(ignored_paths, 'ignored', 'red', limit=None if debug or verbose else MAX_REPORTED_PATHS)
 
-    collected_pgs_medias: list[Pgs] = []
-    medias_progressbar = DebugProgressBar(
-        debug or verbose > 1,
-        collected_medias,
-        label='Collecting pgs subtitles',
+    collected_subtitles: list[Subtitle] = []
+    # the plain lists and the debug messages replace the progress bars
+    hidden = debug or verbose > 0
+    medias_progressbar = click.progressbar(
+        media_files,
+        label='Collecting PGS subtitles',
         item_show_func=lambda item: str(item or ''),
+        hidden=hidden,
     )
 
     with medias_progressbar as bar:
         for m in bar:
-            collected_pgs_medias.extend(list(m.get_pgs_medias(options)))
+            collected_subtitles.extend(api.pending(m.subtitles(options, workspace), options))
 
     # report collected medias
     report = (
-        f'{click.style(str(len(collected_pgs_medias)), bold=True, fg="green")} '
-        f'PGS subtitle{"s" if len(collected_pgs_medias) > 1 else ""} collected '
-        f'from {click.style(str(len(collected_medias)), bold=True, fg="green")} '
-        f'file{"s" if len(collected_medias) > 1 else ""}'
+        f'{click.style(str(len(collected_subtitles)), bold=True, fg="green")} '
+        f'PGS subtitle{"s" if len(collected_subtitles) > 1 else ""} collected '
+        f'from {click.style(str(len(media_files)), bold=True, fg="green")} '
+        f'file{"s" if len(media_files) > 1 else ""}'
     )
     if filtered_out_paths:
         report += (
             f' / {click.style(str(len(filtered_out_paths)), bold=True, fg="yellow")} '
             f'file{"s" if len(filtered_out_paths) > 1 else ""} filtered out'
         )
-    if discarded_paths:
+    if ignored_paths:
         report += (
-            f' / {click.style(str(len(discarded_paths)), bold=True, fg="red")} '
-            f'path{"s" if len(discarded_paths) > 1 else ""} ignored'
+            f' / {click.style(str(len(ignored_paths)), bold=True, fg="red")} '
+            f'path{"s" if len(ignored_paths) > 1 else ""} ignored'
         )
     click.echo(report)
 
-    if not prepare_engines(collected_pgs_medias, options):
-        raise SystemExit(1)
+    try:
+        api.prepare(collected_subtitles, options, reporter=click.echo)
+    except OcrError as e:
+        click.echo(click.style(str(e), fg='red'))
+        raise SystemExit(1) from e
 
-    pgs_progressbar = DebugProgressBar(
-        debug or verbose > 1,
-        collected_pgs_medias,
+    subtitles_progressbar = click.progressbar(
+        collected_subtitles,
         label='Ripping subtitles',
         update_min_steps=0,
         item_show_func=lambda s: click.style(str(s or ''), bold=True),
+        hidden=hidden,
     )
 
     ripped_count = 0
-    failures: list[tuple[Pgs, Exception]] = []
-    with pgs_progressbar as bar:
-        for pgs in bar:
-            bar.update(0, pgs)
-            ripped_count += api.rip_pgs(pgs, options, on_error=lambda p, e: failures.append((p, e)))
+    failures: list[tuple[Subtitle, Exception]] = []
+    with subtitles_progressbar as bar:
+        for subtitle in bar:
+            bar.update(0, subtitle)
+            try:
+                ripped_count += api.rip(subtitle, options)
+            except Exception as e:
+                logger.warning(
+                    'Cannot rip %s: <%s> %s',
+                    subtitle,
+                    type(e).__name__,
+                    e,
+                    exc_info=logger.isEnabledFor(logging.DEBUG),
+                )
+                failures.append((subtitle, e))
 
     # report ripped subtitles
     click.echo(
         f'{click.style(str(ripped_count), bold=True, fg="green")} '
         f'PGS subtitle{"s" if ripped_count > 1 else ""} ripped from '
-        f'{click.style(str(len(collected_medias)), bold=True, fg="blue")} '
-        f'file{"s" if len(collected_medias) > 1 else ""}'
+        f'{click.style(str(len(media_files)), bold=True, fg="blue")} '
+        f'file{"s" if len(media_files) > 1 else ""}'
     )
 
     if log_file:
@@ -552,7 +532,7 @@ def rip(
 @click.pass_context
 def doctor(ctx: click.Context, /, **plugin_params: typing.Any) -> None:
     """Check that everything pgsrip needs is installed. Add the output to a bug report."""
-    auto = check_auto()
+    (auto,) = AutoEngine.check({})
     auto_checks = plugin_checks(ctx, ENGINE_KIND, AUTO_ENGINES)
     if auto.ok:
         # pgsrip can rip: a problem of one engine of auto is not a failure
@@ -612,38 +592,31 @@ def doctor(ctx: click.Context, /, **plugin_params: typing.Any) -> None:
     multiple=True,
     help='Write only these display sets, e.g. 0-99 (can be used multiple times).',
 )
-@click.option(
-    '-l',
-    '--language',
-    type=LANGUAGE,
-    multiple=True,
-    help='Language as IETF code, e.g. en, pt-BR (can be used multiple times).',
-)
-@click.option('--all', 'every_track', is_flag=True, default=False, help='scrub all tracks for a given language')
+@language_option
+@all_option(help='Scrub all the selected tracks. Do not remove duplicates.')
 @click.option(
     '--keep-name',
     is_flag=True,
     default=False,
     help='Name the output after the media file, instead of after a hash of its name.',
 )
-@click.option('--debug', is_flag=True, help='Print useful information for debugging and for reporting bugs.')
-@click.option(
-    '--log-file',
-    type=click.Path(dir_okay=False, writable=True),
-    help='Write a full debug log to this file, to attach it to a bug report.',
-)
+@debug_option
+@log_file_option
 @click.argument('path', type=click.Path(), required=True, nargs=-1)
+@click.pass_context
 def scrub(
+    ctx: click.Context,
+    /,
     output: str | None,
     redact: str,
     keep_images: tuple[frozenset[int], ...],
     only: tuple[frozenset[int], ...],
-    language: tuple[Language] | None,
-    every_track: bool,
+    language: tuple[Language, ...],
+    all_tracks: bool,
     keep_name: bool,
     debug: bool,
     log_file: str | None,
-    path: tuple[str],
+    path: tuple[str, ...],
 ) -> None:
     """Copy the PGS subtitles of each media PATH without the subtitle images.
 
@@ -652,70 +625,107 @@ def scrub(
     attach to a bug report.
     """
     try:
-        configure_logging(debug, log_file)
+        configure_logging(ctx, debug, log_file)
     except OSError as e:
-        click.echo(click.style(f'Cannot write the log file: {e}', fg='red'))
-        return
+        raise click.FileError(str(log_file), hint=str(e)) from e
 
     redaction = Redaction(redact)
-    options = click.get_current_context().with_resource(
-        Options(languages=set(language or []), one_per_lang=not every_track, overwrite=True)
-    )
+    options = Options(languages=frozenset(language), all_tracks=all_tracks)
+    workspace = ctx.with_resource(Workspace())
     log_environment()
 
-    collected_medias: list[Media] = []
-    discarded_paths: list[str] = []
-    for p in path:
-        collected, _, discarded = api.scan_path(p, options)
-        collected_medias.extend(collected)
-        discarded_paths.extend(discarded)
+    media_files, _, ignored_paths = scan_paths(path, options)
 
-    echo_paths(discarded_paths, 'ignored', 'red', limit=None if debug else MAX_REPORTED_PATHS)
-    if not collected_medias:
+    echo_paths(ignored_paths, 'ignored', 'red', limit=None if debug else MAX_REPORTED_PATHS)
+    if not media_files:
         click.echo(click.style('No media to scrub', fg='red'))
-        return
+        raise SystemExit(1)
 
-    written = scrub_medias(collected_medias, options, redaction, keep_images, only, output, keep_name)
-    if not written:
-        return
+    written, failed = scrub_media_files(
+        media_files, options, workspace, redaction, keep_images, only, output, keep_name
+    )
+    if written:
+        if redaction == Redaction.NONE:
+            click.echo(click.style('The scrubbed files hold the original subtitle images.', fg='yellow'))
+        else:
+            click.echo('The scrubbed files hold no subtitle image, only timing, layout and palettes.')
 
-    if redaction == Redaction.NONE:
-        click.echo(click.style('The scrubbed files hold the original subtitle images.', fg='yellow'))
-    else:
-        click.echo('The scrubbed files hold no subtitle image, only timing, layout and palettes.')
+        click.echo(f'Attach them to a new issue: {click.style(f"{__url__}/issues", bold=True)}')
 
-    click.echo(f'Attach them to a new issue: {click.style(f"{__url__}/issues", bold=True)}')
+    if failed:
+        raise SystemExit(1)
 
 
-def scrub_medias(
+def scrub_media_files(
     medias: list[Media],
     options: Options,
+    workspace: Workspace,
     redaction: Redaction,
     keep_images: tuple[frozenset[int], ...],
     only: tuple[frozenset[int], ...],
     output: str | None,
     keep_name: bool,
-) -> list[str]:
-    """Write a scrubbed .sup file for every PGS subtitle of every media, and return their paths."""
+) -> tuple[list[str], int]:
+    """Write a scrubbed .sup file for every PGS subtitle of every media. Return their paths, and the number of
+    subtitles that could not be scrubbed."""
     kept = merge_ranges(keep_images)
     selected = merge_ranges(only) or None
     used: set[str] = set()
     written: list[str] = []
+    failed = 0
     for media in medias:
-        for pgs in media.get_pgs_medias(options):
-            with pgs:
+        for subtitle in media.subtitles(options, workspace):
+            with subtitle:
                 try:
-                    data, stats = scrub_data(pgs.data_reader(), pgs.media_path, redaction, kept, selected)
+                    data, stats = scrub_data(subtitle.read(), str(subtitle), redaction, kept, selected)
                 except Exception as e:
-                    logger.debug('Cannot scrub %s', pgs, exc_info=True)
-                    click.echo(click.style(f'Cannot scrub {pgs}: <{type(e).__name__}> [{e}]', fg='red'))
+                    logger.debug('Cannot scrub %s', subtitle, exc_info=True)
+                    click.echo(click.style(f'Cannot scrub {subtitle}: <{type(e).__name__}> {e}', fg='red'))
+                    failed += 1
                     continue
 
-                target = output_path(pgs.media_path, output, keep_name, used)
+                target = output_path(subtitle.output_base, output, keep_name, used)
                 with open(target, 'wb') as f:
                     f.write(data)
 
                 written.append(target)
                 click.echo(f'{click.style(target, bold=True, fg="green")} written: {stats}')
 
-    return written
+    return written, failed
+
+
+def default_name(media_path: MediaPath, keep_name: bool) -> str:
+    """Name the scrubbed file after the media, or after a hash of its name."""
+    name = os.path.basename(media_path.base_path)
+    if keep_name:
+        return name
+
+    return f'pgsrip-{hashlib.sha256(name.encode("utf8")).hexdigest()[:8]}'
+
+
+def output_path(media_path: MediaPath, output: str | None, keep_name: bool, used: set[str]) -> str:
+    """Build the path of the scrubbed file, without ever reusing one or writing over the source .sup.
+
+    `media_path` has the language, the flags and the track number of the subtitle, e.g. `Subtitle.output_base`.
+    The scrubbed file has the same name format as a ripped .srt: <base>.<language>[.<flag>]*[.track<n>].sup.
+    """
+    source = os.path.normcase(os.path.abspath(str(media_path)))
+    if output and output.lower().endswith(SUP_EXTENSION):
+        base = output[: -len(SUP_EXTENSION)]
+    elif output and (os.path.isdir(output) or output.endswith(('/', os.sep))):
+        base = os.path.join(output, default_name(media_path, keep_name))
+    elif output:
+        base = output
+    else:
+        base = default_name(media_path, keep_name)
+
+    target = media_path.replace(base_path=base, extension=SUP_EXTENSION[1:])
+    path = str(target)
+    while path in used or os.path.normcase(os.path.abspath(path)) == source:
+        # the first free name is .track2, like the second track of a group in `Media.subtitles`
+        target = target.replace(track_number=2 if target.track_number is None else target.track_number + 1)
+        path = str(target)
+
+    used.add(path)
+
+    return path

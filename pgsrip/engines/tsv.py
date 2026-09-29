@@ -1,7 +1,14 @@
 import typing
 
+from pgsrip.formats.pgs import Box
 
-class TsvDataItem:
+#: the level of a word in the TSV output of tesseract
+WORD_LEVEL = 5
+
+
+class TsvWord:
+    """One row of the TSV output of tesseract. A row of level WORD_LEVEL is a word."""
+
     def __init__(
         self,
         level: int | str,
@@ -36,37 +43,31 @@ class TsvDataItem:
     def __str__(self) -> str:
         return f'{(self.top, self.left)}{self.text}'
 
-    @property
-    def h_center(self) -> int:
-        return self.top + self.height // 2
-
-    @property
-    def w_center(self) -> int:
-        return self.left + self.width // 2
-
-    def matches(self, shape: tuple[int, int, int, int]) -> bool:
-        h_start, w_start, h_end, w_end = shape
-        return h_start <= self.h_center <= h_end and w_start <= self.w_center <= w_end
+    def matches(self, box: Box) -> bool:
+        """True when the middle of the word is in the box."""
+        return (
+            box.top <= self.top + self.height // 2 <= box.bottom
+            and box.left <= self.left + self.width // 2 <= box.right
+        )
 
 
-class TsvData:
+class TsvResult:
+    """The result of one tesseract call on a composite, in reading order."""
+
     def __init__(self, data: dict[str, list[typing.Any]], confidence: int):
-        self.confidence = confidence
         keys = data.keys()
-        items = [
-            TsvDataItem(**{k: values[i] for (i, k) in enumerate(keys)})
+        words = [
+            TsvWord(**{k: values[i] for (i, k) in enumerate(keys)})
             for values in (zip(*[data[key] for key in keys], strict=True))
         ]
-        items.sort(key=lambda x: x.word_num)
-        items.sort(key=lambda x: x.line_num)
-        items.sort(key=lambda x: x.par_num)
-        items.sort(key=lambda x: x.block_num)
-        items.sort(key=lambda x: x.page_num)
-        self.items = items
-        self.words = {item.text for item in items if item.text and item.conf >= confidence}
+        words.sort(key=lambda x: (x.page_num, x.block_num, x.par_num, x.line_num, x.word_num))
+        self.words = words
+        #: the texts that the composite has at least one time with the confidence of the pass
+        self.confident_texts = {word.text for word in words if word.text and word.conf >= confidence}
 
-    def select(self, shape: tuple[int, int, int, int]) -> list[TsvDataItem]:
-        return [item for item in self.items if item.level == 5 and item.matches(shape)]
+    def select(self, box: Box) -> list[TsvWord]:
+        """The words in the box, in reading order."""
+        return [word for word in self.words if word.level == WORD_LEVEL and word.matches(box)]
 
-    def has_word(self, word: str) -> bool:
-        return word in self.words
+    def has_word(self, text: str) -> bool:
+        return text in self.confident_texts

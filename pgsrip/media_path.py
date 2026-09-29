@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from copy import copy
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from babelfish import Language
 
@@ -11,7 +12,7 @@ from pgsrip.track_flags import TrackFlags
 
 #: trailing `.track<n>` token: a 1-based ordinal (2, 3, ...) among colliding tracks, breaking a naming
 #: collision; the first (lowest-id) track of a group stays unlabeled.
-TRACK_ID_PATTERN = re.compile(r'^track(\d+)$')
+TRACK_NUMBER_PATTERN = re.compile(r'^track(\d+)$')
 
 
 class MediaPath:
@@ -20,11 +21,11 @@ class MediaPath:
         self.extension = extension[1:] if extension else None
 
         tokens = file_part.split('.')
-        track_id: int | None = None
+        track_number: int | None = None
         if len(tokens) > 1:
-            match = TRACK_ID_PATTERN.match(tokens[-1])
+            match = TRACK_NUMBER_PATTERN.match(tokens[-1])
             if match:
-                track_id = int(match.group(1))
+                track_number = int(match.group(1))
                 tokens = tokens[:-1]
 
         flags, tokens = TrackFlags.parse(tokens) if len(tokens) > 1 else (TrackFlags(), tokens)
@@ -34,19 +35,19 @@ class MediaPath:
             self.language = language
             self.base_path = '.'.join(tokens[:-1])
             self.flags = flags
-            self.track_id = track_id
+            self.track_number = track_number
         else:
             self.language = Language.fromcleanit('und')
             self.base_path = file_part
             self.flags = TrackFlags()
-            self.track_id = None
+            self.track_number = None
 
         #: the input path, used as long as the parsed parts do not change: a non-canonical language token
         #: (e.g. `fre`) does not render back as it was (`fr`).
         self._source = (path, self._parts())
 
     def _parts(self) -> tuple[str, Language, TrackFlags, int | None, str | None]:
-        return self.base_path, self.language, self.flags, self.track_id, self.extension
+        return self.base_path, self.language, self.flags, self.track_number, self.extension
 
     def __repr__(self) -> str:
         return f'<{self.__class__.__name__} [{str(self)}]>'
@@ -60,34 +61,33 @@ class MediaPath:
         if self.language:
             parts.append(str(self.language))
         parts.extend(self.flags.tokens())
-        if self.track_id is not None:
-            parts.append(f'track{self.track_id}')
+        if self.track_number is not None:
+            parts.append(f'track{self.track_number}')
         result = '.'.join(parts)
         return f'{result}.{self.extension}' if self.extension else result
 
     @property
-    def m_age(self) -> timedelta:
-        return datetime.utcnow() - datetime.utcfromtimestamp(os.path.getmtime(str(self)))
-
-    def get_data(self) -> bytes:
-        with open(str(self), 'rb') as f:
-            return f.read()
+    def age(self) -> timedelta:
+        return timedelta(seconds=time.time() - os.path.getmtime(str(self)))
 
     def exists(self) -> bool:
         return os.path.exists(str(self))
 
-    def translate(
+    def replace(
         self,
+        base_path: str | None = None,
         language: Language | None = None,
         extension: str | None = None,
         flags: TrackFlags | None = None,
-        track_id: int | None = None,
+        track_number: int | None = None,
     ) -> MediaPath:
         media_path = copy(self)
+        if base_path is not None:
+            media_path.base_path = base_path
         if flags is not None:
             media_path.flags = flags
-        if track_id is not None:
-            media_path.track_id = track_id
+        if track_number is not None:
+            media_path.track_number = track_number
         if language is not None:
             media_path.language = language
         if extension is not None:

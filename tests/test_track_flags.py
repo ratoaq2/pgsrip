@@ -9,7 +9,7 @@ FLAG_FIELDS = ('forced', 'hearing_impaired', 'closed_caption', 'commentary', 'de
 
 def test_tokens_are_emitted_in_canonical_order():
     flags = TrackFlags(
-        descriptive=True, commentary=True, closed_caption=True, hearing_impaired=True, forced=True, version='alternate'
+        descriptive=True, commentary=True, closed_caption=True, hearing_impaired=True, forced=True, alternate=True
     )
 
     assert flags.tokens() == ('forced', 'sdh', 'cc', 'commentary', 'descriptive', 'alternate')
@@ -32,13 +32,13 @@ FLAG_COMBINATIONS = [
 
 
 @pytest.mark.parametrize('combination', FLAG_COMBINATIONS)
-@pytest.mark.parametrize('version', [None, 'alternate'])
-def test_parse_round_trips_every_combination(combination, version):
-    flags = TrackFlags(version=version, **combination)
+@pytest.mark.parametrize('alternate', [False, True])
+def test_parse_round_trips_every_combination(combination, alternate):
+    flags = TrackFlags(alternate=alternate, **combination)
 
     parsed, remaining = TrackFlags.parse(list(flags.tokens()))
 
-    assert parsed == TrackFlags(**combination, version=version)
+    assert parsed == TrackFlags(**combination, alternate=alternate)
     assert remaining == []
 
 
@@ -65,33 +65,33 @@ def test_parse_accepts_aliases_that_are_never_emitted(alias, field):
     assert alias not in parsed.tokens()
 
 
-def test_matches_with_empty_include_and_exclude_allows_everything():
-    assert TrackFlags().matches(include=frozenset(), exclude=frozenset())
-    assert TrackFlags(forced=True).matches(include=frozenset(), exclude=frozenset())
+def test_matches_with_no_flags_allows_everything():
+    assert TrackFlags().matches(with_flags=frozenset(), without_flags=frozenset())
+    assert TrackFlags(forced=True).matches(with_flags=frozenset(), without_flags=frozenset())
 
 
 def test_matches_full_means_no_visible_flags():
-    assert TrackFlags().matches(include=frozenset({'full'}), exclude=frozenset())
-    assert not TrackFlags(forced=True).matches(include=frozenset({'full'}), exclude=frozenset())
+    assert TrackFlags().matches(with_flags=frozenset({'full'}), without_flags=frozenset())
+    assert not TrackFlags(forced=True).matches(with_flags=frozenset({'full'}), without_flags=frozenset())
 
 
-def test_matches_include_requires_at_least_one_listed_flag():
+def test_matches_with_flags_requires_at_least_one_listed_flag():
     flags = TrackFlags(hearing_impaired=True)
 
-    assert flags.matches(include=frozenset({'sdh'}), exclude=frozenset())
-    assert not flags.matches(include=frozenset({'forced'}), exclude=frozenset())
+    assert flags.matches(with_flags=frozenset({'sdh'}), without_flags=frozenset())
+    assert not flags.matches(with_flags=frozenset({'forced'}), without_flags=frozenset())
 
 
-def test_matches_exclude_wins_over_include():
+def test_matches_without_flags_wins_over_with_flags():
     flags = TrackFlags(forced=True)
 
-    assert not flags.matches(include=frozenset({'forced'}), exclude=frozenset({'forced'}))
+    assert not flags.matches(with_flags=frozenset({'forced'}), without_flags=frozenset({'forced'}))
 
 
 def test_matches_default_and_original_and_alternate_tokens():
-    assert TrackFlags(default=True).matches(include=frozenset({'default'}), exclude=frozenset())
-    assert TrackFlags(original=True).matches(include=frozenset({'original'}), exclude=frozenset())
-    assert TrackFlags(version='alternate').matches(include=frozenset({'alternate'}), exclude=frozenset())
+    assert TrackFlags(default=True).matches(with_flags=frozenset({'default'}), without_flags=frozenset())
+    assert TrackFlags(original=True).matches(with_flags=frozenset({'original'}), without_flags=frozenset())
+    assert TrackFlags(alternate=True).matches(with_flags=frozenset({'alternate'}), without_flags=frozenset())
 
 
 def test_track_flags_is_usable_as_a_dict_key():

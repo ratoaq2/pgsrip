@@ -9,27 +9,16 @@ import click
 from click.core import ParameterSource
 
 from pgsrip.diagnostics import Check
-from pgsrip.engines.auto import AutoEngine
-from pgsrip.engines.base import OcrEngine, OcrEngineFactory, OcrError
-from pgsrip.engines.rapidocr import RapidOcrEngine
-from pgsrip.engines.tesseract import TesseractEngine
+from pgsrip.engines import ENGINE_ENTRY_POINTS, ENGINES
+from pgsrip.engines.auto import AUTO, AUTO_ENGINES, AutoEngine
+from pgsrip.engines.base import OcrEngine, OcrEngineFactory
+from pgsrip.postprocessors import POST_PROCESSOR_ENTRY_POINTS, POST_PROCESSORS
 from pgsrip.postprocessors.base import PostProcessor, PostProcessorFactory
-from pgsrip.postprocessors.cleanit import CleanitPostProcessor
 
 logger = logging.getLogger(__name__)
 
 
 Factory = type[OcrEngineFactory] | type[PostProcessorFactory]
-
-ENGINES: dict[str, Factory] = {'tesseract': TesseractEngine, 'rapidocr': RapidOcrEngine}
-#: a reserved engine name, not a plug-in: tesseract for each language that it can read, else rapidocr
-AUTO = 'auto'
-AUTO_ENGINES = ('tesseract', 'rapidocr')
-#: other packages add an OCR engine with an entry point in this group. See docs/usage.md.
-ENGINE_ENTRY_POINTS = 'pgsrip.engines'
-POST_PROCESSORS: dict[str, Factory] = {'cleanit': CleanitPostProcessor}
-#: other packages add a post-processor with an entry point in this group. See docs/usage.md.
-POST_PROCESSOR_ENTRY_POINTS = 'pgsrip.postprocessors'
 
 
 @dataclasses.dataclass(frozen=True)
@@ -40,13 +29,11 @@ class PluginKind:
     label: str
     #: the article of the label, e.g. an
     article: str
-    builtins: dict[str, Factory]
+    builtins: typing.Mapping[str, Factory]
     #: the entry point group of the plug-ins of other packages
     group: str
     #: the click parameter name of the chain, e.g. engine
     chain: str
-    #: each plug-in gets a --<plugin>-workers option
-    workers: bool
 
     @property
     def flag(self) -> str:
@@ -54,10 +41,8 @@ class PluginKind:
         return f'--{self.chain}'.replace('_', '-')
 
 
-ENGINE_KIND = PluginKind('OCR engine', 'an', ENGINES, ENGINE_ENTRY_POINTS, 'engine', workers=True)
-POST_PROCESSOR_KIND = PluginKind(
-    'post-processor', 'a', POST_PROCESSORS, POST_PROCESSOR_ENTRY_POINTS, 'post_processor', workers=False
-)
+ENGINE_KIND = PluginKind('OCR engine', 'an', ENGINES, ENGINE_ENTRY_POINTS, 'engine')
+POST_PROCESSOR_KIND = PluginKind('post-processor', 'a', POST_PROCESSORS, POST_PROCESSOR_ENTRY_POINTS, 'post_processor')
 KINDS = (ENGINE_KIND, POST_PROCESSOR_KIND)
 
 
@@ -107,7 +92,7 @@ def option_flag(plugin: str, name: str) -> str:
 
 
 def plugin_options(kind: PluginKind, plugins: dict[str, Factory]) -> list[click.Option]:
-    """The --<plugin>-<name> options of each plug-in, and the --<engine>-workers option of each engine."""
+    """The --<plugin>-<name> options of each plug-in."""
     options: list[click.Option] = []
     for plugin, factory in plugins.items():
         for option in factory.options:
@@ -123,16 +108,9 @@ def plugin_options(kind: PluginKind, plugins: dict[str, Factory]) -> list[click.
                     default=bool(option.default) if option.flag else option.default,
                     multiple=option.multiple,
                     help=option.help,
+                    show_default=option.default is not None,
                     envvar=option.envvar,
                     show_envvar=bool(option.envvar),
-                )
-            )
-        if kind.workers:
-            options.append(
-                click.Option(
-                    [option_flag(plugin, 'workers'), param_name(plugin, 'workers')],
-                    type=click.IntRange(1, 50),
-                    help=f'Number of {plugin} jobs to run in parallel. Default: -w.',
                 )
             )
 
@@ -190,11 +168,8 @@ def plugin_checks(ctx: click.Context, kind: PluginKind, names: typing.Iterable[s
     installed = installed_plugins(ctx, kind)
     checks: list[Check] = []
     for name in names:
-        check = getattr(installed[name], 'check', None)
-        if not check:
-            continue
         try:
-            checks += check(plugin_settings(name, installed[name], ctx.params))
+            checks += installed[name].check(plugin_settings(name, installed[name], ctx.params))
         except Exception as e:
             # a broken check of a plug-in must not hide the other checks
             logger.debug('Cannot check the %s %s', kind.label, name, exc_info=True)
@@ -216,14 +191,13 @@ def engine_names(params: dict[str, typing.Any]) -> tuple[str, ...]:
 
 def post_processor_names(params: dict[str, typing.Any]) -> tuple[str, ...]:
     """The chain of post-processors that the user selected, in order."""
-    return () if params['no_post_process'] else typing.cast(tuple[str, ...], params['post_processor'])
+    return () if params['no_post_processor'] else typing.cast(tuple[str, ...], params['post_processor'])
 
 
 def selected_plugins(
     ctx: click.Context, kind: PluginKind, names: tuple[str, ...]
-) -> list[tuple[str, Factory, dict[str, typing.Any]]]:
-    """The name, the class, and the settings of each selected plug-in, in order. Reject the options of the
-    other plug-ins."""
+) -> list[tuple[Factory, dict[str, typing.Any]]]:
+    """The class and the settings of each selected plug-in, in order. Reject the options of the other plug-ins."""
     if len(set(names)) < len(names):
         raise click.UsageError(f'use each {kind.flag} only one time')
 
@@ -231,8 +205,6 @@ def selected_plugins(
     for plugin, factory in installed.items():
         # only the command line: a config file or an environment variable can hold the options of an unused plug-in
         option_names = [param_name(plugin, option.name) for option in factory.options]
-        if kind.workers:
-            option_names.append(param_name(plugin, 'workers'))
         if plugin not in names and any(
             ctx.get_parameter_source(n) == ParameterSource.COMMANDLINE for n in option_names
         ):
@@ -245,7 +217,7 @@ def selected_plugins(
         for option in factory.options:
             if option.required and settings[option.name] is None:
                 raise click.UsageError(f'{kind.flag} {name} needs {option_flag(name, option.name)}')
-        selected.append((name, factory, settings))
+        selected.append((factory, settings))
 
     return selected
 
@@ -253,27 +225,28 @@ def selected_plugins(
 def create_engines(ctx: click.Context) -> list[OcrEngine]:
     """Create the chain of OCR engines that the user selected, in order."""
     engines: list[OcrEngine] = []
-    for name, factory, settings in selected_plugins(ctx, ENGINE_KIND, engine_names(ctx.params)):
-        workers = ctx.params[param_name(name, 'workers')] or ctx.params['max_workers']
+    for factory, settings in selected_plugins(ctx, ENGINE_KIND, engine_names(ctx.params)):
+        # an engine with a workers option gets -w when the option has no value
+        if 'workers' in settings and settings['workers'] is None:
+            settings['workers'] = ctx.params['workers']
         try:
-            engines.append(typing.cast(type[OcrEngineFactory], factory).from_settings(settings, workers))
-        except OcrError as e:
+            engines.append(typing.cast(type[OcrEngineFactory], factory).from_settings(settings))
+        except ValueError as e:
             raise click.UsageError(str(e)) from e
 
     if ctx.params['engine'] == (AUTO,):
-        tesseract, rapidocr = engines
-        return [AutoEngine(typing.cast(TesseractEngine, tesseract), typing.cast(RapidOcrEngine, rapidocr))]
+        return [AutoEngine.from_engines(*engines)]
 
     return engines
 
 
 def create_post_processors(ctx: click.Context) -> list[PostProcessor]:
     """Create the chain of post-processors that the user selected, in order."""
-    if ctx.params['no_post_process'] and ctx.get_parameter_source('post_processor') == ParameterSource.COMMANDLINE:
-        raise click.UsageError('use --post-processor or --no-post-process, not both')
+    if ctx.params['no_post_processor'] and ctx.get_parameter_source('post_processor') == ParameterSource.COMMANDLINE:
+        raise click.UsageError('use --post-processor or --no-post-processor, not both')
 
     post_processors: list[PostProcessor] = []
-    for _, factory, settings in selected_plugins(ctx, POST_PROCESSOR_KIND, post_processor_names(ctx.params)):
+    for factory, settings in selected_plugins(ctx, POST_PROCESSOR_KIND, post_processor_names(ctx.params)):
         try:
             post_processors.append(typing.cast(type[PostProcessorFactory], factory).from_settings(settings))
         except ValueError as e:

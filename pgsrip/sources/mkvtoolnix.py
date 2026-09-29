@@ -1,15 +1,20 @@
 import json
-import logging
 import typing
-from subprocess import check_output
+from subprocess import CalledProcessError, check_output
 
 from pgsrip.diagnostics import Check, check_executable
-from pgsrip.sources.base import Track
-
-logger = logging.getLogger(__name__)
+from pgsrip.sources.base import Source, SourceError, Track
 
 MKVTOOLNIX_EXECUTABLES = ('mkvmerge', 'mkvextract')
 MKVTOOLNIX_HINT = 'Install MKVToolNix: https://mkvtoolnix.download/downloads.html'
+
+
+def run(args: list[str], action: str) -> bytes:
+    """Run a MKVToolNix program. A missing program raises FileNotFoundError."""
+    try:
+        return check_output(args)
+    except CalledProcessError as e:
+        raise SourceError(f'{args[0]} could not {action} (exit code {e.returncode})') from e
 
 
 def track_from_json(track: dict[str, typing.Any]) -> Track:
@@ -33,8 +38,8 @@ def track_from_json(track: dict[str, typing.Any]) -> Track:
     )
 
 
-class MkvToolNixSource:
-    missing: typing.ClassVar[str] = 'mkvmerge not found, install MKVToolNix and make sure that it is in the PATH'
+class MkvToolNixSource(Source):
+    install_hint: typing.ClassVar[str] = f'mkvmerge not found. {MKVTOOLNIX_HINT}'
     extensions: typing.ClassVar[tuple[str, ...]] = ('.mkv', '.mks')
 
     @classmethod
@@ -42,19 +47,13 @@ class MkvToolNixSource:
         return [check_executable(name, MKVTOOLNIX_HINT) for name in MKVTOOLNIX_EXECUTABLES]
 
     def probe(self, path: str) -> list[Track]:
-        metadata = json.loads(check_output(['mkvmerge', '-i', '-F', 'json', path]))
-        tracks = []
-        for t in metadata.get('tracks', []):
-            if t['type'] != 'subtitles' or t['codec'] != 'HDMV PGS':
-                continue
-            track = track_from_json(t)
-            if not track.language:
-                logger.debug('Skipping unknown language track %s in %s', track.id, path)
-                continue
-            tracks.append(track)
-
-        return tracks
+        metadata = json.loads(run(['mkvmerge', '-i', '-F', 'json', path], 'read the file'))
+        return [
+            track_from_json(t)
+            for t in metadata.get('tracks', [])
+            if t['type'] == 'subtitles' and t['codec'] == 'HDMV PGS'
+        ]
 
     def extract(self, path: str, targets: dict[int, str]) -> dict[int, str]:
-        check_output(['mkvextract', path, 'tracks', *(f'{id}:{target}' for id, target in targets.items())])
+        run(['mkvextract', path, 'tracks', *(f'{id}:{target}' for id, target in targets.items())], 'extract the tracks')
         return targets

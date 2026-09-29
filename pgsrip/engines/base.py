@@ -2,16 +2,29 @@ from __future__ import annotations
 
 import typing
 
+from pgsrip.errors import PgsripError
 from pgsrip.plugin import PluginOption
 
 if typing.TYPE_CHECKING:
     from babelfish import Language
 
-    from pgsrip.media import Pgs, PgsSubtitleItem
+    from pgsrip.diagnostics import Check
+    from pgsrip.formats.pgs import Item
 
 
-class OcrError(Exception):
+class OcrError(PgsripError):
     """Raised when an OCR engine cannot read the subtitles."""
+
+
+class Reading(typing.NamedTuple):
+    """What an OCR engine read in one item."""
+
+    #: None when the engine could not read the item
+    text: str | None
+    #: from 0 to 1, None when the engine gives no confidence
+    confidence: float | None = None
+    #: the text can be wrong: the next engine of the chain reads the item again
+    doubtful: bool = False
 
 
 class OcrEngine(typing.Protocol):
@@ -39,22 +52,28 @@ class OcrEngine(typing.Protocol):
         """
         return self if self.supports(language) else None
 
-    def recognize(self, pgs: Pgs, items: list[PgsSubtitleItem]) -> None:
-        """Set the text of each item, or leave it None when it cannot be read. Raise OcrError on failure.
+    def recognize(self, items: list[Item], language: Language, debug_dir: str | None) -> list[Reading]:
+        """Read the items: one `Reading` for each item, in the same order. Raise OcrError on failure.
 
-        Set `item.doubtful` when the text can be wrong. The next engine of the chain gets the items that are
-        still None or doubtful. Set `item.confidence` (0-1) when the engine has one.
+        The engine does not change the items. The next engine of the chain gets the items with no text or
+        with a doubtful text. With a `debug_dir`, the engine can write its debug files in it.
         """
 
 
 class OcrEngineFactory(typing.Protocol):
-    """An OCR engine that the CLI can create. Its class is the value of a `pgsrip.engines` entry point.
-
-    The class can also have a `check(settings) -> list[Check]` classmethod for `pgsrip doctor`.
-    """
+    """An OCR engine that the CLI can create. Its class is the value of a `pgsrip.engines` entry point."""
 
     options: typing.ClassVar[tuple[PluginOption, ...]]
 
     @classmethod
-    def from_settings(cls, settings: dict[str, typing.Any], workers: int | None) -> OcrEngine:
-        """Create the engine. `settings` has a value for each option, by name. `workers` is None for the default."""
+    def from_settings(cls, settings: dict[str, typing.Any]) -> OcrEngine:
+        """Create the engine. `settings` has a value for each option, by name.
+
+        An option named `workers` with no value gets the value of `-w`, or None. Raise ValueError when a
+        value is wrong.
+        """
+
+    @classmethod
+    def check(cls, settings: dict[str, typing.Any]) -> list[Check]:
+        """The lines of `pgsrip doctor` for this engine, with the option values. `[]` when there is nothing to
+        check. A check must not fail when an option has no value."""

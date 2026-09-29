@@ -1,3 +1,5 @@
+import dataclasses
+
 import pytest
 
 from pgsrip.sources.mkvtoolnix import track_from_json
@@ -21,7 +23,9 @@ def test_scenarios(track, expected):
     actual = track_from_json(track)
 
     # then
-    assert actual.to_dict() == expected
+    fields = {**vars(actual), **dataclasses.asdict(actual.flags)}
+    del fields['flags']
+    assert {k: v for k, v in fields.items() if v is not None and v is not False} == expected
 
 
 def _pgs_track(**properties):

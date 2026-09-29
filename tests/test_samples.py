@@ -7,10 +7,8 @@ import os
 
 import pytest
 
-from pgsrip.formats.pgs import CompositionState, PgsReader, SegmentType
+from pgsrip.formats.pgs import CompositionState, SegmentType, decode_rle_image, read_display_sets, read_items
 from pgsrip.formats.scrub import scrub_data
-from pgsrip.media import PgsSubtitleItem
-from pgsrip.media_path import MediaPath
 from pgsrip.utils import format_time
 
 SAMPLE = 'placeholder.en.sup'
@@ -19,23 +17,23 @@ HEIGHT = 48
 
 
 @pytest.fixture
-def media_path():
-    return MediaPath(os.path.join(os.path.dirname(__file__), 'samples', SAMPLE))
+def name():
+    return str(os.path.join(os.path.dirname(__file__), 'samples', SAMPLE))
 
 
 @pytest.fixture
-def data(media_path):
-    return media_path.get_data()
+def data(name):
+    with open(name, 'rb') as f:
+        return f.read()
 
 
 @pytest.fixture
-def display_sets(data, media_path):
-    return list(PgsReader.decode(data, media_path))
+def display_sets(data, name):
+    return list(read_display_sets(data, name))
 
 
 def test_sample_is_read_as_display_sets(display_sets):
     assert len(display_sets) == 6
-    assert all(ds.is_valid() for ds in display_sets)
     assert [ds.index for ds in display_sets] == [0, 1, 2, 3, 4, 5]
 
 
@@ -59,8 +57,8 @@ def test_sample_holds_one_object_per_subtitle(display_sets):
     ]
 
 
-def test_sample_is_decoded_as_three_subtitle_items(display_sets, media_path):
-    items = PgsSubtitleItem.create_items(media_path, display_sets)
+def test_sample_is_decoded_as_three_subtitle_items(display_sets, name):
+    items = read_items(display_sets, name)
 
     assert len(items) == 3
     assert [(format_time(item.start), format_time(item.end)) for item in items] == [
@@ -70,39 +68,41 @@ def test_sample_is_decoded_as_three_subtitle_items(display_sets, media_path):
     ]
 
 
-def test_sample_images_are_decoded_with_their_window_size(display_sets, media_path):
-    items = PgsSubtitleItem.create_items(media_path, display_sets)
+def test_sample_images_are_decoded_with_their_window_size(display_sets, name):
+    items = read_items(display_sets, name)
 
     for item in items:
         assert item.image is not None
-        assert item.image.shape == (HEIGHT, WIDTH)
+        image = decode_rle_image(item.image.rle_data, item.image.palette)
+        assert image.shape == (HEIGHT, WIDTH)
         # the placeholder text is decoded as ink on a light background
-        assert item.image.data.min() == 0
-        assert item.image.data.max() == 255
+        assert image.min() == 0
+        assert image.max() == 255
 
 
-def test_sample_items_are_cropped_to_their_ink(display_sets, media_path):
-    items = PgsSubtitleItem.create_items(media_path, display_sets)
+def test_sample_items_are_cropped_to_their_ink(display_sets, name):
+    items = read_items(display_sets, name)
 
     for item in items:
         assert item.image is not None
-        top, left, bottom, right = item.shape
+        top, left, bottom, right = item.box
         # the window is at (900, 100): the ink box is inside it, and its position on screen is kept
         assert 900 < top < bottom < 900 + HEIGHT
         assert 100 < left < right < 100 + WIDTH
-        window_box = item.image.data[top - 900 : bottom - 900, left - 100 : right - 100]
+        image = decode_rle_image(item.image.rle_data, item.image.palette)
+        window_box = image[top - 900 : bottom - 900, left - 100 : right - 100]
         assert (item.bitmap == window_box).all()
         # no blank row or column is left on any side
         ink = item.bitmap == 0
         assert ink[0].any() and ink[-1].any() and ink[:, 0].any() and ink[:, -1].any()
 
 
-def test_sample_can_be_scrubbed_again(data, media_path):
-    scrubbed, stats = scrub_data(data, media_path)
+def test_sample_can_be_scrubbed_again(data, name):
+    scrubbed, stats = scrub_data(data, name)
 
     assert stats.written_display_sets == 6
     assert len(scrubbed) < len(data)
-    items = PgsSubtitleItem.create_items(media_path, PgsReader.decode(scrubbed, media_path))
+    items = read_items(read_display_sets(scrubbed, name), name)
     assert [(format_time(item.start), format_time(item.end)) for item in items] == [
         ('00:00:01,000', '00:00:03,000'),
         ('00:00:04,000', '00:00:06,000'),
@@ -110,9 +110,9 @@ def test_sample_can_be_scrubbed_again(data, media_path):
     ]
 
 
-def test_a_redacted_item_has_no_ink_to_crop(data, media_path):
-    scrubbed, _ = scrub_data(data, media_path)
+def test_a_redacted_item_has_no_ink_to_crop(data, name):
+    scrubbed, _ = scrub_data(data, name)
 
-    items = PgsSubtitleItem.create_items(media_path, PgsReader.decode(scrubbed, media_path))
+    items = read_items(read_display_sets(scrubbed, name), name)
 
     assert [(item.height, item.width) for item in items] == [(0, 0)] * 3

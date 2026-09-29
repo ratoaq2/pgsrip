@@ -2,9 +2,9 @@
 
 ## 1. Context
 
-`ripper.py`/`sources/mkvtoolnix.py`'s core decode/OCR path had no regression coverage: `test_core.py` asserted
-the output paths without ever ripping, `test_samples.py` decoded PGS without ever OCRing,
-`test_cli.py` was a 13-line `--help` smoke test. Nothing wrote an `.srt` and looked at it.
+The other tests check one part each: `tests/test_api.py` checks the selection and the output paths,
+`tests/test_samples.py` decodes PGS with no OCR, and `tests/test_cli.py` checks the options. These tests
+rip media from end to end: they write the `.srt` files and check them.
 
 The goal: a guessit-style suite where the input is parameters that fabricate a media file, and the
 output is the set of ripped `.srt` files and their content, driven through the CLI so it is genuinely
@@ -17,16 +17,17 @@ real.
   `mkvmerge`/`mkvextract` are only ever read from. `tests/samples/placeholder.en.sup` (a committed,
   non-copyrighted, synthetic 3-cue PGS stream) plus `scrub_display_sets(..., only=...)` is the payload;
   the container around it is fabricated.
-- `--all --one-per-language` silently ignores `--one-per-language`: `sources/base.py`'s dedup key is gated on
-  `options.one_per_lang`, and `--all` sets `one_per_lang = False`, so the `one_per_language` collapsing
+- `--all --one-per-language` silently ignores `--one-per-language`: `media.py`'s dedup key is gated on
+  `not options.all_tracks`, and `--all` sets `all_tracks = True`, so the `one_per_language` collapsing
   branch never runs. Pinned as-is in `test_all_silently_disables_one_per_language`, not fixed here.
-- A `Pgs` makes its temp folder on first use (`Pgs.temp_folder`), in the temp folder of the run
-  (`Options.temp_folder`). `rip_pgs` removes the track folder, and the CLI removes the run folder. A track that
-  gets filtered, deduped, or excluded makes no temp folder. `test_no_temporary_folder_is_left_behind`
-  covers the happy path, and `tests/test_core.py` covers a skipped track. `tempfile.tempdir` redirection
+- A `Subtitle` makes its temporary directory on first use (`Subtitle.temp_dir`), in the directory of the run
+  (`Workspace.dir`). `api.rip` removes the track directory, and the CLI removes the run directory. A track that
+  gets filtered, deduped, excluded, or dropped by `pending` makes no directory.
+  `test_no_temporary_directory_is_left_behind`
+  covers the happy path, and `tests/test_api.py` covers a skipped track. `tempfile.tempdir` redirection
   (below) keeps the tests from touching the real system temp dir.
 - The CLI has only the `srt` writer. `test_a_second_writer_writes_its_missing_file_and_the_existing_srt_does_not_change`
-  calls `rip_pgs` directly, with `Options(writers=[SrtWriter(), FakeWriter()])`. `FakeWriter` is in
+  calls `api.rip` directly, with `Options(writers=[SrtWriter(), FakeWriter()])`. `FakeWriter` is in
   `tests/test_writers.py`. The test checks the skip logic for each writer: one OCR pass, the existing `.srt`
   does not change, and the missing `.fake` file is written.
 
@@ -39,9 +40,9 @@ real.
 - **`tests/fabricate.py`**: the fabrication API, pytest-free (builds bytes, dicts and argv lists, so it
   can be driven from a plain script). `TrackSpec`/`MediaSpec` dataclasses; `payload(cues)` slices the
   committed sample with `scrub_display_sets`; `FakeMkvToolNix` answers `mkvmerge -i -F json` and
-  `mkvextract` from a registry of `MediaSpec`; `FakeTesseract` wraps `TesseractEngine.process` so the
-  real image composition still runs (`item.place` gets set for real), wraps `FullImage.from_items` to
-  record every composite, and patches `pgsrip.engines.tesseract.tess.image_to_data` to read back
+  `mkvextract` from a registry of `MediaSpec`; `FakeTesseract` wraps `api.decode` to know the ripped track,
+  wraps `TesseractEngine.read_pass` so the real image composition still runs (`Composite.placed` is real),
+  wraps `Composite.from_items` to record every composite, and patches `pgsrip.engines.tesseract.tess.image_to_data` to read back
   `TrackSpec.texts`/`confidences` for the items of the composite it receives (matched by identity, not
   pixels: the sample cues are identical bitmaps) instead of running tesseract; `mkvmerge_version`/`mkvmerge_args`/`fabricate_real` drive the real backend.
 - **YAML scenarios** (`tests/test_rip_e2e.yml`), loaded with the existing `from_yaml()` helper and fed
@@ -52,8 +53,8 @@ real.
   `test_rip_e2e.py`; redirecting `tempfile.tempdir` or patching `tess.get_languages` repo-wide would
   silently change `tests/test_tessdata.py`, which tests the real fallback/patches `get_languages`
   itself.
-- The `item.place` contract (`FullImage.from_items` draws each item's ink-cropped `bitmap` exactly where
-  `item.place` says) is the one thing the whole fake OCR rests on. It is pinned once, directly, in
+- The `Composite.placed` contract (`Composite.from_items` draws each item's ink-cropped `bitmap` exactly
+  where its box in `placed` says) is the one thing the whole fake OCR rests on. It is pinned once, directly, in
   `test_every_subtitle_image_is_composed_where_its_place_says`, instead of trying to verify it through
   ink detection on the composite image.
 
@@ -70,8 +71,8 @@ in the system temp dir.
 ### Step 2 — the fake OCR
 
 **Files:** `tests/fabricate.py`.
-**Do:** `FakeTesseract`, the `TesseractEngine.process` wrapper, per-track registration, multi-line text,
-`confidences`. The `item.place` contract test.
+**Do:** `FakeTesseract`, the `TesseractEngine.read_pass` wrapper, per-track registration, multi-line text,
+`confidences`. The `Composite.placed` contract test.
 **Done when:** a two-line cue, a cue recovered on retry, a cue below confidence 0, and an empty-text cue
 are all covered.
 
@@ -89,8 +90,7 @@ tags) are green with readable ids.
 **Do:** scenarios 10-26 (language fallback, non-PGS tracks, disabled tracks, `--with`/`--without`,
 `--one-per-language`, `-l`, cleanit, the OCR retry ladder, corrupt tracks, existing files, directory
 scans, encoding), plus the hand-written behaviour tests.
-**Done when:** the full matrix is green; `--cov` shows `ripper.py`, `mkv.py`, `core.py`, `cli.py`
-visibly up. Measured: `ripper.py` 24% → 88%, `cli.py` 34% → 61%, `mkv.py` 88% → 96%, overall 72% → 85%.
+**Done when:** the full matrix is green, and `--cov` shows more coverage of the rip path and of the CLI.
 
 ### Step 5 — the real backend
 
