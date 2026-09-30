@@ -1,4 +1,11 @@
-# pgsrip
+<h2 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/ratoaq2/pgsrip/main/docs/images/logo-dark.png">
+    <img alt="pgsrip" src="https://raw.githubusercontent.com/ratoaq2/pgsrip/main/docs/images/logo-light.png" width="420">
+  </picture>
+  <br>
+  Rip your PGS subtitles
+</h2>
 
 Convert image-based Blu-ray subtitles (PGS) in `.mkv`, `.mks`, and `.sup` files to text `.srt` files, with OCR.
 
@@ -294,3 +301,5 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## License
 
 [MIT](LICENSE)
+
+The pgsrip name, logo, and icon are not covered by the MIT license. All rights reserved.
