@@ -98,8 +98,12 @@ def read_lines(recognizer: typing.Any, images: list[npt.NDArray[typing.Any]]) ->
     The same batches as `TextRecognizer.__call__`: lines of similar width go together. The decode is our own,
     because RapidOCR gives only the mean score of a line, which hides one bad character.
     """
+    from rapidocr.ch_ppocr_rec import main as rec_main
     from rapidocr.utils.model_resolver import normalize_lang
     from rapidocr.utils.utils import reorder_bidi_for_display
+
+    # rapidocr 3.10 moved RTL_LANGS from the recognizer to its module.
+    rtl_langs = getattr(rec_main, 'RTL_LANGS', None) or recognizer.RTL_LANGS
 
     characters = recognizer.postprocess_op.character
     _, height, width = recognizer.rec_image_shape[:3]
@@ -114,7 +118,7 @@ def read_lines(recognizer: typing.Any, images: list[npt.NDArray[typing.Any]]) ->
         for row, i in enumerate(chunk):
             results[i] = ctc_decode(preds[row], characters)
 
-    if normalize_lang(recognizer.cfg.lang_type) in recognizer.RTL_LANGS:
+    if normalize_lang(recognizer.cfg.lang_type) in rtl_langs:
         texts = reorder_bidi_for_display(tuple(text for text, _ in results))
         results = [(str(text), score) for text, (_, score) in zip(texts, results, strict=True)]
 
