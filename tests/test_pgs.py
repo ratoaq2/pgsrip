@@ -167,3 +167,16 @@ def test_the_palette_is_the_one_of_the_composition(name):
     (item,) = read_items(read_display_sets(data, name), name)
 
     assert item.height
+
+
+def test_a_new_image_with_no_clear_before_it_is_a_new_item(name):
+    # a normal PCS with one composition object: id, window id, crop flag, x, y
+    shown = pcs(number=1, state=0x00)[:-1] + b'\x01' + bytes(8)
+    replacement = display_set(number=1, pts=2 * 90000).replace(
+        segment(SegmentType.PCS, pcs(number=1), pts=2 * 90000), segment(SegmentType.PCS, shown, pts=2 * 90000)
+    )
+    data = display_set(number=0, pts=0) + replacement + clear_set(number=2, pts=4 * 90000)
+
+    items = read_items(read_display_sets(data, name), name)
+
+    assert [(item.start, item.end) for item in items] == [(0, 2000), (2000, 4000)]
