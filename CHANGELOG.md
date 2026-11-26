@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+  - Fixed: a subtitle image that replaces the image on the screen, with no
+    clear before it, is a new subtitle. Before, pgsrip did not read it and
+    the subtitle before it stayed on the screen in its place
+
 ## 0.3.0
 
 **release date:** 2026-09-29

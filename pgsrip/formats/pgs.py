@@ -453,6 +453,10 @@ class DisplaySet:
     def is_start(self) -> bool:
         return self.pcs.is_start()
 
+    def is_new_image(self) -> bool:
+        """A normal display set with an object: it replaces the subtitle on the screen with no clear before it."""
+        return not self.is_start() and self.pcs.object_count > 0 and bool(self.ods_segments)
+
     def error(self) -> str | None:
         """Why the display set cannot be read, or None."""
         if not any(isinstance(s, PresentationCompositionSegment) for s in self.segments):
@@ -483,7 +487,7 @@ class DisplaySet:
 def first_image(display_sets: typing.Iterable[DisplaySet]) -> PgsImage | None:
     """The image of the first display set that starts a subtitle."""
     for ds in display_sets:
-        if not ds.pcs.is_start():
+        if not ds.is_start() and not ds.is_new_image():
             continue
 
         # the palette of the composition, else the last one. No palette: the item is dropped.
@@ -507,7 +511,7 @@ def read_items(display_sets: typing.Iterable[DisplaySet], name: str) -> list[Ite
             logger.warning('%s Ignoring corrupted display set %d: %s', name, ds.index, error)
             continue
 
-        if not groups or ds.is_start():
+        if not groups or ds.is_start() or ds.is_new_image():
             groups.append([])
         groups[-1].append(ds)
 
@@ -515,7 +519,8 @@ def read_items(display_sets: typing.Iterable[DisplaySet], name: str) -> list[Ite
     items = []
     for index, group in enumerate(groups):
         next_start = starts[index + 1] if index + 1 < len(starts) else None
-        item = make_item(index, group, next_start, name)
+        replaced = index + 1 < len(groups) and groups[index + 1][0].is_new_image()
+        item = make_item(index, group, next_start, replaced, name)
         if item is not None:
             items.append(item)
 
@@ -526,13 +531,19 @@ def start_time(display_sets: list[DisplaySet]) -> int | None:
     return min((t for ds in display_sets if (t := ds.pcs.presentation_timestamp) is not None), default=None)
 
 
-def make_item(index: int, display_sets: list[DisplaySet], next_start: int | None, name: str) -> Item | None:
+def make_item(
+    index: int, display_sets: list[DisplaySet], next_start: int | None, replaced: bool, name: str
+) -> Item | None:
     """The item of a group of display sets. Fix a missing end time with the start of the next item.
+
+    A replaced item ends when the next item starts.
 
     None when the item is corrupted.
     """
     start = start_time(display_sets)
     end = max((t for ds in display_sets if (t := ds.pcs.presentation_timestamp) is not None), default=None)
+    if replaced and next_start is not None:
+        end = next_start
     image = first_image(display_sets)
     windows = [w for ds in display_sets if (w := ds.wds) and w.window_count > 0]
     x_offset = min((x for w in windows if (x := w.x_offset) is not None), default=None)

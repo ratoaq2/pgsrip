@@ -45,7 +45,8 @@
 - `formats/pgs.py` — binary PGS segment format: PDS/ODS/PCS/WDS/END parsing (`read_segments`,
   `read_display_sets`), RLE image decoding (`PgsImage`, `decode_rle_image`), the binary helpers (`to_int`,
   `safe_get`, `to_time`). `Item`: one subtitle image with its times, cropped to its ink (`Item.box` is where the
-  ink is on the screen). `read_items` groups the display sets, and `make_item` fixes or drops a corrupted
+  ink is on the screen). `read_items` groups the display sets. A group starts at an epoch start, at an
+  acquisition point, or at a normal display set with a new image. `make_item` fixes or drops a corrupted
   group. An `Item` has plain values: its times, its image, and its window position are never None. Malformed input is frequent: see `docs/corrupted_data.md`.
 - `plugin.py` — `PluginOption`: the options that an engine or a post-processor declares for the CLI.
 - `cue.py` — `Cue`: the text result of one item. The post-processors and the writers get the cues.
