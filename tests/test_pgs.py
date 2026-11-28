@@ -169,14 +169,32 @@ def test_the_palette_is_the_one_of_the_composition(name):
     assert item.height
 
 
-def test_a_new_image_with_no_clear_before_it_is_a_new_item(name):
+def new_image_set(number, pts):
+    """A normal display set with a new image: it shows the image with no epoch start."""
     # a normal PCS with one composition object: id, window id, crop flag, x, y
-    shown = pcs(number=1, state=0x00)[:-1] + b'\x01' + bytes(8)
-    replacement = display_set(number=1, pts=2 * 90000).replace(
-        segment(SegmentType.PCS, pcs(number=1), pts=2 * 90000), segment(SegmentType.PCS, shown, pts=2 * 90000)
+    shown = pcs(number=number, state=0x00)[:-1] + b'\x01' + bytes(8)
+
+    return display_set(number=number, pts=pts).replace(
+        segment(SegmentType.PCS, pcs(number=number), pts=pts), segment(SegmentType.PCS, shown, pts=pts)
     )
-    data = display_set(number=0, pts=0) + replacement + clear_set(number=2, pts=4 * 90000)
+
+
+def test_a_new_image_with_no_clear_before_it_is_a_new_item(name):
+    data = display_set(number=0, pts=0) + new_image_set(number=1, pts=2 * 90000) + clear_set(number=2, pts=4 * 90000)
 
     items = read_items(read_display_sets(data, name), name)
 
     assert [(item.start, item.end) for item in items] == [(0, 2000), (2000, 4000)]
+
+
+def test_a_clear_before_a_new_image_ends_the_item(name):
+    data = (
+        display_set(number=0, pts=0)
+        + clear_set(number=1, pts=1 * 90000)
+        + new_image_set(number=2, pts=5 * 90000)
+        + clear_set(number=3, pts=6 * 90000)
+    )
+
+    items = read_items(read_display_sets(data, name), name)
+
+    assert [(item.start, item.end) for item in items] == [(0, 1000), (5000, 6000)]
