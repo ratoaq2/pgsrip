@@ -536,13 +536,13 @@ def make_item(
 ) -> Item | None:
     """The item of a group of display sets. Fix a missing end time with the start of the next item.
 
-    A replaced item ends when the next item starts.
+    A replaced item with no clear ends when the next item starts.
 
     None when the item is corrupted.
     """
     start = start_time(display_sets)
     end = max((t for ds in display_sets if (t := ds.pcs.presentation_timestamp) is not None), default=None)
-    if replaced and next_start is not None:
+    if replaced and next_start is not None and all(ds.pcs.object_count > 0 for ds in display_sets[1:]):
         end = next_start
     image = first_image(display_sets)
     windows = [w for ds in display_sets if (w := ds.wds) and w.window_count > 0]
